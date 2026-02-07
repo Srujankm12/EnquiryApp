@@ -184,16 +184,24 @@ const SellerProfile = () => {
       const headers = { Authorization: `Bearer ${token}` };
 
       if (isFollowing) {
-        await axios.delete(`${API_URL}/company/unfollow/${companyId}`, { headers });
+        await axios.delete(`${API_URL}/company/unfollow/${companyId}`, {
+          headers,
+          data: { user_id: currentUserId, company_id: companyId },
+        });
         setFollowerCount((prev) => Math.max(0, prev - 1));
       } else {
-        await axios.post(`${API_URL}/company/follow/${companyId}`, {}, { headers });
+        await axios.post(
+          `${API_URL}/company/follow/${companyId}`,
+          { user_id: currentUserId, company_id: companyId },
+          { headers }
+        );
         setFollowerCount((prev) => prev + 1);
       }
       setIsFollowing(!isFollowing);
     } catch (error: any) {
-      console.error('Error toggling follow:', error);
-      Alert.alert('Error', 'Failed to update follow status');
+      console.error('Error toggling follow:', error?.response?.data || error);
+      const msg = error?.response?.data?.message || 'Failed to update follow status';
+      Alert.alert('Error', msg);
     }
   };
 
