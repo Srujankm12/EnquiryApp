@@ -15,6 +15,7 @@ import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { jwtDecode } from "jwt-decode";
 import Constants from "expo-constants";
+import axios from "axios";
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
@@ -35,10 +36,27 @@ interface CompanyData {
   company_email: string;
   company_phone: string;
   company_profile_url: string | null;
+  company_address: string;
   company_city: string;
   company_state: string;
+  company_pincode: string;
+  company_establishment_date: string;
   is_verified: boolean;
   is_approved: boolean;
+}
+
+interface SocialData {
+  linkedin_url: string | null;
+  instagram_url: string | null;
+  facebook_url: string | null;
+  website_url: string | null;
+  whatsapp_number: string | null;
+}
+
+interface LegalData {
+  pan_number: string | null;
+  gst_number: string | null;
+  msme_number: string | null;
 }
 
 const SellerApplicationStatus: React.FC = () => {
@@ -46,6 +64,8 @@ const SellerApplicationStatus: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [application, setApplication] = useState<ApplicationData | null>(null);
   const [company, setCompany] = useState<CompanyData | null>(null);
+  const [socialDetails, setSocialDetails] = useState<SocialData | null>(null);
+  const [legalDetails, setLegalDetails] = useState<LegalData | null>(null);
 
   useEffect(() => {
     fetchApplicationStatus();
@@ -62,17 +82,10 @@ const SellerApplicationStatus: React.FC = () => {
 
       const decoded: any = jwtDecode(token);
       const userId = decoded.user_id;
+      const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
-      // First get user's company
-      const companyRes = await fetch(
-        `${API_URL}/company/get/user/${userId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      // Get user's company
+      const companyRes = await fetch(`${API_URL}/company/get/user/${userId}`, { headers });
 
       if (companyRes.status === 404) {
         setApplication(null);
@@ -83,8 +96,7 @@ const SellerApplicationStatus: React.FC = () => {
       if (!companyRes.ok) throw new Error("Failed to fetch company");
 
       const companyResult = await companyRes.json();
-      const companyData =
-        companyResult.data?.company || companyResult.data;
+      const companyData = companyResult.data?.company || companyResult.data;
       const companyId = companyData?.company_id;
 
       if (!companyId) {
@@ -93,27 +105,32 @@ const SellerApplicationStatus: React.FC = () => {
       }
 
       setCompany(companyData);
+      await AsyncStorage.setItem("companyId", companyId);
 
-      // Fetch application status
-      const appRes = await fetch(
-        `${API_URL}/company/application/get/company/${companyId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      // Fetch application status, social, and legal details in parallel
+      const [appRes, socialRes, legalRes] = await Promise.allSettled([
+        fetch(`${API_URL}/company/application/get/company/${companyId}`, { headers }),
+        fetch(`${API_URL}/company/social/get/${companyId}`, { headers }),
+        fetch(`${API_URL}/company/legal/get/${companyId}`, { headers }),
+      ]);
 
-      if (appRes.ok) {
-        const appResult = await appRes.json();
-        const appData =
-          appResult.data?.application || appResult.data;
+      if (appRes.status === "fulfilled" && appRes.value.ok) {
+        const appResult = await appRes.value.json();
+        const appData = appResult.data?.application || appResult.data;
         setApplication(appData);
-
         if (appData?.status) {
           await AsyncStorage.setItem("sellerStatus", appData.status);
         }
+      }
+
+      if (socialRes.status === "fulfilled" && socialRes.value.ok) {
+        const socialResult = await socialRes.value.json();
+        setSocialDetails(socialResult.data?.social_details || socialResult.data);
+      }
+
+      if (legalRes.status === "fulfilled" && legalRes.value.ok) {
+        const legalResult = await legalRes.value.json();
+        setLegalDetails(legalResult.data?.legal_details || legalResult.data);
       }
     } catch (error) {
       console.error("Error fetching application status:", error);
@@ -160,7 +177,7 @@ const SellerApplicationStatus: React.FC = () => {
           borderColor: "#FFEEBA",
           title: "Application Under Review",
           message:
-            "Your seller application is being reviewed by our team. This usually takes 1-3 business days.",
+            "Your seller application is being reviewed by our team. This usually takes 1-3 business days. Your submitted details are shown below (read-only).",
         };
       case "rejected":
         return {
@@ -170,7 +187,7 @@ const SellerApplicationStatus: React.FC = () => {
           borderColor: "#F5C6CB",
           title: "Application Rejected",
           message:
-            "Unfortunately, your seller application was not approved. Please review the feedback and resubmit.",
+            "Unfortunately, your seller application was not approved. Please review the feedback below and edit your details to resubmit.",
         };
       default:
         return {
@@ -187,6 +204,15 @@ const SellerApplicationStatus: React.FC = () => {
 
   const handleGoToSellerDashboard = () => {
     router.replace("/(seller)");
+  };
+
+  const handleViewSellerProfile = () => {
+    if (company?.company_id) {
+      router.push({
+        pathname: "/pages/sellerProfile" as any,
+        params: { company_id: company.company_id },
+      });
+    }
   };
 
   const handleEditApplication = () => {
@@ -218,12 +244,14 @@ const SellerApplicationStatus: React.FC = () => {
 
   const status = application?.status || "none";
   const config = getStatusConfig(status);
+  const isPending = status.toLowerCase() === "pending";
+  const isRejected = status.toLowerCase() === "rejected";
+  const isApproved = status.toLowerCase() === "approved";
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
@@ -253,12 +281,18 @@ const SellerApplicationStatus: React.FC = () => {
           <Text style={styles.statusMessage}>{config.message}</Text>
         </View>
 
-        {/* Company Info */}
+        {/* Company Details (locked when pending) */}
         {company && (
           <View style={styles.infoCard}>
             <View style={styles.infoHeader}>
               <Ionicons name="business" size={20} color="#0078D7" />
               <Text style={styles.infoTitle}>Company Details</Text>
+              {isPending && (
+                <View style={styles.lockedBadge}>
+                  <Ionicons name="lock-closed" size={12} color="#FFC107" />
+                  <Text style={styles.lockedText}>Read Only</Text>
+                </View>
+              )}
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Name</Text>
@@ -273,11 +307,23 @@ const SellerApplicationStatus: React.FC = () => {
               <Text style={styles.infoValue}>{company.company_phone}</Text>
             </View>
             <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Address</Text>
+              <Text style={styles.infoValue}>{company.company_address}</Text>
+            </View>
+            <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Location</Text>
               <Text style={styles.infoValue}>
-                {company.company_city}, {company.company_state}
+                {company.company_city}, {company.company_state} - {company.company_pincode}
               </Text>
             </View>
+            {company.company_establishment_date && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Established</Text>
+                <Text style={styles.infoValue}>
+                  {new Date(company.company_establishment_date).toLocaleDateString()}
+                </Text>
+              </View>
+            )}
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Verified</Text>
               <View style={styles.badgeRow}>
@@ -285,9 +331,7 @@ const SellerApplicationStatus: React.FC = () => {
                   style={[
                     styles.badge,
                     {
-                      backgroundColor: company.is_verified
-                        ? "#D4EDDA"
-                        : "#F8D7DA",
+                      backgroundColor: company.is_verified ? "#D4EDDA" : "#F8D7DA",
                     },
                   ]}
                 >
@@ -299,9 +343,7 @@ const SellerApplicationStatus: React.FC = () => {
                   <Text
                     style={[
                       styles.badgeText,
-                      {
-                        color: company.is_verified ? "#28A745" : "#DC3545",
-                      },
+                      { color: company.is_verified ? "#28A745" : "#DC3545" },
                     ]}
                   >
                     {company.is_verified ? "Verified" : "Not Verified"}
@@ -312,11 +354,91 @@ const SellerApplicationStatus: React.FC = () => {
           </View>
         )}
 
+        {/* Legal Details (locked when pending) */}
+        {legalDetails && (legalDetails.pan_number || legalDetails.gst_number || legalDetails.msme_number) && (
+          <View style={styles.infoCard}>
+            <View style={styles.infoHeader}>
+              <Ionicons name="document-text" size={20} color="#0078D7" />
+              <Text style={styles.infoTitle}>Legal Details</Text>
+              {isPending && (
+                <View style={styles.lockedBadge}>
+                  <Ionicons name="lock-closed" size={12} color="#FFC107" />
+                  <Text style={styles.lockedText}>Read Only</Text>
+                </View>
+              )}
+            </View>
+            {legalDetails.pan_number && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>PAN Number</Text>
+                <Text style={styles.infoValue}>{legalDetails.pan_number}</Text>
+              </View>
+            )}
+            {legalDetails.gst_number && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>GST Number</Text>
+                <Text style={styles.infoValue}>{legalDetails.gst_number}</Text>
+              </View>
+            )}
+            {legalDetails.msme_number && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>MSME Number</Text>
+                <Text style={styles.infoValue}>{legalDetails.msme_number}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Social Details (locked when pending) */}
+        {socialDetails && (
+          <View style={styles.infoCard}>
+            <View style={styles.infoHeader}>
+              <Ionicons name="share-social" size={20} color="#0078D7" />
+              <Text style={styles.infoTitle}>Social Details</Text>
+              {isPending && (
+                <View style={styles.lockedBadge}>
+                  <Ionicons name="lock-closed" size={12} color="#FFC107" />
+                  <Text style={styles.lockedText}>Read Only</Text>
+                </View>
+              )}
+            </View>
+            {socialDetails.linkedin_url && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>LinkedIn</Text>
+                <Text style={styles.infoValueSmall} numberOfLines={1}>{socialDetails.linkedin_url}</Text>
+              </View>
+            )}
+            {socialDetails.instagram_url && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Instagram</Text>
+                <Text style={styles.infoValueSmall} numberOfLines={1}>{socialDetails.instagram_url}</Text>
+              </View>
+            )}
+            {socialDetails.facebook_url && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Facebook</Text>
+                <Text style={styles.infoValueSmall} numberOfLines={1}>{socialDetails.facebook_url}</Text>
+              </View>
+            )}
+            {socialDetails.website_url && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Website</Text>
+                <Text style={styles.infoValueSmall} numberOfLines={1}>{socialDetails.website_url}</Text>
+              </View>
+            )}
+            {socialDetails.whatsapp_number && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>WhatsApp</Text>
+                <Text style={styles.infoValue}>{socialDetails.whatsapp_number}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Application Details */}
         {application && (
           <View style={styles.infoCard}>
             <View style={styles.infoHeader}>
-              <Ionicons name="document-text" size={20} color="#0078D7" />
+              <Ionicons name="clipboard" size={20} color="#0078D7" />
               <Text style={styles.infoTitle}>Application Details</Text>
             </View>
             <View style={styles.infoRow}>
@@ -341,11 +463,7 @@ const SellerApplicationStatus: React.FC = () => {
             )}
             {application.rejection_reason && (
               <View style={styles.rejectionCard}>
-                <Ionicons
-                  name="warning"
-                  size={18}
-                  color="#DC3545"
-                />
+                <Ionicons name="warning" size={18} color="#DC3545" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rejectionTitle}>Rejection Reason</Text>
                   <Text style={styles.rejectionText}>
@@ -359,27 +477,32 @@ const SellerApplicationStatus: React.FC = () => {
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
-          {status.toLowerCase() === "approved" && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.primaryButton]}
-              onPress={handleGoToSellerDashboard}
-            >
-              <Ionicons name="storefront" size={20} color="#FFFFFF" />
-              <Text style={styles.primaryButtonText}>
-                Go to Seller Dashboard
-              </Text>
-            </TouchableOpacity>
+          {isApproved && (
+            <>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.sellerProfileButton]}
+                onPress={handleViewSellerProfile}
+              >
+                <Ionicons name="business" size={20} color="#FFFFFF" />
+                <Text style={styles.primaryButtonText}>View Seller Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.primaryButton]}
+                onPress={handleGoToSellerDashboard}
+              >
+                <Ionicons name="storefront" size={20} color="#FFFFFF" />
+                <Text style={styles.primaryButtonText}>Go to Seller Dashboard</Text>
+              </TouchableOpacity>
+            </>
           )}
 
-          {status.toLowerCase() === "rejected" && (
+          {isRejected && (
             <TouchableOpacity
               style={[styles.actionButton, styles.primaryButton]}
               onPress={handleEditApplication}
             >
               <Ionicons name="create" size={20} color="#FFFFFF" />
-              <Text style={styles.primaryButtonText}>
-                Edit & Resubmit Application
-              </Text>
+              <Text style={styles.primaryButtonText}>Edit & Resubmit Application</Text>
             </TouchableOpacity>
           )}
 
@@ -389,9 +512,7 @@ const SellerApplicationStatus: React.FC = () => {
               onPress={() => router.push("/pages/becomeSellerForm")}
             >
               <Ionicons name="add-circle" size={20} color="#FFFFFF" />
-              <Text style={styles.primaryButtonText}>
-                Start Seller Application
-              </Text>
+              <Text style={styles.primaryButtonText}>Start Seller Application</Text>
             </TouchableOpacity>
           )}
 
@@ -493,6 +614,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#1A1A1A",
+    flex: 1,
+  },
+  lockedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFF3CD",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FFEEBA",
+  },
+  lockedText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#856404",
   },
   infoRow: {
     flexDirection: "row",
@@ -574,6 +712,9 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: "#0078D7",
+  },
+  sellerProfileButton: {
+    backgroundColor: "#28A745",
   },
   primaryButtonText: {
     color: "#FFFFFF",

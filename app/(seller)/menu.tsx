@@ -92,6 +92,15 @@ const SellerMenuScreen: React.FC = () => {
       gradientColors: ['#177DDF', '#1567BF'],
     },
     {
+      id: 'seller-profile',
+      title: 'View Seller Profile',
+      subtitle: 'View your company profile',
+      icon: 'business',
+      route: 'pages/sellerProfile',
+      color: '#34C759',
+      gradientColors: ['#34C759', '#28A745'],
+    },
+    {
       id: '2',
       title: 'My Products',
       subtitle: 'Manage your product listings',
@@ -200,6 +209,11 @@ const SellerMenuScreen: React.FC = () => {
         { text: 'Cancel', style: 'cancel' },
         { text: 'Logout', onPress: () => performLogout() },
       ]);
+    } else if (item.id === 'seller-profile' && companyDetails?.company_id) {
+      router.push({
+        pathname: '/pages/sellerProfile' as any,
+        params: { company_id: companyDetails.company_id },
+      });
     } else {
       //@ts-expect-error
       router.push(`/${item.route}`);

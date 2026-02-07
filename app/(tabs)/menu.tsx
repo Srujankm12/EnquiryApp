@@ -26,12 +26,13 @@ interface MenuItem {
   route: string;
   color: string;
   gradientColors: string[];
-  condition?: 'always' | 'seller' | 'not-seller' | 'has-application';
+  condition?: 'always' | 'seller' | 'not-seller' | 'has-application' | 'seller-profile';
 }
 
 const MenuScreen: React.FC = () => {
   const [pressedItem, setPressedItem] = useState<string | null>(null);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,7 +48,9 @@ const MenuScreen: React.FC = () => {
   const checkSellerStatus = async () => {
     try {
       const status = await AsyncStorage.getItem('sellerStatus');
+      const storedCompanyId = await AsyncStorage.getItem('companyId');
       setSellerStatus(status);
+      setCompanyId(storedCompanyId);
     } catch (error) {
       console.error('Error checking seller status:', error);
     } finally {
@@ -87,9 +90,19 @@ const MenuScreen: React.FC = () => {
       condition: 'has-application',
     },
     {
+      id: 'seller-profile',
+      title: 'View Seller Profile',
+      subtitle: 'View your company details',
+      icon: 'business',
+      route: 'pages/sellerProfile',
+      color: '#34C759',
+      gradientColors: ['#34C759', '#28A745'],
+      condition: 'seller-profile',
+    },
+    {
       id: '8',
       title: 'Seller Dashboard',
-      subtitle: 'Manage your seller account',
+      subtitle: 'Go to seller dashboard',
       icon: 'storefront',
       route: '(seller)',
       color: '#177DDF',
@@ -165,6 +178,8 @@ const MenuScreen: React.FC = () => {
           return true;
         case 'seller':
           return sellerStatus === 'approved';
+        case 'seller-profile':
+          return sellerStatus === 'approved';
         case 'not-seller':
           return sellerStatus !== 'approved' && sellerStatus !== 'pending';
         case 'has-application':
@@ -198,6 +213,11 @@ const MenuScreen: React.FC = () => {
 
     if (item.route === 'Logout') {
       handleLogout();
+    } else if (item.id === 'seller-profile' && companyId) {
+      router.push({
+        pathname: '/pages/sellerProfile' as any,
+        params: { company_id: companyId },
+      });
     } else {
       navigateToScreen(item.route);
     }
@@ -225,6 +245,7 @@ const MenuScreen: React.FC = () => {
     const isBecomeSeller = item.id === '2';
     const isApplicationStatus = item.id === 'app-status';
     const isSellerDashboard = item.id === '8';
+    const isSellerProfile = item.id === 'seller-profile';
 
     return (
       <TouchableOpacity
@@ -238,6 +259,7 @@ const MenuScreen: React.FC = () => {
           isBecomeSeller && styles.becomeSellerItem,
           isApplicationStatus && styles.applicationStatusItem,
           isSellerDashboard && styles.sellerDashboardItem,
+          isSellerProfile && styles.sellerProfileItem,
         ]}
       >
         <View style={styles.menuItemContent}>
@@ -401,6 +423,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#BBDEFB',
     backgroundColor: '#E3F2FD',
+  },
+  sellerProfileItem: {
+    borderWidth: 1.5,
+    borderColor: '#C8F5D5',
+    backgroundColor: '#F0FFF4',
   },
   menuItemContent: {
     flexDirection: 'row',
