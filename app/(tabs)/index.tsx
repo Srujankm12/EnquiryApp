@@ -21,228 +21,142 @@ import axios from "axios";
 
 const { width } = Dimensions.get("window");
 
-const DUMMY_DATA = {
-  location: {
-    name: "Prajwal Andanur",
-    address: "Mumbai, Maharashtra",
-  },
-  banners: [
-    {
-      id: "1",
-      image: require("../../assets/banners/banner1.png"),
-      title: "South Canara Agro Mart",
-    },
-    {
-      id: "2",
-      image: require("../../assets/banners/banner2.png"),
-      title: "Premium Quality",
-    },
-  ],
-  quickActions: [
-    {
-      id: "1",
-      icon: "newspaper-outline",
-      label: "RFQ",
-      route: "/pages/requestQutation",
-    },
-    {
-      id: "2",
-      icon: "search-outline",
-      label: "Leads",
-      route: "/pages/bussinesLeads",
-    },
-    {
-      id: "3",
-      icon: "git-network-outline",
-      label: "Network",
-      route: "/pages/followers",
-    },
-    {
-      id: "4",
-      icon: "people-outline",
-      label: "Sellers",
-      route: "/pages/sellerDirectory",
-    },
-  ],
-  categories: [
-    {
-      id: "1",
-      name: "Cashew",
-      image: require("../../assets/categories/cashew.png"),
-    },
-    {
-      id: "2",
-      name: "Almond",
-      image: require("../../assets/categories/almond.png"),
-    },
-    {
-      id: "3",
-      name: "Anjeera",
-      image: require("../../assets/categories/anjeers.png"),
-    },
-    {
-      id: "4",
-      name: "Hazelnut",
-      image: require("../../assets/categories/hazelnut.png"),
-    },
-    {
-      id: "5",
-      name: "Dates",
-      image: require("../../assets/categories/dates.png"),
-    },
-    {
-      id: "6",
-      name: "Raisins",
-      image: require("../../assets/categories/raisins.png"),
-    },
-    {
-      id: "7",
-      name: "Walnut",
-      image: require("../../assets/categories/wallnut.png"),
-    },
-    {
-      id: "8",
-      name: "Pista",
-      image: require("../../assets/categories/pista.png"),
-    },
-  ],
-  featuredProducts: [
-    {
-      id: "1",
-      name: "Cashew W-180",
-      image: require("../../assets/featured/featured1.png"),
-      quantity: "160KG",
-      pricePerUnit: "200rs",
-    },
-    {
-      id: "2",
-      name: "Almond Local",
-      image: require("../../assets/featured/featured2.png"),
-      quantity: "10KG",
-      pricePerUnit: "100rs",
-    },
-  ],
-  productOfFollowers: [
-    {
-      id: "1",
-      name: "Pista A1",
-      image: require("../../assets/categories/pista.png"),
-      quantity: "20KG",
-      pricePerUnit: "500rs",
-    },
-    {
-      id: "2",
-      name: "Arabian Dates",
-      image: require("../../assets/categories/dates.png"),
-      quantity: "200KG",
-      pricePerUnit: "128rs",
-    },
-  ],
-  productsOnCashew: [
-    {
-      id: "1",
-      name: "Cashew 2 Piece",
-      image: require("../../assets/cashews/2piece.png"),
-      quantity: "50KG",
-      pricePerUnit: "1000rs",
-    },
-    {
-      id: "2",
-      name: "Cashew 4 Piece",
-      image: require("../../assets/cashews/4piece.png"),
-      quantity: "100KG",
-      pricePerUnit: "800rs",
-    },
-  ],
-  productsOnAlmond: [
-    {
-      id: "1",
-      name: "Almond A1",
-      image: require("../../assets/featured/featured2.png"),
-      quantity: "100KG",
-      pricePerUnit: "2000rs",
-    },
-    {
-      id: "2",
-      name: "Almond Local",
-      image: require("../../assets/categories/almond.png"),
-      quantity: "10KG",
-      pricePerUnit: "100rs",
-    },
-  ],
-  productsOnDates: [
-    {
-      id: "1",
-      name: "Dates Local",
-      image: require("../../assets/categories/dates.png"),
-      quantity: "200KG",
-      pricePerUnit: "100rs",
-    },
-    {
-      id: "2",
-      name: "Rabbi Dates",
-      image: require("../../assets/dates/dates1.png"),
-      quantity: "20KG",
-      pricePerUnit: "150rs",
-    },
-  ],
-};
-
 const API_URL = Constants.expoConfig?.extra?.API_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const BANNERS = [
+  {
+    id: "1",
+    image: require("../../assets/banners/banner1.png"),
+    title: "South Canara Agro Mart",
+  },
+  {
+    id: "2",
+    image: require("../../assets/banners/banner2.png"),
+    title: "Premium Quality",
+  },
+];
+
+const QUICK_ACTIONS = [
+  {
+    id: "1",
+    icon: "newspaper-outline" as const,
+    label: "RFQ",
+    route: "/pages/requestQutation",
+  },
+  {
+    id: "2",
+    icon: "search-outline" as const,
+    label: "Leads",
+    route: "/pages/bussinesLeads",
+  },
+  {
+    id: "3",
+    icon: "git-network-outline" as const,
+    label: "Network",
+    route: "/pages/followers",
+  },
+  {
+    id: "4",
+    icon: "people-outline" as const,
+    label: "Sellers",
+    route: "/pages/sellerDirectory",
+  },
+];
 
 const HomeScreen = () => {
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
   const [showToaster, setShowToaster] = useState(true);
   const [toasterKey, setToasterKey] = useState(0);
+  const [sellerStatus, setSellerStatus] = useState<string | null>(null);
 
-  // Simulate API call
   useEffect(() => {
-    fetchData();
-    getprofile();
+    loadData();
   }, []);
 
-  // Reset toaster when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       setShowToaster(true);
-      setToasterKey((prev) => prev + 1); // Force re-render of toaster
+      setToasterKey((prev) => prev + 1);
+      checkSellerStatus();
     }, [])
   );
 
-  const getprofile = async () => {
-    const token = await AsyncStorage.getItem("token");
-    if (token) {
-      const decodedToken:any = jwtDecode(token);
-      console.log(decodedToken,"decodedToken");
-      const res:any = await axios.get(`${API_URL}/get/user/details/${decodedToken?.user_id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      console.log(res.data,"res.data.data");
-      setUserDetails(res.data.data.user_details);
-    }
+  const checkSellerStatus = async () => {
+    const status = await AsyncStorage.getItem("sellerStatus");
+    setSellerStatus(status);
   };
 
-  const fetchData = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // In real app, replace with:
-      // const response = await fetch('YOUR_API_URL/home');
-      // const data = await response.json();
-
-      // setData(DUMMY_DATA);
+      await Promise.all([getProfile(), fetchCategories(), fetchCompanies()]);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error loading data:", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const getProfile = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (token) {
+        const decodedToken: any = jwtDecode(token);
+        const res = await axios.get(
+          `${API_URL}/get/user/details/${decodedToken?.user_id}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        setUserDetails(res.data.data.user_details);
+      }
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const res = await axios.get(`${API_URL}/category/get/complete/all`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data?.data?.categories) {
+        setCategories(res.data.data.categories);
+      }
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+    }
+  };
+
+  const fetchCompanies = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const res = await axios.get(`${API_URL}/company/get/approved/all`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data?.data?.companies) {
+        setCompanies(res.data.data.companies);
+      } else if (res.data?.data) {
+        const data = res.data.data;
+        if (Array.isArray(data)) {
+          setCompanies(data);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching companies:", error);
+    }
+  };
+
+  const handleCategoryPress = (category: any) => {
+    router.push({
+      pathname: "/pages/specificCategory",
+      params: { id: category.category_id },
+    });
   };
 
   if (loading) {
@@ -253,30 +167,32 @@ const HomeScreen = () => {
       </View>
     );
   }
-  console.log(userDetails,"userDetails");
 
   return (
     <View style={styles.container}>
-      {/* Become Seller Toaster */}
-      <BecomeSellerToaster
-        key={toasterKey}
-        visible={showToaster}
-        onClose={() => setShowToaster(false)}
-      />
+      {/* Become Seller Toaster - only show if not approved */}
+      {sellerStatus !== "approved" && (
+        <BecomeSellerToaster
+          key={toasterKey}
+          visible={showToaster}
+          onClose={() => setShowToaster(false)}
+        />
+      )}
 
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.locationContainer}>
-          <Ionicons name="location-outline" size={20} color="#0078D7" />
+          <Ionicons name="person-circle-outline" size={24} color="#FFFFFF" />
           <View style={styles.locationText}>
-            <Text style={styles.locationName}>{userDetails?.user_name}</Text>
-            <Text style={styles.locationAddress}>{userDetails?.user_email}</Text>
+            <Text style={styles.locationName}>
+              {userDetails?.user_name || "Welcome"}
+            </Text>
+            <Text style={styles.locationAddress}>
+              {userDetails?.user_email || ""}
+            </Text>
           </View>
         </View>
         <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="cart-outline" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
           <TouchableOpacity style={styles.iconButton}>
             <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
@@ -296,14 +212,14 @@ const HomeScreen = () => {
           <Ionicons name="search-outline" size={20} color="#999" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search..."
+            placeholder="Search products, categories..."
             placeholderTextColor="#999"
           />
         </View>
 
         {/* Banner Carousel */}
         <FlatList
-          data={data?.banners}
+          data={BANNERS}
           horizontal
           showsHorizontalScrollIndicator={false}
           pagingEnabled
@@ -320,67 +236,117 @@ const HomeScreen = () => {
 
         {/* Quick Actions */}
         <View style={styles.quickActionsContainer}>
-          {data?.quickActions.map((action: any) => (
+          {QUICK_ACTIONS.map((action) => (
             <TouchableOpacity
               key={action.id}
               style={styles.quickActionItem}
-              onPress={() => router.push(action.route)}
+              onPress={() => router.push(action.route as any)}
             >
               <View style={styles.quickActionIcon}>
-                <Ionicons name={action.icon as any} size={28} color="#0078D7" />
+                <Ionicons name={action.icon} size={28} color="#0078D7" />
               </View>
               <Text style={styles.quickActionLabel}>{action.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Categories */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Categorie's</Text>
-          <FlatList
-            data={data?.categories}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.categoryCard}>
-                <Image source={item.image} style={styles.categoryImage} />
-                <Text style={styles.categoryName}>{item.name}</Text>
+        {/* Categories from API */}
+        {categories.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Categories</Text>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/catgories" as any)}>
+                <Text style={styles.viewAllText}>View All</Text>
               </TouchableOpacity>
-            )}
-            keyExtractor={(item) => item.id}
-          />
-        </View>
+            </View>
+            <FlatList
+              data={categories}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.categoryCard}
+                  onPress={() => handleCategoryPress(item)}
+                >
+                  <Image
+                    source={{ uri: `${S3_URL}/${item.category_image_url}` }}
+                    style={styles.categoryImage}
+                  />
+                  <Text style={styles.categoryName}>{item.category_name}</Text>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item) => item.category_id}
+            />
+          </View>
+        )}
 
-        {/* Featured Products */}
-        <ProductSection
-          title="Featured Product's"
-          products={data?.featuredProducts}
-        />
-
-        {/* Product of Followers */}
-        <ProductSection
-          title="Product of Follower's"
-          products={data?.productOfFollowers}
-        />
-
-        {/* Products on Cashew */}
-        <ProductSection
-          title="Products on Cashew's"
-          products={data?.productsOnCashew}
-        />
-
-        {/* Products on Almond */}
-        <ProductSection
-          title="Products on Almond's"
-          products={data?.productsOnAlmond}
-        />
-
-        {/* Products on Dates */}
-        <ProductSection
-          title="Products on Dates"
-          products={data?.productsOnDates}
-        />
+        {/* Approved Companies */}
+        {companies.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Top Sellers</Text>
+              <TouchableOpacity
+                onPress={() => router.push("/pages/sellerDirectory" as any)}
+              >
+                <Text style={styles.viewAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={companies}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.companyCard}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/pages/sellerProfile" as any,
+                      params: { company_id: item.company_id },
+                    })
+                  }
+                >
+                  <View style={styles.companyImageContainer}>
+                    {item.company_profile_url ? (
+                      <Image
+                        source={{
+                          uri: `${S3_URL}/${item.company_profile_url}`,
+                        }}
+                        style={styles.companyImage}
+                      />
+                    ) : (
+                      <View style={styles.companyImagePlaceholder}>
+                        <Ionicons
+                          name="business"
+                          size={32}
+                          color="#0078D7"
+                        />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.companyName} numberOfLines={2}>
+                    {item.company_name}
+                  </Text>
+                  <Text style={styles.companyLocation} numberOfLines={1}>
+                    {item.company_city}, {item.company_state}
+                  </Text>
+                  {item.is_verified && (
+                    <View style={styles.verifiedBadge}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={12}
+                        color="#28A745"
+                      />
+                      <Text style={styles.verifiedText}>Verified</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item) => item.company_id}
+            />
+          </View>
+        )}
 
         {/* Bottom Spacing for tab bar */}
         <View style={{ height: 20 }} />
@@ -388,39 +354,6 @@ const HomeScreen = () => {
     </View>
   );
 };
-
-// Product Section Component
-const ProductSection = ({ title, products }: any) => (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>{title}</Text>
-    <FlatList
-      data={products}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.horizontalList}
-      renderItem={({ item }) => (
-        <View style={styles.productCard}>
-          <Image source={item.image} style={styles.productImage} />
-          <View style={styles.productInfo}>
-            <Text style={styles.productName}>{item.name}</Text>
-            <View style={styles.productBottom}>
-              <View>
-                <Text style={styles.productQuantity}>Qty: {item.quantity}</Text>
-                <Text style={styles.productPrice}>
-                  Price Per Unit: {item.pricePerUnit}
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.enquireButton}>
-                <Text style={styles.enquireButtonText}>Enquire</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-      keyExtractor={(item) => item.id}
-    />
-  </View>
-);
 
 const styles = StyleSheet.create({
   container: {
@@ -451,9 +384,11 @@ const styles = StyleSheet.create({
   locationContainer: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
   locationText: {
     marginLeft: 8,
+    flex: 1,
   },
   locationName: {
     fontSize: 16,
@@ -548,12 +483,22 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 8,
   },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#000",
-    marginLeft: 16,
-    marginBottom: 12,
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0078D7",
   },
   horizontalList: {
     paddingHorizontal: 16,
@@ -568,6 +513,7 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 8,
     marginBottom: 8,
+    backgroundColor: "#F0F0F0",
   },
   categoryName: {
     fontSize: 14,
@@ -575,56 +521,65 @@ const styles = StyleSheet.create({
     color: "#333",
     textAlign: "center",
   },
-  productCard: {
-    width: 250,
+  companyCard: {
+    width: 150,
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     marginRight: 12,
-    overflow: "hidden",
+    padding: 12,
+    alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    elevation: 2,
   },
-  productImage: {
-    width: "100%",
-    height: 140,
+  companyImageContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    marginBottom: 8,
+    overflow: "hidden",
   },
-  productInfo: {
-    padding: 12,
+  companyImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
-  productName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
-  },
-  productQuantity: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 2,
-  },
-  productPrice: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 12,
-  },
-  productBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  enquireButton: {
-    backgroundColor: "#0078D7",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+  companyImagePlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F0F8FF",
+    justifyContent: "center",
     alignItems: "center",
   },
-  enquireButtonText: {
-    color: "#FFFFFF",
+  companyName: {
     fontSize: 14,
     fontWeight: "600",
+    color: "#1A1A1A",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  companyLocation: {
+    fontSize: 11,
+    color: "#888",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  verifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  verifiedText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#28A745",
   },
 });
 

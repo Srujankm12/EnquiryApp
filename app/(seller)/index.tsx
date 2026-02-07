@@ -1,6 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
-import React, { useEffect, useState, useCallback } from "react";
+import { jwtDecode } from "jwt-decode";
+import React, { useCallback, useEffect, useState } from "react";
+import Constants from "expo-constants";
+import axios from "axios";
 import {
   ActivityIndicator,
   Dimensions,
@@ -16,195 +20,142 @@ import {
 
 const { width } = Dimensions.get("window");
 
-const DUMMY_DATA = {
-  location: {
-    name: "Prajwal Andanur",
-    address: "Mumbai, Maharashtra",
-  },
-  categories: [
-    {
-      id: "1",
-      name: "Cashew",
-      image: require("../../assets/categories/cashew.png"),
-    },
-    {
-      id: "2",
-      name: "Almond",
-      image: require("../../assets/categories/almond.png"),
-    },
-    {
-      id: "3",
-      name: "Anjeera",
-      image: require("../../assets/categories/anjeers.png"),
-    },
-    {
-      id: "4",
-      name: "Hazelnut",
-      image: require("../../assets/categories/hazelnut.png"),
-    },
-    {
-      id: "5",
-      name: "Dates",
-      image: require("../../assets/categories/dates.png"),
-    },
-    {
-      id: "6",
-      name: "Raisins",
-      image: require("../../assets/categories/raisins.png"),
-    },
-    {
-      id: "7",
-      name: "Walnut",
-      image: require("../../assets/categories/wallnut.png"),
-    },
-    {
-      id: "8",
-      name: "Pista",
-      image: require("../../assets/categories/pista.png"),
-    },
-  ],
-  featuredProducts: [
-    {
-      id: "1",
-      name: "Cashew W-180",
-      image: require("../../assets/featured/featured1.png"),
-      quantity: "160KG",
-      pricePerUnit: "200rs",
-    },
-    {
-      id: "2",
-      name: "Almond Local",
-      image: require("../../assets/featured/featured2.png"),
-      quantity: "10KG",
-      pricePerUnit: "100rs",
-    },
-  ],
-  productOfFollowers: [
-    {
-      id: "1",
-      name: "Pista A1",
-      image: require("../../assets/categories/pista.png"),
-      quantity: "20KG",
-      pricePerUnit: "500rs",
-    },
-    {
-      id: "2",
-      name: "Arabian Dates",
-      image: require("../../assets/categories/dates.png"),
-      quantity: "200KG",
-      pricePerUnit: "128rs",
-    },
-  ],
-  productsOnCashew: [
-    {
-      id: "1",
-      name: "Cashew 2 Piece",
-      image: require("../../assets/cashews/2piece.png"),
-      quantity: "50KG",
-      pricePerUnit: "1000rs",
-    },
-    {
-      id: "2",
-      name: "Cashew 4 Piece",
-      image: require("../../assets/cashews/4piece.png"),
-      quantity: "100KG",
-      pricePerUnit: "800rs",
-    },
-  ],
-  productsOnAlmond: [
-    {
-      id: "1",
-      name: "Almond A1",
-      image: require("../../assets/featured/featured2.png"),
-      quantity: "100KG",
-      pricePerUnit: "2000rs",
-    },
-    {
-      id: "2",
-      name: "Almond Local",
-      image: require("../../assets/categories/almond.png"),
-      quantity: "10KG",
-      pricePerUnit: "100rs",
-    },
-  ],
-  productsOnDates: [
-    {
-      id: "1",
-      name: "Dates Local",
-      image: require("../../assets/categories/dates.png"),
-      quantity: "200KG",
-      pricePerUnit: "100rs",
-    },
-    {
-      id: "2",
-      name: "Rabbi Dates",
-      image: require("../../assets/dates/dates1.png"),
-      quantity: "20KG",
-      pricePerUnit: "150rs",
-    },
-  ],
-};
+const API_URL = Constants.expoConfig?.extra?.API_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
-const HomeScreen = () => {
+const SellerHomeScreen = () => {
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<any>(null);
-  const [showToaster, setShowToaster] = useState(true);
+  const [userDetails, setUserDetails] = useState<any>(null);
+  const [companyDetails, setCompanyDetails] = useState<any>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [ratingInfo, setRatingInfo] = useState<any>(null);
+  const [followerCount, setFollowerCount] = useState(0);
 
-  // Simulate API call
   useEffect(() => {
-    fetchData();
+    loadSellerData();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadSellerData();
+    }, [])
+  );
 
-
-  const fetchData = async () => {
+  const loadSellerData = async () => {
     try {
       setLoading(true);
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        router.replace("/pages/loginMail");
+        return;
+      }
 
-      // In real app, replace with:
-      // const response = await fetch('YOUR_API_URL/home');
-      // const data = await response.json();
+      const decoded: any = jwtDecode(token);
+      const userId = decoded.user_id;
 
-      setData(DUMMY_DATA);
+      await Promise.all([
+        fetchUserProfile(userId, token),
+        fetchCompanyDetails(userId, token),
+        fetchCategories(token),
+      ]);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error loading seller data:", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchUserProfile = async (userId: string, token: string) => {
+    try {
+      const res = await axios.get(
+        `${API_URL}/get/user/details/${userId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setUserDetails(res.data.data.user_details);
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+    }
+  };
+
+  const fetchCompanyDetails = async (userId: string, token: string) => {
+    try {
+      const companyRes = await axios.get(
+        `${API_URL}/company/get/user/${userId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const companyData =
+        companyRes.data.data?.company || companyRes.data.data;
+      const companyId = companyData?.company_id;
+
+      if (!companyId) return;
+
+      // Fetch complete company details
+      const completeRes = await axios.get(
+        `${API_URL}/company/get/complete/${companyId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const details = completeRes.data.data?.company_details;
+      if (details) {
+        setCompanyDetails(details.company);
+        setRatingInfo(details.rating_info);
+        setFollowerCount(details.follower_count || 0);
+      }
+    } catch (error) {
+      console.error("Error fetching company details:", error);
+    }
+  };
+
+  const fetchCategories = async (token: string) => {
+    try {
+      const res = await axios.get(`${API_URL}/category/get/complete/all`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data?.data?.categories) {
+        setCategories(res.data.data.categories);
+      }
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+    }
+  };
+
+  const handleCategoryPress = (category: any) => {
+    router.push({
+      pathname: "/pages/specificCategory",
+      params: { id: category.category_id },
+    });
   };
 
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#0078D7" />
-        <Text style={styles.loaderText}>Loading...</Text>
+        <Text style={styles.loaderText}>Loading seller dashboard...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.locationContainer}>
-          <Ionicons name="location-outline" size={20} color="#0078D7" />
+          <Ionicons name="storefront" size={24} color="#FFFFFF" />
           <View style={styles.locationText}>
-            <Text style={styles.locationName}>{data?.location.name}</Text>
-            <Text style={styles.locationAddress}>{data?.location.address}</Text>
+            <Text style={styles.locationName}>
+              {companyDetails?.company_name || userDetails?.user_name || "Seller Dashboard"}
+            </Text>
+            <Text style={styles.locationAddress}>
+              {companyDetails
+                ? `${companyDetails.company_city}, ${companyDetails.company_state}`
+                : "Seller Dashboard"}
+            </Text>
           </View>
         </View>
         <View style={styles.headerIcons}>
           <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="cart-outline" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
             <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="chatbox-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </View>
@@ -214,90 +165,152 @@ const HomeScreen = () => {
         showsVerticalScrollIndicator={false}
         bounces={true}
       >
+        {/* Company Overview Card */}
+        {companyDetails && (
+          <View style={styles.companyOverviewCard}>
+            <View style={styles.companyOverviewHeader}>
+              <View style={styles.companyLogoContainer}>
+                {companyDetails.company_profile_url ? (
+                  <Image
+                    source={{
+                      uri: `${S3_URL}/${companyDetails.company_profile_url}`,
+                    }}
+                    style={styles.companyLogo}
+                  />
+                ) : (
+                  <View style={styles.companyLogoPlaceholder}>
+                    <Ionicons name="business" size={32} color="#0078D7" />
+                  </View>
+                )}
+              </View>
+              <View style={styles.companyOverviewInfo}>
+                <Text style={styles.companyOverviewName}>
+                  {companyDetails.company_name}
+                </Text>
+                <Text style={styles.companyOverviewEmail}>
+                  {companyDetails.company_email}
+                </Text>
+                <View style={styles.badgesRow}>
+                  {companyDetails.is_verified && (
+                    <View style={[styles.statusBadge, styles.verifiedBadge]}>
+                      <Ionicons name="checkmark-circle" size={12} color="#28A745" />
+                      <Text style={styles.verifiedBadgeText}>Verified</Text>
+                    </View>
+                  )}
+                  {companyDetails.is_approved && (
+                    <View style={[styles.statusBadge, styles.approvedBadge]}>
+                      <Ionicons name="shield-checkmark" size={12} color="#0078D7" />
+                      <Text style={styles.approvedBadgeText}>Approved</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            {/* Stats Row */}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>{followerCount}</Text>
+                <Text style={styles.statLabel}>Followers</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>
+                  {ratingInfo?.average_rating
+                    ? ratingInfo.average_rating.toFixed(1)
+                    : "N/A"}
+                </Text>
+                <Text style={styles.statLabel}>Rating</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>
+                  {ratingInfo?.total_ratings || 0}
+                </Text>
+                <Text style={styles.statLabel}>Reviews</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <Ionicons name="search-outline" size={20} color="#999" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search..."
+            placeholder="Search your products..."
             placeholderTextColor="#999"
           />
         </View>
 
-        {/* Banner Carousel */}
-        {/* <FlatList
-          data={data?.banners}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          pagingEnabled
-          decelerationRate="fast"
-          snapToInterval={width - 40}
-          contentContainerStyle={styles.bannerContainer}
-          renderItem={({ item }) => (
-            <View style={styles.bannerCard}>
-              <Image source={item.image} style={styles.bannerImage} />
-            </View>
-          )}
-          keyExtractor={(item) => item.id}
-        /> */}
-
         {/* Quick Actions */}
-        {/* <View style={styles.quickActionsContainer}>
-          {data?.quickActions.map((action: any) => (
-            <TouchableOpacity
-              key={action.id}
-              style={styles.quickActionItem}
-              onPress={() => router.push(action.route)}
-            >
-              <View style={styles.quickActionIcon}>
-                <Ionicons name={action.icon as any} size={28} color="#0078D7" />
-              </View>
-              <Text style={styles.quickActionLabel}>{action.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View> */}
+        <View style={styles.quickActionsContainer}>
+          <TouchableOpacity
+            style={styles.quickActionItem}
+            onPress={() => router.push("/pages/addProduct" as any)}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="add-circle" size={28} color="#0078D7" />
+            </View>
+            <Text style={styles.quickActionLabel}>Add Product</Text>
+          </TouchableOpacity>
 
-        {/* Categories */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Categorie's</Text>
-          <FlatList
-            data={data?.categories}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.categoryCard}>
-                <Image source={item.image} style={styles.categoryImage} />
-                <Text style={styles.categoryName}>{item.name}</Text>
-              </TouchableOpacity>
-            )}
-            keyExtractor={(item) => item.id}
-          />
+          <TouchableOpacity
+            style={styles.quickActionItem}
+            onPress={() => router.push("/pages/myProducts" as any)}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="cube" size={28} color="#0078D7" />
+            </View>
+            <Text style={styles.quickActionLabel}>My Products</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.quickActionItem}
+            onPress={() => router.push("/pages/followers" as any)}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="people" size={28} color="#0078D7" />
+            </View>
+            <Text style={styles.quickActionLabel}>Followers</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.quickActionItem}
+            onPress={() => router.push("/pages/bussinesLeads" as any)}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name="trending-up" size={28} color="#0078D7" />
+            </View>
+            <Text style={styles.quickActionLabel}>Leads</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Featured Products */}
-        <ProductSection
-          title="My Product's"
-          products={data?.featuredProducts}
-        />
-
-        {/* Products on Cashew */}
-        <ProductSection
-          title="Products on Cashew's"
-          products={data?.productsOnCashew}
-        />
-
-        {/* Products on Almond */}
-        <ProductSection
-          title="Products on Almond's"
-          products={data?.productsOnAlmond}
-        />
-
-        {/* Products on Dates */}
-        <ProductSection
-          title="Products on Dates"
-          products={data?.productsOnDates}
-        />
+        {/* Categories */}
+        {categories.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Categories</Text>
+            <FlatList
+              data={categories}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.categoryCard}
+                  onPress={() => handleCategoryPress(item)}
+                >
+                  <Image
+                    source={{ uri: `${S3_URL}/${item.category_image_url}` }}
+                    style={styles.categoryImage}
+                  />
+                  <Text style={styles.categoryName}>{item.category_name}</Text>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item) => item.category_id}
+            />
+          </View>
+        )}
 
         {/* Bottom Spacing for tab bar */}
         <View style={{ height: 20 }} />
@@ -305,39 +318,6 @@ const HomeScreen = () => {
     </View>
   );
 };
-
-// Product Section Component
-const ProductSection = ({ title, products }: any) => (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>{title}</Text>
-    <FlatList
-      data={products}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.horizontalList}
-      renderItem={({ item }) => (
-        <View style={styles.productCard}>
-          <Image source={item.image} style={styles.productImage} />
-          <View style={styles.productInfo}>
-            <Text style={styles.productName}>{item.name}</Text>
-            <View style={styles.productBottom}>
-              <View>
-                <Text style={styles.productQuantity}>Qty: {item.quantity}</Text>
-                <Text style={styles.productPrice}>
-                  Price Per Unit: {item.pricePerUnit}
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.enquireButton}>
-                <Text style={styles.enquireButtonText}>Enquire</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-      keyExtractor={(item) => item.id}
-    />
-  </View>
-);
 
 const styles = StyleSheet.create({
   container: {
@@ -368,9 +348,11 @@ const styles = StyleSheet.create({
   locationContainer: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
   locationText: {
     marginLeft: 8,
+    flex: 1,
   },
   locationName: {
     fontSize: 16,
@@ -392,12 +374,115 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  companyOverviewCard: {
+    backgroundColor: "#FFFFFF",
+    margin: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  companyOverviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  companyLogoContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: "hidden",
+    marginRight: 12,
+  },
+  companyLogo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  companyLogoPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#F0F8FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  companyOverviewInfo: {
+    flex: 1,
+  },
+  companyOverviewName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
+  },
+  companyOverviewEmail: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 6,
+  },
+  badgesRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  verifiedBadge: {
+    backgroundColor: "#E8F5E9",
+  },
+  verifiedBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#28A745",
+  },
+  approvedBadge: {
+    backgroundColor: "#E3F2FD",
+  },
+  approvedBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#0078D7",
+  },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
+    paddingTop: 12,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#0078D7",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: "#F0F0F0",
+  },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
-    marginTop: 16,
     marginBottom: 12,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -413,21 +498,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: "#000",
-  },
-  bannerContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  bannerCard: {
-    width: width - 40,
-    marginRight: 12,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  bannerImage: {
-    width: "100%",
-    height: 180,
-    borderRadius: 12,
   },
   quickActionsContainer: {
     flexDirection: "row",
@@ -485,6 +555,7 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 8,
     marginBottom: 8,
+    backgroundColor: "#F0F0F0",
   },
   categoryName: {
     fontSize: 14,
@@ -492,57 +563,6 @@ const styles = StyleSheet.create({
     color: "#333",
     textAlign: "center",
   },
-  productCard: {
-    width: 250,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginRight: 12,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  productImage: {
-    width: "100%",
-    height: 140,
-  },
-  productInfo: {
-    padding: 12,
-  },
-  productName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
-  },
-  productQuantity: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 2,
-  },
-  productPrice: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 12,
-  },
-  productBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  enquireButton: {
-    backgroundColor: "#0078D7",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    alignItems: "center",
-  },
-  enquireButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-  },
 });
 
-export default HomeScreen;
+export default SellerHomeScreen;

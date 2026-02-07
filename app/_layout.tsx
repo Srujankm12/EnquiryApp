@@ -46,6 +46,8 @@ export default function RootLayout() {
         <Stack.Screen name='pages/bussinesLeads' options={{ headerShown: false }} />
         <Stack.Screen name='pages/specificCategory' options={{ headerShown: false }} />
         <Stack.Screen name='pages/becomeSellerForm' options={{ headerShown: false }} />
+        <Stack.Screen name='pages/sellerApplicationStatus' options={{ headerShown: false }} />
+        <Stack.Screen name='pages/editSellerApplication' options={{ headerShown: false }} />
         <Stack.Screen name='pages/upadetPasswordScreen' options={{ headerShown: false }} />
         <Stack.Screen name='pages/updateUserProfileScreen' options={{ headerShown: false }} />
       </Stack>  
