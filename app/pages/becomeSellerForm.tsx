@@ -329,7 +329,7 @@ const BecomeSellerFlow = () => {
         Alert.alert("Already Approved", "Redirecting to dashboard...", [
           {
             text: "OK",
-            onPress: () => router.replace("../pages/sellerDashboard"),
+            onPress: () => router.replace("/(seller)"),
           },
         ]);
         return;
@@ -345,7 +345,7 @@ const BecomeSellerFlow = () => {
         Alert.alert("Under Review", "Your application is being reviewed.", [
           {
             text: "View Status",
-            onPress: () => router.replace("../pages/sellerApplicationStatus"),
+            onPress: () => router.replace("/pages/sellerApplicationStatus"),
           },
         ]);
         return;

@@ -1,19 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Animated,
   StatusBar,
   Dimensions,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback } from 'react';
 
 const { width } = Dimensions.get('window');
 
@@ -25,20 +26,45 @@ interface MenuItem {
   route: string;
   color: string;
   gradientColors: string[];
+  condition?: 'always' | 'seller' | 'not-seller' | 'has-application';
 }
 
 const MenuScreen: React.FC = () => {
   const [pressedItem, setPressedItem] = useState<string | null>(null);
+  const [sellerStatus, setSellerStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const menuItems: MenuItem[] = [
+  useEffect(() => {
+    checkSellerStatus();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      checkSellerStatus();
+    }, [])
+  );
+
+  const checkSellerStatus = async () => {
+    try {
+      const status = await AsyncStorage.getItem('sellerStatus');
+      setSellerStatus(status);
+    } catch (error) {
+      console.error('Error checking seller status:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const allMenuItems: MenuItem[] = [
     {
       id: '1',
       title: 'Profile',
-      subtitle: 'View and Edit Profile',
+      subtitle: 'View and edit profile',
       icon: 'person-circle',
       route: 'pages/profileSetting',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'always',
     },
     {
       id: '2',
@@ -48,103 +74,128 @@ const MenuScreen: React.FC = () => {
       route: 'pages/becomeSellerForm',
       color: '#34C759',
       gradientColors: ['#34C759', '#28A745'],
+      condition: 'not-seller',
+    },
+    {
+      id: 'app-status',
+      title: 'Application Status',
+      subtitle: 'Check your seller application',
+      icon: 'document-text',
+      route: 'pages/sellerApplicationStatus',
+      color: '#FF9500',
+      gradientColors: ['#FF9500', '#E68A00'],
+      condition: 'has-application',
     },
     {
       id: '8',
       title: 'Seller Dashboard',
-      subtitle: 'View Seller Dashboard',
+      subtitle: 'Manage your seller account',
       icon: 'storefront',
       route: '(seller)',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
-    },
-    {
-      id: '3',
-      title: 'Settings',
-      subtitle: 'Change Application Settings',
-      icon: 'settings',
-      route: 'pages/profileSetting',
-      color: '#177DDF',
-      gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'seller',
     },
     {
       id: '4',
       title: 'My Products',
-      subtitle: 'Manage Your Products',
+      subtitle: 'Manage your products',
       icon: 'cube',
       route: 'pages/myProducts',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'always',
     },
     {
       id: '5',
       title: 'My Followers',
-      subtitle: 'View and Edit Follower List',
+      subtitle: 'View your followers',
       icon: 'people',
       route: 'pages/followers',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'always',
     },
     {
-      id: '6',
-      title: 'My Subscription',
-      subtitle: 'View and Edit Subscriptions',
-      icon: 'card',
-      route: 'MySubscription',
+      id: '3',
+      title: 'Settings',
+      subtitle: 'App preferences',
+      icon: 'settings',
+      route: 'pages/profileSetting',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'always',
     },
     {
       id: '9',
       title: 'Update Password',
-      subtitle: 'change your password',
+      subtitle: 'Change your password',
       icon: 'key',
       route: 'pages/upadetPasswordScreen',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'always',
     },
     {
       id: '10',
       title: 'Update Profile Details',
-      subtitle: 'change your details',
+      subtitle: 'Change your details',
       icon: 'person',
       route: 'pages/updateUserProfileScreen',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
+      condition: 'always',
     },
     {
       id: '7',
       title: 'Logout',
-      subtitle: 'Logout Application',
+      subtitle: 'Sign out of your account',
       icon: 'log-out',
       route: 'Logout',
       color: '#000000',
       gradientColors: ['#333333', '#000000'],
+      condition: 'always',
     },
   ];
+
+  const getVisibleMenuItems = (): MenuItem[] => {
+    return allMenuItems.filter((item) => {
+      switch (item.condition) {
+        case 'always':
+          return true;
+        case 'seller':
+          return sellerStatus === 'approved';
+        case 'not-seller':
+          return sellerStatus !== 'approved' && sellerStatus !== 'pending';
+        case 'has-application':
+          return sellerStatus === 'pending' || sellerStatus === 'rejected';
+        default:
+          return true;
+      }
+    });
+  };
 
   const handleBack = () => {
     router.back();
   };
 
-  const performLogout =async () => {
+  const performLogout = async () => {
     await AsyncStorage.multiRemove([
-      "accessToken",
-      "refreshToken",
-      "user"
-    ])
-    
-    router.replace("/pages/loginMail")
-    
-  }
+      'token',
+      'accessToken',
+      'refreshToken',
+      'user',
+      'companyId',
+      'sellerStatus',
+      'applicationId',
+    ]);
+    router.replace('/pages/loginMail');
+  };
 
   const handleMenuItemPress = (item: MenuItem) => {
     setPressedItem(item.id);
-    
-    // Reset after animation
     setTimeout(() => setPressedItem(null), 200);
 
-    // Handle special cases
     if (item.route === 'Logout') {
       handleLogout();
     } else {
@@ -153,13 +204,12 @@ const MenuScreen: React.FC = () => {
   };
 
   const handleLogout = () => {
-    console.log('Logout pressed');
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', onPress: () => performLogout() }
+        { text: 'Logout', onPress: () => performLogout() },
       ]
     );
   };
@@ -173,6 +223,8 @@ const MenuScreen: React.FC = () => {
     const isPressed = pressedItem === item.id;
     const isLogout = item.route === 'Logout';
     const isBecomeSeller = item.id === '2';
+    const isApplicationStatus = item.id === 'app-status';
+    const isSellerDashboard = item.id === '8';
 
     return (
       <TouchableOpacity
@@ -184,13 +236,14 @@ const MenuScreen: React.FC = () => {
           isPressed && styles.menuItemPressed,
           isLogout && styles.logoutItem,
           isBecomeSeller && styles.becomeSellerItem,
+          isApplicationStatus && styles.applicationStatusItem,
+          isSellerDashboard && styles.sellerDashboardItem,
         ]}
       >
         <View style={styles.menuItemContent}>
-          {/* Icon with Gradient Background */}
           <View style={styles.iconContainer}>
             <LinearGradient
-            //@ts-ignore
+              //@ts-ignore
               colors={item.gradientColors}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
@@ -200,24 +253,33 @@ const MenuScreen: React.FC = () => {
             </LinearGradient>
           </View>
 
-          {/* Text Content */}
           <View style={styles.textContainer}>
-            <Text style={[
-              styles.menuTitle, 
-              isLogout && styles.logoutTitle,
-              isBecomeSeller && styles.becomeSellerTitle
-            ]}>
+            <Text
+              style={[
+                styles.menuTitle,
+                isLogout && styles.logoutTitle,
+                isBecomeSeller && styles.becomeSellerTitle,
+                isSellerDashboard && styles.sellerDashboardTitle,
+              ]}
+            >
               {item.title}
             </Text>
             <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
           </View>
 
-          {/* Arrow Icon */}
           <View style={styles.arrowContainer}>
             <Ionicons
               name="chevron-forward"
               size={22}
-              color={isLogout ? '#000000' : isBecomeSeller ? '#34C759' : '#666666'}
+              color={
+                isLogout
+                  ? '#000000'
+                  : isBecomeSeller
+                  ? '#34C759'
+                  : isSellerDashboard
+                  ? '#0078D7'
+                  : '#666666'
+              }
             />
           </View>
         </View>
@@ -225,11 +287,20 @@ const MenuScreen: React.FC = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#177DDF" />
+      </View>
+    );
+  }
+
+  const visibleItems = getVisibleMenuItems();
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
-      {/* Header with Gradient */}
       <LinearGradient
         colors={['#177DDF', '#1567BF']}
         start={{ x: 0, y: 0 }}
@@ -243,16 +314,14 @@ const MenuScreen: React.FC = () => {
         <View style={styles.headerRight} />
       </LinearGradient>
 
-      {/* Menu Items */}
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.menuContainer}>
-          {menuItems.map((item, index) => renderMenuItem(item, index))}
+          {visibleItems.map((item, index) => renderMenuItem(item, index))}
         </View>
-
       </ScrollView>
     </View>
   );
@@ -264,12 +333,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
   },
   header: {
-    backgroundColor: "#1E90FF",
+    backgroundColor: '#1E90FF',
     paddingTop: 50,
     paddingBottom: 15,
     paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   backButton: {
     width: 40,
@@ -323,6 +392,16 @@ const styles = StyleSheet.create({
     borderColor: '#C8F5D5',
     backgroundColor: '#F0FFF4',
   },
+  applicationStatusItem: {
+    borderWidth: 1.5,
+    borderColor: '#FFE0B2',
+    backgroundColor: '#FFF8E1',
+  },
+  sellerDashboardItem: {
+    borderWidth: 1.5,
+    borderColor: '#BBDEFB',
+    backgroundColor: '#E3F2FD',
+  },
   menuItemContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -359,6 +438,9 @@ const styles = StyleSheet.create({
   becomeSellerTitle: {
     color: '#34C759',
   },
+  sellerDashboardTitle: {
+    color: '#0078D7',
+  },
   menuSubtitle: {
     fontSize: 13,
     color: '#7F8C8D',
@@ -366,20 +448,6 @@ const styles = StyleSheet.create({
   },
   arrowContainer: {
     marginLeft: 8,
-  },
-  versionContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: 16,
-  },
-  versionText: {
-    fontSize: 13,
-    color: '#95A5A6',
-    marginBottom: 4,
-  },
-  copyrightText: {
-    fontSize: 12,
-    color: '#BDC3C7',
   },
 });
 

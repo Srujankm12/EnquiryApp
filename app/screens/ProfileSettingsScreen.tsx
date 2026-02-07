@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -17,25 +18,8 @@ import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import Constants from "expo-constants";
 
-
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_FETCH_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
-
-interface ProfileData {
-  profileImage: string | null;
-  businessName: string;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  userPhone: string;
-}
-
-interface MenuItem {
-  id: string;
-  title: string;
-  route: string;
-  icon?: string;
-}
 
 interface DecodedToken {
   user_id: string;
@@ -47,34 +31,9 @@ const ProfileSettingsScreen: React.FC = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState<boolean>(false);
   const [userId, setUserId] = useState<string>('');
-
-  const menuItems: MenuItem[] = [
-    {
-      id: '1',
-      title: 'Business Information',
-      route: '/pages/bussinesProfile',
-    },
-    {
-      id: '2',
-      title: 'Physical Business Directory',
-      route: '/pages/physicalBusinessDirectory',
-    },
-    {
-      id: '3',
-      title: 'Business Verification',
-      route: '/pages/businessVerification',
-    },
-    {
-      id: '4',
-      title: 'Social Media URL',
-      route: '/pages/socialMediaUrl',
-    },
-    {
-      id: '5',
-      title: 'Login Details',
-      route: '/pages/loginDetails',
-    },
-  ];
+  const [userDetails, setUserDetails] = useState<any>(null);
+  const [companyDetails, setCompanyDetails] = useState<any>(null);
+  const [sellerStatus, setSellerStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProfileData();
@@ -91,75 +50,60 @@ const ProfileSettingsScreen: React.FC = () => {
     }
   };
 
-  /**
-   * Fetch profile data from backend
-   * @param showLoader - Whether to show the full page loader (default: true)
-   */
   const fetchProfileData = async (showLoader = true) => {
     try {
-      if (showLoader) {
-        setLoading(true);
-      }
-      
+      if (showLoader) setLoading(true);
+
       const token = await AsyncStorage.getItem('token');
-      
       if (!token) {
         Alert.alert('Error', 'Authentication token not found. Please login again.');
-        router.replace('/login' as any);
+        router.replace('/pages/loginMail' as any);
         return;
       }
 
       const decodedToken = jwtDecode<DecodedToken>(token);
-      console.log('Decoded Token:', decodedToken);
-      
       setUserId(decodedToken.user_id);
 
+      // Fetch user details
       const res = await axios.get(
         `${API_URL}/get/user/details/${decodedToken.user_id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      console.log('User Details Response:', res.data);
-
       if (res.data.status === 'success') {
-        const userDetails = res.data.data.user_details;
-        
-        // Check if profile image exists and fetch it from S3
-        if (userDetails.user_profile_url) {
-          console.log('Profile Image Path:', userDetails.user_profile_url);
-          
-          // Combine S3 base URL with the image path
-          const fullImageUrl = `${S3_FETCH_URL}/${userDetails.user_profile_url}`;
-          console.log('Full S3 Image URL:', fullImageUrl);
-          
-          // Add cache busting to force image refresh
-          // This prevents showing cached old images
-          const imageUrlWithCacheBust = `${fullImageUrl}?timestamp=${Date.now()}`;
-          setProfileImage(imageUrlWithCacheBust);
+        const details = res.data.data.user_details;
+        setUserDetails(details);
+
+        if (details.user_profile_url) {
+          const fullImageUrl = `${S3_FETCH_URL}/${details.user_profile_url}`;
+          setProfileImage(`${fullImageUrl}?timestamp=${Date.now()}`);
         } else {
-          console.log('No profile image found');
           setProfileImage(null);
         }
       }
 
-      if (showLoader) {
-        setLoading(false);
+      // Fetch seller status
+      const status = await AsyncStorage.getItem('sellerStatus');
+      setSellerStatus(status);
+
+      // Fetch company details if seller
+      if (status === 'approved' || status === 'pending') {
+        try {
+          const companyRes = await axios.get(
+            `${API_URL}/company/get/user/${decodedToken.user_id}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const compData = companyRes.data.data?.company || companyRes.data.data;
+          setCompanyDetails(compData);
+        } catch (e) {
+          // No company found
+        }
       }
+
+      if (showLoader) setLoading(false);
     } catch (error: any) {
       console.error('Error fetching profile:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
-      
-      if (showLoader) {
-        setLoading(false);
-      }
+      if (showLoader) setLoading(false);
     }
   };
 
@@ -168,52 +112,21 @@ const ProfileSettingsScreen: React.FC = () => {
   };
 
   const uploadImageToS3 = async (s3Url: string, imageUri: string) => {
-    try {
-      console.log('Starting S3 upload...');
-      console.log('S3 URL:', s3Url);
-      console.log('Image URI:', imageUri);
-
-      // Fetch the image as a blob
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      
-      console.log('Blob size:', blob.size);
-      console.log('Blob type:', blob.type);
-
-      // Upload to S3 using PUT request with fetch (not axios)
-      // Axios can have issues with binary data on mobile
-      const uploadResponse = await fetch(s3Url, {
-        method: 'PUT',
-        body: blob,
-        headers: {
-          'Content-Type': blob.type || 'image/jpeg',
-        },
-      });
-
-      console.log('S3 Upload Response Status:', uploadResponse.status);
-      
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error('S3 Upload Error:', errorText);
-        throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
-      }
-
-      console.log('S3 upload successful');
-      return true;
-    } catch (error: any) {
-      console.error('Error uploading to S3:', error);
-      console.error('S3 Upload Error Details:', {
-        message: error.message,
-        stack: error.stack,
-      });
-      throw error;
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    const uploadResponse = await fetch(s3Url, {
+      method: 'PUT',
+      body: blob,
+      headers: { 'Content-Type': blob.type || 'image/jpeg' },
+    });
+    if (!uploadResponse.ok) {
+      throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
     }
+    return true;
   };
 
   const handleImagePick = async () => {
     try {
-      console.log('Opening image picker...');
-      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -224,9 +137,7 @@ const ProfileSettingsScreen: React.FC = () => {
       if (!result.canceled) {
         setUploadingImage(true);
         const selectedImageUri = result.assets[0].uri;
-        console.log('Selected image URI:', selectedImageUri);
 
-        // Step 1: Get S3 presigned URL from backend
         const token = await AsyncStorage.getItem('token');
         if (!token) {
           Alert.alert('Error', 'Authentication token not found.');
@@ -234,61 +145,35 @@ const ProfileSettingsScreen: React.FC = () => {
           return;
         }
 
-        console.log('Step 1: Getting presigned URL for user:', userId);
-        console.log('API URL:', `${API_URL}/generate/user/${userId}`);
-        
         const presignedUrlRes = await axios.get(
           `${API_URL}/generate/user/${userId}`,
           {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            timeout: 10000, // 10 second timeout
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 10000,
           }
         );
 
-        console.log('Presigned URL Response:', presignedUrlRes.data);
-
-        // Extract S3 URL from response
         const s3PresignedUrl = presignedUrlRes.data.data.url;
-        
-        console.log('S3 Presigned URL:', s3PresignedUrl);
-
         if (!s3PresignedUrl) {
           throw new Error('Invalid response from server: missing presigned URL');
         }
 
-        // Step 2: Upload image to S3
-        console.log('Step 2: Uploading image to S3...');
         await uploadImageToS3(s3PresignedUrl, selectedImageUri);
 
-        // Step 3: Update profile image path in backend
-        console.log('Step 3: Updating profile image in backend...');
-        console.log('Update URL:', `${API_URL}/update/user/profile/image`);
-        
         const updateRes = await axios.put(
           `${API_URL}/update/user/profile/image`,
-          {
-            user_id: userId,
-          },
+          { user_id: userId },
           {
             headers: {
               Authorization: `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
-            timeout: 10000, // 10 second timeout
+            timeout: 10000,
           }
         );
 
-        console.log('Update Response:', updateRes.data);
-
         if (updateRes.data.status === 'success') {
-          console.log('Profile image updated successfully, refreshing...');
-          
-          // Refetch profile to get the actual S3 URL without showing full page loader
-          // This will update the profile image from S3
           await fetchProfileData(false);
-          
           setUploadingImage(false);
           Alert.alert('Success', 'Profile picture updated successfully!');
         } else {
@@ -297,54 +182,20 @@ const ProfileSettingsScreen: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Error in handleImagePick:', error);
-      console.error('Full Error Object:', {
-        message: error.message,
-        code: error.code,
-        config: error.config,
-        response: error.response?.data,
-        status: error.response?.status,
-        request: error.request,
-      });
-      
       let errorMessage = 'Failed to update profile picture. Please try again.';
-      
-      // Provide more specific error messages
       if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-        errorMessage = 'Network error. Please check:\n1. Your internet connection\n2. API URL is correct\n3. Backend server is running';
+        errorMessage = 'Network error. Please check your connection.';
       } else if (error.response) {
         errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
-      } else if (error.message) {
-        errorMessage = error.message;
       }
-      
       Alert.alert('Error', errorMessage);
       setUploadingImage(false);
     }
   };
 
-  const handleMenuItemPress = (route: string) => {
-    router.push(route as any);
-  };
-
-  const renderMenuItem = (item: MenuItem) => (
-    <TouchableOpacity
-      key={item.id}
-      style={styles.menuItem}
-      onPress={() => handleMenuItemPress(item.route)}
-      activeOpacity={0.7}
-    >
-      <Text style={styles.menuItemText}>{item.title}</Text>
-      <Ionicons name="chevron-forward" size={22} color="#666" />
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.container}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="#177DDF"
-        translucent={false}
-      />
+      <StatusBar barStyle="light-content" backgroundColor="#177DDF" translucent={false} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -360,7 +211,7 @@ const ProfileSettingsScreen: React.FC = () => {
           <Text style={styles.loadingText}>Loading profile...</Text>
         </View>
       ) : (
-        <View style={styles.content}>
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           {/* Profile Image Section */}
           <View style={styles.profileSection}>
             <View style={styles.profileImageContainer}>
@@ -376,7 +227,6 @@ const ProfileSettingsScreen: React.FC = () => {
                 </View>
               )}
 
-              {/* Camera Button */}
               <TouchableOpacity
                 style={styles.cameraButton}
                 onPress={handleImagePick}
@@ -389,17 +239,127 @@ const ProfileSettingsScreen: React.FC = () => {
                 )}
               </TouchableOpacity>
             </View>
+
+            {/* User Info Below Image */}
+            {userDetails && (
+              <View style={styles.userInfoBelowImage}>
+                <Text style={styles.userName}>{userDetails.user_name}</Text>
+                <Text style={styles.userEmail}>{userDetails.user_email}</Text>
+                {userDetails.user_phone && (
+                  <Text style={styles.userPhone}>{userDetails.user_phone}</Text>
+                )}
+              </View>
+            )}
           </View>
+
+          {/* User Details Card */}
+          {userDetails && (
+            <View style={styles.detailCard}>
+              <View style={styles.detailCardHeader}>
+                <Ionicons name="person" size={20} color="#0078D7" />
+                <Text style={styles.detailCardTitle}>Personal Information</Text>
+              </View>
+              <DetailRow label="Name" value={userDetails.user_name} />
+              <DetailRow label="Email" value={userDetails.user_email} />
+              {userDetails.user_phone && (
+                <DetailRow label="Phone" value={userDetails.user_phone} />
+              )}
+            </View>
+          )}
+
+          {/* Company Details Card (for sellers) */}
+          {companyDetails && (
+            <View style={styles.detailCard}>
+              <View style={styles.detailCardHeader}>
+                <Ionicons name="business" size={20} color="#0078D7" />
+                <Text style={styles.detailCardTitle}>Company Information</Text>
+              </View>
+              <DetailRow label="Company" value={companyDetails.company_name} />
+              <DetailRow label="Email" value={companyDetails.company_email} />
+              <DetailRow label="Phone" value={companyDetails.company_phone} />
+              <DetailRow
+                label="Location"
+                value={`${companyDetails.company_city}, ${companyDetails.company_state}`}
+              />
+              <DetailRow label="Pincode" value={companyDetails.company_pincode} />
+              <View style={styles.badgesInCard}>
+                {companyDetails.is_verified && (
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="checkmark-circle" size={14} color="#28A745" />
+                    <Text style={styles.verifiedText}>Verified</Text>
+                  </View>
+                )}
+                {companyDetails.is_approved && (
+                  <View style={styles.approvedBadge}>
+                    <Ionicons name="shield-checkmark" size={14} color="#0078D7" />
+                    <Text style={styles.approvedText}>Approved</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Seller Status */}
+          {sellerStatus && sellerStatus !== 'approved' && (
+            <TouchableOpacity
+              style={styles.applicationStatusCard}
+              onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
+            >
+              <Ionicons
+                name={sellerStatus === 'pending' ? 'time' : 'alert-circle'}
+                size={24}
+                color={sellerStatus === 'pending' ? '#FFC107' : '#DC3545'}
+              />
+              <View style={styles.applicationStatusInfo}>
+                <Text style={styles.applicationStatusTitle}>
+                  Seller Application: {sellerStatus.charAt(0).toUpperCase() + sellerStatus.slice(1)}
+                </Text>
+                <Text style={styles.applicationStatusSubtitle}>
+                  Tap to view details
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#666" />
+            </TouchableOpacity>
+          )}
 
           {/* Menu Items */}
           <View style={styles.menuContainer}>
-            {menuItems.map((item) => renderMenuItem(item))}
+            <MenuItem
+              title="Update Profile Details"
+              onPress={() => router.push('/pages/updateUserProfileScreen' as any)}
+            />
+            <MenuItem
+              title="Update Password"
+              onPress={() => router.push('/pages/upadetPasswordScreen' as any)}
+            />
+            {sellerStatus === 'approved' && (
+              <MenuItem
+                title="Seller Dashboard"
+                onPress={() => router.push('/(seller)' as any)}
+              />
+            )}
           </View>
-        </View>
+
+          <View style={{ height: 40 }} />
+        </ScrollView>
       )}
     </View>
   );
 };
+
+const DetailRow = ({ label, value }: { label: string; value: string }) => (
+  <View style={styles.detailRow}>
+    <Text style={styles.detailLabel}>{label}</Text>
+    <Text style={styles.detailValue}>{value || 'N/A'}</Text>
+  </View>
+);
+
+const MenuItem = ({ title, onPress }: { title: string; onPress: () => void }) => (
+  <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.7}>
+    <Text style={styles.menuItemText}>{title}</Text>
+    <Ionicons name="chevron-forward" size={22} color="#666" />
+  </TouchableOpacity>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -432,41 +392,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  content: {
+  scrollView: {
     flex: 1,
   },
   profileSection: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    paddingVertical: 32,
-    marginBottom: 16,
+    paddingVertical: 24,
+    marginBottom: 12,
   },
   profileImageContainer: {
     position: 'relative',
-    width: 160,
-    height: 160,
+    width: 120,
+    height: 120,
+    marginBottom: 12,
   },
   profileImage: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#E0E0E0',
   },
   profileImagePlaceholder: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   cameraButton: {
     position: 'absolute',
-    bottom: 8,
-    right: 8,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    bottom: 4,
+    right: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#177DDF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -475,11 +436,136 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: '#FFFFFF',
+  },
+  userInfoBelowImage: {
+    alignItems: 'center',
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  userEmail: {
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 2,
+  },
+  userPhone: {
+    fontSize: 14,
+    color: '#888',
+  },
+  detailCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 12,
+    padding: 16,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  detailCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  detailCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8F8F8',
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#888',
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1A1A1A',
+  },
+  badgesInCard: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  verifiedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#28A745',
+  },
+  approvedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  approvedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0078D7',
+  },
+  applicationStatusCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  applicationStatusInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  applicationStatusTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1A1A1A',
+  },
+  applicationStatusSubtitle: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
   },
   menuContainer: {
     paddingHorizontal: 16,
+    marginTop: 4,
   },
   menuItem: {
     backgroundColor: '#FFFFFF',

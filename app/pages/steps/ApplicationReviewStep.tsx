@@ -125,7 +125,7 @@ const ApplicationReviewStep: React.FC<ApplicationReviewStepProps> = ({
             {
               text: "Go to Dashboard",
               onPress: () => {
-                router.replace("../pages/sellerDashboard");
+                router.replace("/(seller)");
               },
             },
           ],
@@ -184,7 +184,7 @@ const submitApplication = async () => {
           [
             {
               text: "View Status",
-              onPress: () => router.replace("../pages/sellerApplicationStatus"),
+              onPress: () => router.replace("/pages/sellerApplicationStatus"),
             },
           ]
         );
@@ -199,7 +199,7 @@ const submitApplication = async () => {
           [
             {
               text: "OK",
-              onPress: () => router.replace("../pages/sellerDashboard"),
+              onPress: () => router.replace("/(seller)"),
             },
           ]
         );
@@ -294,7 +294,7 @@ const submitApplication = async () => {
           text: "View Status",
           onPress: () => {
             console.log("🔀 Redirecting to status page");
-            router.replace("../pages/sellerApplicationStatus");
+            router.replace("/pages/sellerApplicationStatus");
           },
         },
       ],
