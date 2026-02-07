@@ -177,33 +177,58 @@ const SellerProfile = () => {
     loadProfile();
   };
 
-  const handleFollow = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-
-      if (isFollowing) {
-        await axios.delete(`${API_URL}/company/unfollow/${companyId}`, {
-          headers,
-          data: { user_id: currentUserId, company_id: companyId },
-        });
-        setFollowerCount((prev) => Math.max(0, prev - 1));
-      } else {
-        await axios.post(
-          `${API_URL}/company/follow/${companyId}`,
-          { user_id: currentUserId, company_id: companyId },
-          { headers }
-        );
-        setFollowerCount((prev) => prev + 1);
-      }
-      setIsFollowing(!isFollowing);
-    } catch (error: any) {
-      console.error('Error toggling follow:', error?.response?.data || error);
-      const msg = error?.response?.data?.message || 'Failed to update follow status';
-      Alert.alert('Error', msg);
+ const handleFollow = async () => {
+  try {
+    const token = await AsyncStorage.getItem('token');
+    if (!token) {
+      Alert.alert('Error', 'Authentication token missing');
+      return;
     }
-  };
+
+    const decoded: any = jwtDecode(token);
+    const userId = decoded?.user_id;
+
+    if (!userId || !companyId) {
+      Alert.alert('Error', 'Invalid user or company');
+      return;
+    }
+
+    const headers = { Authorization: `Bearer ${token}` };
+
+    if (isFollowing) {
+      await axios.delete(
+        `${API_URL}/company/unfollow/${companyId}`,
+        {
+          headers,
+          data: {
+            user_id: userId,
+            company_id: companyId,
+          },
+        }
+      );
+      setFollowerCount((prev) => Math.max(0, prev - 1));
+    } else {
+      await axios.post(
+        `${API_URL}/company/follow/${companyId}`,
+        {
+          user_id: userId,
+          company_id: companyId,
+        },
+        { headers }
+      );
+      setFollowerCount((prev) => prev + 1);
+    }
+
+    setIsFollowing((prev) => !prev);
+  } catch (error: any) {
+    console.error('Error toggling follow:', error?.response?.data || error);
+    Alert.alert(
+      'Error',
+      error?.response?.data?.message || 'Failed to update follow status'
+    );
+  }
+};
+
 
   const handleSubmitRating = async () => {
     if (userRating === 0) {
