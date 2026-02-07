@@ -299,7 +299,7 @@ const ProfileSettingsScreen: React.FC = () => {
             </View>
           )}
 
-          {/* Seller Status */}
+          {/* Seller Status - Pending or Rejected */}
           {sellerStatus && sellerStatus !== 'approved' && (
             <TouchableOpacity
               style={styles.applicationStatusCard}
@@ -315,11 +315,44 @@ const ProfileSettingsScreen: React.FC = () => {
                   Seller Application: {sellerStatus.charAt(0).toUpperCase() + sellerStatus.slice(1)}
                 </Text>
                 <Text style={styles.applicationStatusSubtitle}>
-                  Tap to view details
+                  {sellerStatus === 'pending' ? 'Under review' : 'Tap to edit & resubmit'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={22} color="#666" />
             </TouchableOpacity>
+          )}
+
+          {/* Approved Seller Actions */}
+          {sellerStatus === 'approved' && (
+            <View style={styles.approvedSellerCard}>
+              <View style={styles.approvedSellerHeader}>
+                <Ionicons name="checkmark-circle" size={20} color="#28A745" />
+                <Text style={styles.approvedSellerTitle}>Approved Seller</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.sellerActionButton}
+                onPress={() => {
+                  if (companyDetails?.company_id) {
+                    router.push({
+                      pathname: '/pages/sellerProfile' as any,
+                      params: { company_id: companyDetails.company_id },
+                    });
+                  }
+                }}
+              >
+                <Ionicons name="business" size={20} color="#0078D7" />
+                <Text style={styles.sellerActionText}>View Seller Profile</Text>
+                <Ionicons name="chevron-forward" size={18} color="#666" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.sellerActionButton}
+                onPress={() => router.push('/(seller)' as any)}
+              >
+                <Ionicons name="storefront" size={20} color="#0078D7" />
+                <Text style={styles.sellerActionText}>Go to Seller Dashboard</Text>
+                <Ionicons name="chevron-forward" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* Menu Items */}
@@ -332,12 +365,6 @@ const ProfileSettingsScreen: React.FC = () => {
               title="Update Password"
               onPress={() => router.push('/pages/upadetPasswordScreen' as any)}
             />
-            {sellerStatus === 'approved' && (
-              <MenuItem
-                title="Seller Dashboard"
-                onPress={() => router.push('/(seller)' as any)}
-              />
-            )}
           </View>
 
           <View style={{ height: 40 }} />
@@ -562,6 +589,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginTop: 2,
+  },
+  approvedSellerCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 12,
+    padding: 16,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    borderWidth: 1,
+    borderColor: '#C8F5D5',
+  },
+  approvedSellerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  approvedSellerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#28A745',
+  },
+  sellerActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8F8F8',
+    gap: 10,
+  },
+  sellerActionText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1A1A1A',
   },
   menuContainer: {
     paddingHorizontal: 16,
