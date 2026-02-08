@@ -73,15 +73,33 @@ const MyProductsScreen: React.FC = () => {
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
-      const storedCompanyId = await AsyncStorage.getItem('companyId');
+      let companyId = await AsyncStorage.getItem('companyId');
+
+      // If no stored companyId, resolve from user's company
+      if (!companyId) {
+        try {
+          const decoded: any = jwtDecode(token);
+          const userCompanyRes = await axios.get(
+            `${API_URL}/company/get/user/${decoded.user_id}`,
+            { headers }
+          );
+          const compData = userCompanyRes.data.data?.company || userCompanyRes.data.data;
+          if (compData?.company_id) {
+            companyId = compData.company_id;
+            await AsyncStorage.setItem('companyId', companyId!);
+          }
+        } catch {
+          // User may not have a company
+        }
+      }
 
       // Fetch products by company_id (seller sees their own)
-      let res;
-      if (storedCompanyId) {
-        res = await axios.get(`${API_URL}/product/get/company/${storedCompanyId}`, { headers });
-      } else {
-        res = await axios.get(`${API_URL}/product/get/all`, { headers });
+      if (!companyId) {
+        setProducts([]);
+        return;
       }
+
+      const res = await axios.get(`${API_URL}/product/get/company/${companyId}`, { headers });
       const productsData = res.data.data?.products || res.data.data || [];
 
       // Fetch images for each product
