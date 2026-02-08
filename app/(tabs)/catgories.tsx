@@ -24,57 +24,12 @@ const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
 
 
-// Dummy data (will come from backend later)
-const DUMMY_CATEGORIES = [
-  {
-    id: '1',
-    name: 'Cashew',
-    image: require('../../assets/categories/cashew.png'),
-    route:"/pages/specificCategory",
-  },
-  {
-    id: '2',
-    name: 'Almond',
-    image: require('../../assets/categories/almond.png'),
-  },
-  {
-    id: '3',
-    name: 'Pista',
-    image: require('../../assets/categories/pista.png'),
-  },
-  {
-    id: '4',
-    name: 'Hazelnut',
-    image: require('../../assets/categories/hazelnut.png'),
-  },
-  {
-    id: '5',
-    name: 'Anjeera',
-    image: require('../../assets/categories/anjeers.png'),
-  },
-  {
-    id: '6',
-    name: 'Dates',
-    image: require('../../assets/categories/dates.png'),
-  },
-  {
-    id: '7',
-    name: 'Walnut',
-    image: require('../../assets/categories/wallnut.png'),
-  },
-  {
-    id: '8',
-    name: 'Raisins',
-    image: require('../../assets/categories/raisins.png'),
-  },
-];
-
 const CategoriesScreen = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  // Simulate API call
   useEffect(() => {
     fetchCategories();
   }, []);
@@ -82,16 +37,17 @@ const CategoriesScreen = () => {
   const fetchCategories = async () => {
     try {
       setLoading(true);
+      setError(null);
       const token = await AsyncStorage.getItem('token');
-     let res = await axios.get(`${API_URL}/category/get/complete/all`,{
-       headers: {
-         Authorization: `Bearer ${token}`,
-       },
-     });
-      console.log(res.data.data)
-      setCategories(res.data.data.categories);
-    } catch (error) {
+      let res = await axios.get(`${API_URL}/category/get/complete/all`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setCategories(res.data.data.categories || []);
+    } catch (error: any) {
       console.error('Error fetching categories:', error);
+      setError('Unable to load categories. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -102,16 +58,11 @@ const CategoriesScreen = () => {
       pathname: "/pages/specificCategory",
       params: {
         id: category.category_id,
+        name: category.category_name,
       }
     });
   };
   
-
-  const handleAddCategory = () => {
-    // Navigate to add category screen
-    console.log('Add category pressed');
-    // router.push('/add-category');
-  };
 
   if (loading) {
     return (
@@ -142,34 +93,40 @@ const CategoriesScreen = () => {
         <View style={styles.backButton} />
       </View>
 
-      {/* Categories Grid */}
-      <FlatList
-        data={categories}
-        numColumns={numColumns}
-        contentContainerStyle={styles.gridContainer}
-        showsVerticalScrollIndicator={false}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.categoryCard}
-            onPress={() => handleCategoryPress(item)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.imageContainer}>
-              <Image source={{ uri: `${S3_URL}/${item.category_image_url}` }} style={styles.categoryImage} />
-            </View>
-            <Text style={styles.categoryName}>{item.category_name}</Text>
+      {error ? (
+        <View style={styles.errorContainer}>
+          <Ionicons name="cloud-offline-outline" size={64} color="#CCC" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchCategories}>
+            <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
-        )
-        
-      }
-
-      />
-
-      {/* Floating Action Button */}
-      <TouchableOpacity style={styles.fab} onPress={handleAddCategory}>
-        <Ionicons name="add" size={28} color="#FFFFFF" />
-      </TouchableOpacity>
+        </View>
+      ) : categories.length === 0 ? (
+        <View style={styles.errorContainer}>
+          <Ionicons name="grid-outline" size={64} color="#CCC" />
+          <Text style={styles.errorText}>No categories available</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={categories}
+          numColumns={numColumns}
+          contentContainerStyle={styles.gridContainer}
+          showsVerticalScrollIndicator={false}
+          keyExtractor={(item) => item.category_id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.categoryCard}
+              onPress={() => handleCategoryPress(item)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.imageContainer}>
+                <Image source={{ uri: `${S3_URL}/${item.category_image_url}` }} style={styles.categoryImage} />
+              </View>
+              <Text style={styles.categoryName}>{item.category_name}</Text>
+            </TouchableOpacity>
+          )}
+        />
+      )}
     </View>
   );
 };
@@ -246,21 +203,31 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 8,
   },
-  fab: {
-    position: 'absolute',
-    bottom: 40,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#0078D7',
+  errorContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    paddingHorizontal: 40,
+    paddingVertical: 60,
+  },
+  errorText: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 16,
+    lineHeight: 22,
+  },
+  retryButton: {
+    marginTop: 16,
+    backgroundColor: '#0078D7',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 
