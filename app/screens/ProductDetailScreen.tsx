@@ -22,6 +22,12 @@ const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 const ProductDetailScreen = () => {
   const router = useRouter();
   const { product_id } = useLocalSearchParams();
@@ -176,7 +182,7 @@ const ProductDetailScreen = () => {
               }}
               renderItem={({ item }) => (
                 <Image
-                  source={{ uri: `${S3_URL}/${item.product_image_url}` }}
+                  source={{ uri: getImageUri(item.product_image_url)! }}
                   style={styles.carouselImage}
                   resizeMode="cover"
                 />

@@ -22,6 +22,12 @@ const cardWidth = (width - (numColumns + 1) * cardMargin) / numColumns;
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 
 
 const CategoriesScreen = () => {
@@ -120,7 +126,7 @@ const CategoriesScreen = () => {
               activeOpacity={0.7}
             >
               <View style={styles.imageContainer}>
-                <Image source={{ uri: `${S3_URL}/${item.category_image_url}` }} style={styles.categoryImage} />
+                <Image source={{ uri: getImageUri(item.category_image_url)! }} style={styles.categoryImage} />
               </View>
               <Text style={styles.categoryName}>{item.category_name}</Text>
             </TouchableOpacity>

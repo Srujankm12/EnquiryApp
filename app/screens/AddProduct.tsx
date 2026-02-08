@@ -27,6 +27,12 @@ const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 interface Category {
   category_id: string;
   category_name: string;
@@ -41,6 +47,7 @@ interface SubCategory {
 
 const AddProductsScreen: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
+  const [isSeller, setIsSeller] = useState<boolean | null>(null);
 
   // Form fields
   const [productName, setProductName] = useState('');
@@ -64,8 +71,23 @@ const AddProductsScreen: React.FC = () => {
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
 
   useEffect(() => {
+    checkSellerStatus();
     fetchCategories();
   }, []);
+
+  const checkSellerStatus = async () => {
+    const status = await AsyncStorage.getItem('sellerStatus');
+    if (status !== 'approved') {
+      setIsSeller(false);
+      Alert.alert(
+        'Access Denied',
+        'Only approved sellers can add products. Please become a seller first.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    } else {
+      setIsSeller(true);
+    }
+  };
 
   const fetchCategories = async () => {
     try {
@@ -183,7 +205,6 @@ const AddProductsScreen: React.FC = () => {
       );
 
       const uploadUrl = presignRes.data.data?.url || presignRes.data.data?.upload_url;
-      const imageKey = presignRes.data.data?.key || presignRes.data.data?.image_key;
 
       if (!uploadUrl) {
         throw new Error('Failed to get upload URL');
@@ -195,11 +216,12 @@ const AddProductsScreen: React.FC = () => {
       await fetch(uploadUrl, {
         method: 'PUT',
         body: imageBlob,
-        headers: { 'Content-Type': 'image/jpeg' },
+        headers: { 'Content-Type': 'image/png' },
       });
 
-      // Create product image record
-      const imageUrl = imageKey || `products/${productId}/${sequenceNumber}`;
+      // Create product image record with the full S3 URL
+      // Backend presigned URL generates key: images/products/{productId}/{sequenceNumber}.png
+      const imageUrl = `${S3_URL}/images/products/${productId}/${sequenceNumber}.png`;
       await axios.post(
         `${API_URL}/product/image/create`,
         {
@@ -506,7 +528,7 @@ const AddProductsScreen: React.FC = () => {
                   >
                     {item.category_image_url && (
                       <Image
-                        source={{ uri: `${S3_URL}/${item.category_image_url}` }}
+                        source={{ uri: getImageUri(item.category_image_url)! }}
                         style={styles.modalItemImage}
                       />
                     )}
@@ -554,7 +576,7 @@ const AddProductsScreen: React.FC = () => {
                 >
                   {item.sub_category_image_url && (
                     <Image
-                      source={{ uri: `${S3_URL}/${item.sub_category_image_url}` }}
+                      source={{ uri: getImageUri(item.sub_category_image_url)! }}
                       style={styles.modalItemImage}
                     />
                   )}
