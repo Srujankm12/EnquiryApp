@@ -14,58 +14,54 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { jwtDecode } from 'jwt-decode';
+import axios from 'axios';
+import Constants from 'expo-constants';
 
-interface User {
-  id: string;
-  name: string;
-  companyLogo: string;
-  rating: number;
-  contactPerson: string;
-  location: string;
-  isFollowing: boolean;
-  email?: string;
-  phone?: string;
-  followedAt?: string;
+const API_URL = Constants.expoConfig?.extra?.API_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
+interface CompanyFollower {
+  company_id: string;
+  user_id: string;
+  created_at: string;
 }
 
-interface NetworkResponse {
-  followers: User[];
-  following: User[];
-  totalFollowers: number;
-  totalFollowing: number;
+interface CompanyInfo {
+  company_id: string;
+  user_id: string;
+  company_name: string;
+  company_email: string;
+  company_phone: string;
+  company_profile_url: string | null;
+  company_address: string;
+  company_city: string;
+  company_state: string;
+  is_approved: boolean;
 }
 
 type TabType = 'followers' | 'following';
 
-// API functions
-const fetchNetworkFromAPI = async (): Promise<NetworkResponse> => {
-  const response = await fetch('YOUR_API_ENDPOINT/network');
-  const data = await response.json();
-  return data;
-};
-
-const followUser = async (userId: string): Promise<boolean> => {
-  const response = await fetch(`YOUR_API_ENDPOINT/users/${userId}/follow`, {
-    method: 'POST',
-  });
-  return response.ok;
-};
-
-const unfollowUser = async (userId: string): Promise<boolean> => {
-  const response = await fetch(`YOUR_API_ENDPOINT/users/${userId}/unfollow`, {
-    method: 'POST',
-  });
-  return response.ok;
-};
-
 const FollowersScreen: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabType>('followers');
+  const [activeTab, setActiveTab] = useState<TabType>('following');
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [followers, setFollowers] = useState<User[]>([]);
-  const [following, setFollowing] = useState<User[]>([]);
-  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
+  const [followers, setFollowers] = useState<any[]>([]);
+  const [followedCompanies, setFollowedCompanies] = useState<CompanyInfo[]>([]);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [isSeller, setIsSeller] = useState(false);
 
   useEffect(() => {
     loadNetworkData();
@@ -73,103 +69,58 @@ const FollowersScreen: React.FC = () => {
 
   const loadNetworkData = async () => {
     setLoading(true);
-
     try {
-      // Uncomment when API is ready
-      // const data = await fetchNetworkFromAPI();
-      // setFollowers(data.followers);
-      // setFollowing(data.following);
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return;
 
-      // Dummy data for now
-      const dummyFollowers: User[] = [
-        {
-          id: '1',
-          name: 'Bolas',
-          companyLogo: 'https://via.placeholder.com/60/FF6347/FFFFFF?text=B',
-          rating: 4,
-          contactPerson: 'Siddharth HK',
-          location: 'Vellala',
-          isFollowing: false,
-          email: 'contact@bolas.com',
-          phone: '+91-1234567890',
-        },
-        {
-          id: '2',
-          name: 'Thirumala Cashew',
-          companyLogo: 'https://via.placeholder.com/60/FFA500/FFFFFF?text=T',
-          rating: 3,
-          contactPerson: 'Shivam KL',
-          location: 'Mangare',
-          isFollowing: false,
-        },
-        {
-          id: '3',
-          name: 'Kade Cashew',
-          companyLogo: 'https://via.placeholder.com/60/32CD32/FFFFFF?text=K',
-          rating: 4,
-          contactPerson: 'Pragival S',
-          location: 'Mlangare',
-          isFollowing: false,
-        },
-        {
-          id: '4',
-          name: 'Sri Saraswathi Cashews',
-          companyLogo: 'https://via.placeholder.com/60/4169E1/FFFFFF?text=S',
-          rating: 4,
-          contactPerson: 'Ravi KD',
-          location: 'Mangalire',
-          isFollowing: false,
-        },
-      ];
+      const decoded: any = jwtDecode(token);
+      const currentUserId = decoded.user_id;
+      setUserId(currentUserId);
 
-      const dummyFollowing: User[] = [
-        {
-          id: '5',
-          name: 'Crunchy Cashews',
-          companyLogo: 'https://via.placeholder.com/60/9370DB/FFFFFF?text=C',
-          rating: 4,
-          contactPerson: 'Chethan Poojary',
-          location: 'Kuvali',
-          isFollowing: true,
-          followedAt: '2024-01-15',
-        },
-        {
-          id: '6',
-          name: 'Kaibavi',
-          companyLogo: 'https://via.placeholder.com/60/20B2AA/FFFFFF?text=K',
-          rating: 4,
-          contactPerson: 'Guruprasth L',
-          location: 'Manguru',
-          isFollowing: true,
-          followedAt: '2024-01-14',
-        },
-        {
-          id: '7',
-          name: 'Cashew Coast.',
-          companyLogo: 'https://via.placeholder.com/60/FF69B4/FFFFFF?text=CC',
-          rating: 4,
-          contactPerson: 'Pavan HL',
-          location: 'Bangare',
-          isFollowing: true,
-          followedAt: '2024-01-12',
-        },
-        {
-          id: '8',
-          name: 'South Canara Agro Mart',
-          companyLogo: 'https://via.placeholder.com/60/FFD700/FFFFFF?text=SC',
-          rating: 5,
-          contactPerson: 'Deekshith Kulal',
-          location: 'Mangore',
-          isFollowing: true,
-          followedAt: '2024-01-10',
-        },
-      ];
+      const headers = { Authorization: `Bearer ${token}` };
+      const storedCompanyId = await AsyncStorage.getItem('companyId');
+      const sellerStatus = await AsyncStorage.getItem('sellerStatus');
+      const isApprovedSeller = sellerStatus?.toLowerCase() === 'approved';
+      setIsSeller(isApprovedSeller);
+      setCompanyId(storedCompanyId);
 
-      setFollowers(dummyFollowers);
-      setFollowing(dummyFollowing);
+      // Fetch followed companies (companies this user follows)
+      try {
+        const followingRes = await axios.get(
+          `${API_URL}/company/followers/get/user/${currentUserId}`,
+          { headers }
+        );
+        const companies = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        setFollowedCompanies(Array.isArray(companies) ? companies : []);
+        setFollowingCount(Array.isArray(companies) ? companies.length : 0);
+      } catch {
+        setFollowedCompanies([]);
+        setFollowingCount(0);
+      }
+
+      // Fetch followers of user's company (if seller)
+      if (isApprovedSeller && storedCompanyId) {
+        try {
+          const followersRes = await axios.get(
+            `${API_URL}/company/followers/get/${storedCompanyId}`,
+            { headers }
+          );
+          const followersList = followersRes.data?.data?.followers || followersRes.data?.data || [];
+          setFollowers(Array.isArray(followersList) ? followersList : []);
+
+          const countRes = await axios.get(
+            `${API_URL}/company/followers/count/${storedCompanyId}`,
+            { headers }
+          );
+          const count = countRes.data?.data?.count || countRes.data?.data?.follower_count || 0;
+          setFollowerCount(typeof count === 'number' ? count : 0);
+        } catch {
+          setFollowers([]);
+          setFollowerCount(0);
+        }
+      }
     } catch (error) {
       console.error('Error loading network:', error);
-      Alert.alert('Error', 'Failed to load network. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -183,58 +134,35 @@ const FollowersScreen: React.FC = () => {
 
   const handleBack = () => {
     router.back();
-};
-
-  const handleFollow = async (user: User) => {
-    setProcessingUserId(user.id);
-
-    try {
-      // Optimistically update UI
-      setFollowers((prev) => prev.filter((u) => u.id !== user.id));
-      setFollowing((prev) => [{ ...user, isFollowing: true }, ...prev]);
-
-      // Call API
-      // await followUser(user.id);
-      
-      console.log('Followed user:', user.name);
-    } catch (error) {
-      console.error('Error following user:', error);
-      Alert.alert('Error', 'Failed to follow user. Please try again.');
-      // Revert optimistic update
-      await loadNetworkData();
-    } finally {
-      setProcessingUserId(null);
-    }
   };
 
-  const handleUnfollow = async (user: User) => {
+  const handleUnfollow = async (company: CompanyInfo) => {
     Alert.alert(
       'Unfollow',
-      `Are you sure you want to unfollow ${user.name}?`,
+      `Are you sure you want to unfollow ${company.company_name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Unfollow',
           style: 'destructive',
           onPress: async () => {
-            setProcessingUserId(user.id);
-
+            setProcessingId(company.company_id);
             try {
-              // Optimistically update UI
-              setFollowing((prev) => prev.filter((u) => u.id !== user.id));
-              setFollowers((prev) => [{ ...user, isFollowing: false }, ...prev]);
-
-              // Call API
-              // await unfollowUser(user.id);
-              
-              console.log('Unfollowed user:', user.name);
-            } catch (error) {
-              console.error('Error unfollowing user:', error);
-              Alert.alert('Error', 'Failed to unfollow user. Please try again.');
-              // Revert optimistic update
-              await loadNetworkData();
+              const token = await AsyncStorage.getItem('token');
+              const headers = { Authorization: `Bearer ${token}` };
+              await axios.delete(
+                `${API_URL}/company/unfollow/${company.company_id}/${userId}`,
+                { headers }
+              );
+              setFollowedCompanies((prev) =>
+                prev.filter((c) => c.company_id !== company.company_id)
+              );
+              setFollowingCount((prev) => Math.max(0, prev - 1));
+            } catch (error: any) {
+              console.error('Error unfollowing:', error?.response?.data || error);
+              Alert.alert('Error', 'Failed to unfollow. Please try again.');
             } finally {
-              setProcessingUserId(null);
+              setProcessingId(null);
             }
           },
         },
@@ -242,115 +170,103 @@ const FollowersScreen: React.FC = () => {
     );
   };
 
-  const handleViewAll = () => {
-    console.log('View all followers');
-    // navigation.navigate('AllFollowers');
+  const handleCompanyPress = (companyItem: CompanyInfo) => {
+    router.push({
+      pathname: '/pages/sellerProfile' as any,
+      params: { company_id: companyItem.company_id },
+    });
   };
 
-  const handleUserPress = (user: User) => {
-    console.log('View user profile:', user.name);
-    // navigation.navigate('UserProfile', { userId: user.id });
-  };
-
-  const renderStars = (rating: number) => {
-    const stars = [];
-    for (let i = 1; i <= 5; i++) {
-      stars.push(
-        <Ionicons
-          key={i}
-          name={i <= rating ? 'star' : 'star-outline'}
-          size={14}
-          color="#FFD700"
-          style={styles.star}
-        />
-      );
-    }
-    return <View style={styles.starsContainer}>{stars}</View>;
-  };
-
-  const renderUserCard = (user: User) => {
-    const isProcessing = processingUserId === user.id;
+  const renderCompanyCard = (company: CompanyInfo) => {
+    const isProcessing = processingId === company.company_id;
+    const imageUri = getImageUri(company.company_profile_url);
 
     return (
       <TouchableOpacity
-        key={user.id}
+        key={company.company_id}
         style={styles.userCard}
         activeOpacity={0.7}
-        onPress={() => handleUserPress(user)}
+        onPress={() => handleCompanyPress(company)}
       >
         <View style={styles.cardContent}>
-          {/* Company Logo */}
-          <Image
-            source={{ uri: user.companyLogo }}
-            style={styles.companyLogo}
-            resizeMode="cover"
-          />
+          {imageUri ? (
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.companyLogo}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.companyLogo, styles.logoPlaceholder]}>
+              <Ionicons name="business" size={24} color="#CCC" />
+            </View>
+          )}
 
-          {/* User Info */}
           <View style={styles.userInfo}>
             <Text style={styles.companyName} numberOfLines={1}>
-              {user.name}
+              {company.company_name}
             </Text>
-            {renderStars(user.rating)}
-            <Text style={styles.contactPerson} numberOfLines={1}>
-              {user.contactPerson}
-            </Text>
-            <Text style={styles.location} numberOfLines={1}>
-              {user.location}
-            </Text>
-          </View>
-
-          {/* Action Button */}
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              user.isFollowing ? styles.unfollowButton : styles.followButton,
-              isProcessing && styles.actionButtonDisabled,
-            ]}
-            onPress={() =>
-              user.isFollowing ? handleUnfollow(user) : handleFollow(user)
-            }
-            disabled={isProcessing}
-          >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color={user.isFollowing ? '#666' : '#FFFFFF'} />
-            ) : (
-              <Text
-                style={[
-                  styles.actionButtonText,
-                  user.isFollowing && styles.unfollowButtonText,
-                ]}
-              >
-                {user.isFollowing ? 'Unfollow' : 'Follow'}
+            {company.company_city && (
+              <Text style={styles.location} numberOfLines={1}>
+                {company.company_city}, {company.company_state}
               </Text>
             )}
-          </TouchableOpacity>
+            {company.company_phone && (
+              <Text style={styles.contactPerson} numberOfLines={1}>
+                {company.company_phone}
+              </Text>
+            )}
+          </View>
+
+          {activeTab === 'following' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.unfollowButton, isProcessing && styles.actionButtonDisabled]}
+              onPress={() => handleUnfollow(company)}
+              disabled={isProcessing}
+            >
+              {isProcessing ? (
+                <ActivityIndicator size="small" color="#666" />
+              ) : (
+                <Text style={[styles.actionButtonText, styles.unfollowButtonText]}>
+                  Unfollow
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </TouchableOpacity>
     );
   };
 
-  const filteredFollowers = followers.filter(
-    (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.location.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const renderFollowerCard = (follower: CompanyFollower) => {
+    return (
+      <View key={follower.user_id} style={styles.userCard}>
+        <View style={styles.cardContent}>
+          <View style={[styles.companyLogo, styles.logoPlaceholder]}>
+            <Ionicons name="person" size={24} color="#CCC" />
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.companyName} numberOfLines={1}>
+              User
+            </Text>
+            <Text style={styles.location} numberOfLines={1}>
+              Followed on {new Date(follower.created_at).toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
 
-  const filteredFollowing = following.filter(
-    (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.location.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredFollowing = followedCompanies.filter(
+    (company) =>
+      company.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      company.company_city?.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const displayList = activeTab === 'followers' ? filteredFollowers : filteredFollowing;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
@@ -361,35 +277,27 @@ const FollowersScreen: React.FC = () => {
       {/* Tabs */}
       <View style={styles.tabsContainer}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'followers' && styles.activeTab]}
-          onPress={() => setActiveTab('followers')}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'followers' && styles.activeTabText,
-            ]}
-          >
-            Followers <Text style={styles.tabCount}>{followers.length}</Text>
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
           style={[styles.tab, activeTab === 'following' && styles.activeTab]}
           onPress={() => setActiveTab('following')}
         >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'following' && styles.activeTabText,
-            ]}
-          >
-            Following <Text style={styles.tabCount}>{following.length}</Text>
+          <Text style={[styles.tabText, activeTab === 'following' && styles.activeTabText]}>
+            Following <Text style={styles.tabCount}>{followingCount}</Text>
           </Text>
         </TouchableOpacity>
+
+        {isSeller && (
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'followers' && styles.activeTab]}
+            onPress={() => setActiveTab('followers')}
+          >
+            <Text style={[styles.tabText, activeTab === 'followers' && styles.activeTabText]}>
+              Followers <Text style={styles.tabCount}>{followerCount}</Text>
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Search Bar */}
+      {/* Search */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
@@ -406,7 +314,6 @@ const FollowersScreen: React.FC = () => {
         )}
       </View>
 
-      {/* Content */}
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#177DDF" />
@@ -425,35 +332,36 @@ const FollowersScreen: React.FC = () => {
             />
           }
         >
-          {/* Section Header */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              {activeTab === 'followers' ? 'Followers' : 'Following'}
+              {activeTab === 'following' ? 'Companies You Follow' : 'Your Followers'}
             </Text>
-            {activeTab === 'followers' && followers.length > 4 && (
-              <TouchableOpacity onPress={handleViewAll}>
-                <Text style={styles.viewAllText}>View all</Text>
-              </TouchableOpacity>
-            )}
           </View>
 
-          {/* Users List */}
-          {displayList.length > 0 ? (
-            displayList.map((user) => renderUserCard(user))
+          {activeTab === 'following' ? (
+            filteredFollowing.length > 0 ? (
+              filteredFollowing.map((company) => renderCompanyCard(company))
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={64} color="#CCC" />
+                <Text style={styles.emptyText}>
+                  {searchQuery ? 'No results found' : 'Not following anyone yet'}
+                </Text>
+                <Text style={styles.emptySubtext}>
+                  {searchQuery
+                    ? 'Try adjusting your search'
+                    : 'Follow companies to see them here'}
+                </Text>
+              </View>
+            )
+          ) : followers.length > 0 ? (
+            followers.map((follower) => renderFollowerCard(follower))
           ) : (
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={64} color="#CCC" />
-              <Text style={styles.emptyText}>
-                {activeTab === 'followers'
-                  ? 'No followers found'
-                  : 'No following found'}
-              </Text>
+              <Text style={styles.emptyText}>No followers yet</Text>
               <Text style={styles.emptySubtext}>
-                {searchQuery.length > 0
-                  ? 'Try adjusting your search'
-                  : activeTab === 'followers'
-                  ? 'People who follow you will appear here'
-                  : 'People you follow will appear here'}
+                People who follow your company will appear here
               </Text>
             </View>
           )}
@@ -572,11 +480,6 @@ const styles = StyleSheet.create({
     color: '#000',
     letterSpacing: 0.2,
   },
-  viewAllText: {
-    fontSize: 14,
-    color: '#177DDF',
-    fontWeight: '700',
-  },
   userCard: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
@@ -599,6 +502,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: '#E0E0E0',
   },
+  logoPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   userInfo: {
     flex: 1,
     marginLeft: 14,
@@ -610,13 +517,6 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: 6,
     letterSpacing: 0.2,
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
-  star: {
-    marginRight: 2,
   },
   contactPerson: {
     fontSize: 13,
@@ -635,14 +535,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     height: 36,
-  },
-  followButton: {
-    backgroundColor: '#177DDF',
-    elevation: 2,
-    shadowColor: '#177DDF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
   },
   unfollowButton: {
     backgroundColor: '#FFFFFF',

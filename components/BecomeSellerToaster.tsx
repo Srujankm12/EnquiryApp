@@ -39,7 +39,7 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
       const status = await AsyncStorage.getItem('sellerStatus');
       setSellerStatus(status);
 
-      if (status !== 'approved') {
+      if (status?.toLowerCase() !== 'approved') {
         setShow(true);
         slideUp();
       }
@@ -82,9 +82,10 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
 
   const handlePress = () => {
     slideDown();
-    if (sellerStatus === 'pending') {
+    const normalizedStatus = sellerStatus?.toLowerCase();
+    if (normalizedStatus === 'pending') {
       router.push('/pages/sellerApplicationStatus');
-    } else if (sellerStatus === 'rejected') {
+    } else if (normalizedStatus === 'rejected') {
       router.push('/pages/becomeSellerForm');
     } else {
       router.push('/pages/becomeSellerForm');
@@ -95,8 +96,8 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
     return null;
   }
 
-  const isPending = sellerStatus === 'pending';
-  const isRejected = sellerStatus === 'rejected';
+  const isPending = sellerStatus?.toLowerCase() === 'pending';
+  const isRejected = sellerStatus?.toLowerCase() === 'rejected';
 
   return (
     <Animated.View

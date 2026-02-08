@@ -300,22 +300,22 @@ const ProfileSettingsScreen: React.FC = () => {
           )}
 
           {/* Seller Status - Pending or Rejected */}
-          {sellerStatus && sellerStatus !== 'approved' && (
+          {sellerStatus && sellerStatus?.toLowerCase() !== 'approved' && (
             <TouchableOpacity
               style={styles.applicationStatusCard}
               onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
             >
               <Ionicons
-                name={sellerStatus === 'pending' ? 'time' : 'alert-circle'}
+                name={sellerStatus?.toLowerCase() === 'pending' ? 'time' : 'alert-circle'}
                 size={24}
-                color={sellerStatus === 'pending' ? '#FFC107' : '#DC3545'}
+                color={sellerStatus?.toLowerCase() === 'pending' ? '#FFC107' : '#DC3545'}
               />
               <View style={styles.applicationStatusInfo}>
                 <Text style={styles.applicationStatusTitle}>
-                  Seller Application: {sellerStatus.charAt(0).toUpperCase() + sellerStatus.slice(1)}
+                  Seller Application: {sellerStatus.charAt(0).toUpperCase() + sellerStatus.slice(1).toLowerCase()}
                 </Text>
                 <Text style={styles.applicationStatusSubtitle}>
-                  {sellerStatus === 'pending' ? 'Under review' : 'Tap to edit & resubmit'}
+                  {sellerStatus?.toLowerCase() === 'pending' ? 'Under review' : 'Tap to edit & resubmit'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={22} color="#666" />
@@ -323,7 +323,7 @@ const ProfileSettingsScreen: React.FC = () => {
           )}
 
           {/* Approved Seller Actions */}
-          {sellerStatus === 'approved' && (
+          {sellerStatus?.toLowerCase() === 'approved' && (
             <View style={styles.approvedSellerCard}>
               <View style={styles.approvedSellerHeader}>
                 <Ionicons name="checkmark-circle" size={20} color="#28A745" />

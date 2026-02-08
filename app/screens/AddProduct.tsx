@@ -77,7 +77,7 @@ const AddProductsScreen: React.FC = () => {
 
   const checkSellerStatus = async () => {
     const status = await AsyncStorage.getItem('sellerStatus');
-    if (status !== 'approved') {
+    if (status?.toLowerCase() !== 'approved') {
       setIsSeller(false);
       Alert.alert(
         'Access Denied',
