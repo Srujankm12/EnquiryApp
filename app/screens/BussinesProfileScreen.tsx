@@ -109,19 +109,61 @@ const BusinessProfileScreen: React.FC = () => {
         setLegalDetails(null);
       }
 
+      // Fetch follower count from dedicated endpoint
+      try {
+        const countRes = await axios.get(
+          `${API_URL}/company/followers/count/${companyId}`,
+          { headers }
+        );
+        const countData = countRes.data?.data;
+        const count = typeof countData === 'number'
+          ? countData
+          : countData?.follower_count || countData?.count || 0;
+        setFollowerCount(count);
+      } catch {
+        // Keep follower count from complete details or default to 0
+      }
+
+      // Fetch average rating from dedicated endpoint
+      try {
+        const ratingRes = await axios.get(
+          `${API_URL}/company/rating/get/average/${companyId}`,
+          { headers }
+        );
+        const ratingData = ratingRes.data?.data?.rating_info || ratingRes.data?.data;
+        if (ratingData) {
+          setRatingInfo(ratingData);
+        }
+      } catch {
+        // Keep rating info from complete details or default
+      }
+
       // Check if user follows this company
       try {
         const followingRes = await axios.get(
-          `${API_URL}/company/followers/get/user/${currentUserId}`,
+          `${API_URL}/company/followers/is-following/${companyId}?user_id=${currentUserId}`,
           { headers }
         );
-        const followedCompanies = followingRes.data?.data?.companies || followingRes.data?.data || [];
-        const isFollowed = (Array.isArray(followedCompanies) ? followedCompanies : []).some(
-          (c: any) => c.company_id === companyId
-        );
+        const followData = followingRes.data?.data;
+        const isFollowed = typeof followData === 'boolean'
+          ? followData
+          : followData?.is_following || false;
         setIsFollowing(isFollowed);
       } catch {
-        setIsFollowing(false);
+        // Fallback: check by fetching user's followed companies
+        try {
+          const followingRes2 = await axios.get(
+            `${API_URL}/company/followers/get/user/${currentUserId}`,
+            { headers }
+          );
+          const followedCompanies = followingRes2.data?.data?.companies || followingRes2.data?.data || [];
+          const isFollowed = (Array.isArray(followedCompanies) ? followedCompanies : []).some(
+            (c: any) => c.company_id === companyId
+          );
+          setIsFollowing(isFollowed);
+        } catch {
+          setIsFollowing(false);
+        }
       }
 
       // Fetch products by company_id

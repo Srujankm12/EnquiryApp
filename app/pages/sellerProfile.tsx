@@ -167,7 +167,7 @@ const SellerProfile = () => {
           axios.get(`${API_URL}/company/followers/count/${companyId}`, { headers }),
           axios.get(`${API_URL}/company/followers/is-following/${companyId}?user_id=${decoded.user_id}`, { headers }),
           axios.get(`${API_URL}/company/social/get/${companyId}`, { headers }),
-          axios.get(`${API_URL}/product/get/all`, { headers }),
+          axios.get(`${API_URL}/product/get/company/${companyId}`, { headers }),
         ]);
 
       if (companyRes.status === 'fulfilled') {
@@ -330,7 +330,7 @@ const SellerProfile = () => {
         await axios.post(
           `${API_URL}/company/rating/create`,
           {
-            company_id: companyId,
+            company_id: company?.company_id,
             user_id: currentUserId,
             rating: userRating,
             review_text: reviewText.trim() || undefined,
