@@ -155,7 +155,7 @@ const HomeScreen = () => {
   const handleCategoryPress = (category: any) => {
     router.push({
       pathname: "/pages/specificCategory",
-      params: { id: category.category_id },
+      params: { id: category.category_id, name: category.category_name },
     });
   };
 

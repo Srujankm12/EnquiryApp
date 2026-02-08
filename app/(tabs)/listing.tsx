@@ -10,172 +10,200 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  RefreshControl,
+  Alert,
 } from "react-native";
+import { useRouter } from "expo-router";
+import Constants from "expo-constants";
+import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
-interface Product {
-  id: string;
-  name: string;
-  image: string;
-  qty: string;
-  pricePerUnit: string;
-}
-
-interface ProductSection {
-  title: string;
-  products: Product[];
-}
+const API_URL = Constants.expoConfig?.extra?.API_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
 const ListingsScreen: React.FC = () => {
+  const router = useRouter();
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("Cashew");
-  const [productSections, setProductSections] = useState<ProductSection[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [products, setProducts] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const categories = [
-    "Cashew",
-    "Almond",
-    "Dates",
-    "Pista",
-    "2 Piece",
-    "4 Piece",
-    "A1 Almond",
-    "A2 Pista",
-  ];
-
-  // Simulate fetching data from backend
   useEffect(() => {
-    fetchProductsFromBackend();
+    loadInitialData();
   }, []);
 
-  const fetchProductsFromBackend = async () => {
-    setLoading(true);
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const token = await AsyncStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
 
-    // Simulate API call delay
-    setTimeout(() => {
-      const dummyData: ProductSection[] = [
-        {
-          title: "Featured Product's",
-          products: [
-            {
-              id: "1",
-              name: "Cashew W-180",
-              image:
-                "https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=400",
-              qty: "100KG",
-              pricePerUnit: "200rs",
-            },
-            {
-              id: "2",
-              name: "Almond Local",
-              image:
-                "https://images.unsplash.com/photo-1508061253366-f7da158b6d46?w=400",
-              qty: "10KG",
-              pricePerUnit: "100rs",
-            },
-          ],
-        },
-        {
-          title: "Product of Follower's",
-          products: [
-            {
-              id: "3",
-              name: "Pista A1",
-              image:
-                "https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=400",
-              qty: "20KG",
-              pricePerUnit: "500rs",
-            },
-            {
-              id: "4",
-              name: "Arabian Dates",
-              image:
-                "https://images.unsplash.com/photo-1587049352846-4a222e784e38?w=400",
-              qty: "200KG",
-              pricePerUnit: "128rs",
-            },
-          ],
-        },
-        {
-          title: "Products on Cashew's",
-          products: [
-            {
-              id: "5",
-              name: "Cashew 2 Piece",
-              image:
-                "https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=400",
-              qty: "50KG",
-              pricePerUnit: "1000rs",
-            },
-            {
-              id: "6",
-              name: "Cashew 4 Piece",
-              image:
-                "https://images.unsplash.com/photo-1508061253366-f7da158b6d46?w=400",
-              qty: "100KG",
-              pricePerUnit: "900rs",
-            },
-          ],
-        },
-      ];
+      // Fetch categories
+      const catRes = await axios.get(`${API_URL}/category/get/complete/all`, { headers });
+      const cats = catRes.data.data?.categories || [];
+      setCategories(cats);
 
-      setProductSections(dummyData);
+      // Fetch all products
+      await fetchProducts(null, headers);
+    } catch (error: any) {
+      console.error("Error loading data:", error);
+      setError("Unable to load products. Please try again.");
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
-  const renderProductCard = (product: Product) => (
-    <TouchableOpacity key={product.id} style={styles.productCard}>
-      <Image
-        source={{ uri: product.image }}
-        style={styles.productImage}
-        resizeMode="cover"
-      />
-      <View style={styles.productInfo}>
-        <Text style={styles.productName} numberOfLines={1}>
-          {product.name}
-        </Text>
-        <View style={styles.productBottom}>
-          <View>
-            <Text style={styles.productQty}>Qty: {product.qty}</Text>
-            <Text style={styles.productPrice}>
-              Price Per Unit: {product.pricePerUnit}
-            </Text>
-          </View>
-          <TouchableOpacity style={styles.enquireButton}>
-            <Text style={styles.enquireButtonText}>Enquire</Text>
-          </TouchableOpacity>
+  const fetchProducts = async (categoryId: string | null, headers?: any) => {
+    try {
+      if (!headers) {
+        const token = await AsyncStorage.getItem("token");
+        headers = { Authorization: `Bearer ${token}` };
+      }
+
+      let endpoint = `${API_URL}/product/get/all`;
+      if (categoryId) {
+        endpoint = `${API_URL}/product/get/category/${categoryId}`;
+      }
+
+      const res = await axios.get(endpoint, { headers });
+      const productsData = res.data.data?.products || res.data.data || [];
+
+      // Fetch images for products
+      const productsWithImages = await Promise.all(
+        (Array.isArray(productsData) ? productsData : [])
+          .filter((p: any) => p.is_product_active)
+          .map(async (product: any) => {
+            try {
+              const imgRes = await axios.get(
+                `${API_URL}/product/image/get/${product.product_id}`,
+                { headers }
+              );
+              return { ...product, images: imgRes.data.data?.images || [] };
+            } catch {
+              return { ...product, images: [] };
+            }
+          })
+      );
+
+      setProducts(productsWithImages);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        setProducts([]);
+      } else {
+        console.error("Error fetching products:", error);
+      }
+    }
+  };
+
+  const handleCategorySelect = async (categoryId: string | null) => {
+    setSelectedCategory(categoryId);
+    setLoading(true);
+    await fetchProducts(categoryId);
+    setLoading(false);
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchProducts(selectedCategory);
+    setRefreshing(false);
+  };
+
+  const getProductImageUrl = (product: any): string | null => {
+    if (product.images && product.images.length > 0) {
+      const sorted = [...product.images].sort(
+        (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
+      );
+      return `${S3_URL}/${sorted[0].product_image_url}`;
+    }
+    return null;
+  };
+
+  const filteredProducts = products.filter((product) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      product.product_name?.toLowerCase().includes(query) ||
+      product.product_description?.toLowerCase().includes(query)
+    );
+  });
+
+  const handleProductPress = (product: any) => {
+    router.push({
+      pathname: "/pages/productDetail" as any,
+      params: { product_id: product.product_id },
+    });
+  };
+
+  const renderProductCard = (product: any) => {
+    const imageUrl = getProductImageUrl(product);
+
+    return (
+      <TouchableOpacity
+        key={product.product_id}
+        style={styles.productCard}
+        onPress={() => handleProductPress(product)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.productImageContainer}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.productImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.productImagePlaceholder}>
+              <Ionicons name="cube-outline" size={32} color="#CCC" />
+            </View>
+          )}
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.productInfo}>
+          <Text style={styles.productName} numberOfLines={1}>
+            {product.product_name}
+          </Text>
+          <View style={styles.productBottom}>
+            <View>
+              <Text style={styles.productQty}>Qty: {product.product_quantity}</Text>
+              <Text style={styles.productPrice}>
+                Price: {product.product_price}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.enquireButton}>
+              <Text style={styles.enquireButtonText}>Enquire</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Listings</Text>
+        <Text style={styles.headerTitle}>Products</Text>
       </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Ionicons
-          name="search"
-          size={20}
-          color="#999"
-          style={styles.searchIcon}
-        />
+        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search..."
+          placeholder="Search products..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#999"
         />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Category Filter Pills */}
@@ -185,59 +213,86 @@ const ListingsScreen: React.FC = () => {
         style={styles.categoriesContainer}
         contentContainerStyle={styles.categoriesContent}
       >
+        <TouchableOpacity
+          style={[
+            styles.categoryPill,
+            selectedCategory === null && styles.categoryPillActive,
+          ]}
+          onPress={() => handleCategorySelect(null)}
+        >
+          <Text
+            style={[
+              styles.categoryText,
+              selectedCategory === null && styles.categoryTextActive,
+            ]}
+          >
+            All
+          </Text>
+        </TouchableOpacity>
         {categories.map((category) => (
           <TouchableOpacity
-            key={category}
+            key={category.category_id}
             style={[
               styles.categoryPill,
-              selectedCategory === category && styles.categoryPillActive,
+              selectedCategory === category.category_id && styles.categoryPillActive,
             ]}
-            onPress={() => setSelectedCategory(category)}
+            onPress={() => handleCategorySelect(category.category_id)}
           >
             <Text
               style={[
                 styles.categoryText,
-                selectedCategory === category && styles.categoryTextActive,
+                selectedCategory === category.category_id && styles.categoryTextActive,
               ]}
             >
-              {category}
+              {category.category_name}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      {/* Loading Indicator */}
+      {/* Content */}
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#1E90FF" />
           <Text style={styles.loadingText}>Loading products...</Text>
         </View>
+      ) : error ? (
+        <View style={styles.loaderContainer}>
+          <Ionicons name="cloud-offline-outline" size={64} color="#CCC" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadInitialData}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : filteredProducts.length === 0 ? (
+        <View style={styles.loaderContainer}>
+          <Ionicons name="cube-outline" size={64} color="#CCC" />
+          <Text style={styles.emptyText}>No products found</Text>
+          <Text style={styles.emptySubtext}>
+            {searchQuery ? "Try a different search term" : "No products available in this category"}
+          </Text>
+        </View>
       ) : (
-        /* Products List */
         <ScrollView
           style={styles.productsScrollView}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.productsContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#1E90FF"]} />
+          }
         >
-          {productSections.map((section, index) => (
-            <View key={index} style={styles.sectionContainer}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.productsHorizontalContent}
-              >
-                {section.products.map((product) => renderProductCard(product))}
-              </ScrollView>
-            </View>
-          ))}
+          <Text style={styles.resultCount}>
+            {filteredProducts.length} product{filteredProducts.length !== 1 ? "s" : ""} found
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.productsHorizontalContent}
+          >
+            {filteredProducts.map((product) => renderProductCard(product))}
+          </ScrollView>
         </ScrollView>
       )}
-
-      {/* Floating Add Button */}
-      <TouchableOpacity style={styles.floatingButton}>
-        <Ionicons name="add" size={30} color="#FFFFFF" />
-      </TouchableOpacity>
     </View>
   );
 };
@@ -320,11 +375,43 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 40,
   },
   loadingText: {
     marginTop: 12,
     fontSize: 16,
     color: "#666",
+  },
+  errorText: {
+    fontSize: 15,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 16,
+    lineHeight: 22,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#666",
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: "#999",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: 16,
+    backgroundColor: "#1E90FF",
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
   productsScrollView: {
     flex: 1,
@@ -332,15 +419,12 @@ const styles = StyleSheet.create({
   productsContent: {
     paddingBottom: 100,
   },
-  sectionContainer: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 12,
+  resultCount: {
+    fontSize: 14,
+    color: "#888",
     paddingHorizontal: 16,
+    marginBottom: 12,
+    fontWeight: "500",
   },
   productsHorizontalContent: {
     paddingHorizontal: 16,
@@ -356,15 +440,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     overflow: "hidden",
+    elevation: 3,
   },
-  productBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  productImageContainer: {
+    width: "100%",
+    height: 120,
+    backgroundColor: "#F0F0F0",
   },
   productImage: {
     width: "100%",
     height: 120,
     backgroundColor: "#E0E0E0",
+  },
+  productImagePlaceholder: {
+    width: "100%",
+    height: 120,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8F8F8",
+  },
+  productBottom: {
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   productInfo: {
     padding: 12,
@@ -381,7 +478,8 @@ const styles = StyleSheet.create({
   },
   productPrice: {
     fontSize: 13,
-    color: "#666",
+    color: "#28A745",
+    fontWeight: "600",
     marginBottom: 10,
   },
   enquireButton: {
@@ -397,22 +495,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
-  },
-  floatingButton: {
-    position: "absolute",
-    bottom: 40,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#1E90FF",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
 });
 

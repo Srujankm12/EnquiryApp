@@ -65,9 +65,20 @@ interface RatingItem {
   updated_at: string;
 }
 
+interface ProductItem {
+  product_id: string;
+  product_name: string;
+  product_description: string;
+  product_quantity: string;
+  product_price: string;
+  is_product_active: boolean;
+  images?: any[];
+}
+
 const SellerProfile = () => {
   const params = useLocalSearchParams();
-  const companyId = params.company_id as string;
+  const paramCompanyId = params.company_id as string;
+  const paramUserId = params.user_id as string;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,6 +89,7 @@ const SellerProfile = () => {
   const [followerCount, setFollowerCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [products, setProducts] = useState<ProductItem[]>([]);
 
   // Rating submission state
   const [showRatingForm, setShowRatingForm] = useState(false);
@@ -88,12 +100,12 @@ const SellerProfile = () => {
 
   useEffect(() => {
     loadProfile();
-  }, [companyId]);
+  }, [paramCompanyId, paramUserId]);
 
   useFocusEffect(
     useCallback(() => {
-      if (companyId) loadProfile();
-    }, [companyId])
+      loadProfile();
+    }, [paramCompanyId, paramUserId])
   );
 
   const loadProfile = async () => {
@@ -104,11 +116,44 @@ const SellerProfile = () => {
 
       const decoded: any = jwtDecode(token);
       setCurrentUserId(decoded.user_id);
-
       const headers = { Authorization: `Bearer ${token}` };
 
-      // Fetch company details, ratings, followers in parallel
-      const [companyRes, ratingsRes, avgRatingRes, followerCountRes, isFollowingRes, socialRes] =
+      // Resolve company ID - either from param or by fetching user's company
+      let companyId = paramCompanyId;
+      if (!companyId && paramUserId) {
+        try {
+          const userCompanyRes = await axios.get(
+            `${API_URL}/company/get/user/${paramUserId}`,
+            { headers }
+          );
+          const compData = userCompanyRes.data.data?.company || userCompanyRes.data.data;
+          companyId = compData?.company_id;
+        } catch (e) {
+          console.error('Error fetching company by user ID:', e);
+        }
+      }
+
+      // If still no company ID, try current user's company
+      if (!companyId) {
+        try {
+          const ownCompanyRes = await axios.get(
+            `${API_URL}/company/get/user/${decoded.user_id}`,
+            { headers }
+          );
+          const ownData = ownCompanyRes.data.data?.company || ownCompanyRes.data.data;
+          companyId = ownData?.company_id;
+        } catch (e) {
+          console.error('Error fetching own company:', e);
+        }
+      }
+
+      if (!companyId) {
+        setLoading(false);
+        return;
+      }
+
+      // Fetch company details, ratings, followers, products in parallel
+      const [companyRes, ratingsRes, avgRatingRes, followerCountRes, isFollowingRes, socialRes, productsRes] =
         await Promise.allSettled([
           axios.get(`${API_URL}/company/get/${companyId}`, { headers }),
           axios.get(`${API_URL}/company/rating/get/all/${companyId}`, { headers }),
@@ -116,6 +161,7 @@ const SellerProfile = () => {
           axios.get(`${API_URL}/company/followers/count/${companyId}`, { headers }),
           axios.get(`${API_URL}/company/followers/is-following/${companyId}`, { headers }),
           axios.get(`${API_URL}/company/social/get/${companyId}`, { headers }),
+          axios.get(`${API_URL}/product/get/all`, { headers }),
         ]);
 
       if (companyRes.status === 'fulfilled') {
@@ -163,6 +209,29 @@ const SellerProfile = () => {
       if (socialRes.status === 'fulfilled') {
         const socialData = socialRes.value.data.data?.social_details || socialRes.value.data.data;
         setSocialDetails(socialData);
+      }
+
+      // Handle products
+      if (productsRes.status === 'fulfilled') {
+        const productsData = productsRes.value.data.data?.products || productsRes.value.data.data || [];
+        const activeProducts = (Array.isArray(productsData) ? productsData : [])
+          .filter((p: ProductItem) => p.is_product_active);
+
+        // Fetch images for products
+        const productsWithImages = await Promise.all(
+          activeProducts.slice(0, 6).map(async (product: ProductItem) => {
+            try {
+              const imgRes = await axios.get(
+                `${API_URL}/product/image/get/${product.product_id}`,
+                { headers }
+              );
+              return { ...product, images: imgRes.data.data?.images || [] };
+            } catch {
+              return { ...product, images: [] };
+            }
+          })
+        );
+        setProducts(productsWithImages);
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -608,6 +677,63 @@ const SellerProfile = () => {
                 </TouchableOpacity>
               )}
             </View>
+          </View>
+        )}
+
+        {/* Products Section */}
+        {products.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Products ({products.length})</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16 }}
+            >
+              {products.map((product) => {
+                const imageUrl =
+                  product.images && product.images.length > 0
+                    ? `${S3_URL}/${[...product.images].sort(
+                        (a: any, b: any) =>
+                          a.product_image_sequence_number - b.product_image_sequence_number
+                      )[0].product_image_url}`
+                    : null;
+
+                return (
+                  <TouchableOpacity
+                    key={product.product_id}
+                    style={styles.productCard}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/pages/productDetail' as any,
+                        params: { product_id: product.product_id },
+                      })
+                    }
+                  >
+                    <View style={styles.productImageContainer}>
+                      {imageUrl ? (
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.productImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                          <Ionicons name="cube-outline" size={28} color="#CCC" />
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.productInfoSection}>
+                      <Text style={styles.productNameText} numberOfLines={1}>
+                        {product.product_name}
+                      </Text>
+                      <Text style={styles.productPriceText} numberOfLines={1}>
+                        {product.product_price}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
 
@@ -1143,6 +1269,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     marginTop: 8,
+  },
+  productCard: {
+    width: 150,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginRight: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  productImageContainer: {
+    width: '100%',
+    height: 110,
+    backgroundColor: '#F0F0F0',
+  },
+  productImage: {
+    width: '100%',
+    height: 110,
+  },
+  productImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8F8F8',
+  },
+  productInfoSection: {
+    padding: 10,
+  },
+  productNameText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  productPriceText: {
+    fontSize: 13,
+    color: '#28A745',
+    fontWeight: '600',
   },
 });
 
