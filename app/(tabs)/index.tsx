@@ -93,8 +93,41 @@ const HomeScreen = () => {
   );
 
   const checkSellerStatus = async () => {
-    const status = await AsyncStorage.getItem("sellerStatus");
-    setSellerStatus(status);
+    try {
+      const status = await AsyncStorage.getItem("sellerStatus");
+      setSellerStatus(status?.toLowerCase() || null);
+
+      // Also refresh from API to keep in sync
+      const token = await AsyncStorage.getItem("token");
+      if (token) {
+        const decoded: any = jwtDecode(token);
+        const headers = { Authorization: `Bearer ${token}` };
+        try {
+          const companyRes = await axios.get(
+            `${API_URL}/company/get/user/${decoded.user_id}`,
+            { headers }
+          );
+          const companyData = companyRes.data?.data?.company || companyRes.data?.data;
+          if (companyData?.company_id) {
+            await AsyncStorage.setItem("companyId", companyData.company_id);
+            const appRes = await axios.get(
+              `${API_URL}/company/application/get/company/${companyData.company_id}`,
+              { headers }
+            );
+            const appData = appRes.data?.data?.application || appRes.data?.data;
+            if (appData?.status) {
+              const normalizedStatus = appData.status.toLowerCase();
+              await AsyncStorage.setItem("sellerStatus", normalizedStatus);
+              setSellerStatus(normalizedStatus);
+            }
+          }
+        } catch {
+          // Company not found - user is not a seller
+        }
+      }
+    } catch (error) {
+      console.error("Error checking seller status:", error);
+    }
   };
 
   const loadData = async () => {
@@ -217,7 +250,7 @@ const HomeScreen = () => {
   return (
     <View style={styles.container}>
       {/* Become Seller Toaster - only show if not approved */}
-      {sellerStatus !== "approved" && (
+      {sellerStatus?.toLowerCase() !== "approved" && (
         <BecomeSellerToaster
           key={toasterKey}
           visible={showToaster}

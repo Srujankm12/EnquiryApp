@@ -172,18 +172,19 @@ const MenuScreen: React.FC = () => {
   ];
 
   const getVisibleMenuItems = (): MenuItem[] => {
+    const normalizedStatus = sellerStatus?.toLowerCase();
     return allMenuItems.filter((item) => {
       switch (item.condition) {
         case 'always':
           return true;
         case 'seller':
-          return sellerStatus === 'approved';
+          return normalizedStatus === 'approved';
         case 'seller-profile':
-          return sellerStatus === 'approved';
+          return normalizedStatus === 'approved';
         case 'not-seller':
-          return sellerStatus !== 'approved' && sellerStatus !== 'pending';
+          return normalizedStatus !== 'approved' && normalizedStatus !== 'pending';
         case 'has-application':
-          return sellerStatus === 'pending' || sellerStatus === 'rejected';
+          return normalizedStatus === 'pending' || normalizedStatus === 'rejected';
         default:
           return true;
       }

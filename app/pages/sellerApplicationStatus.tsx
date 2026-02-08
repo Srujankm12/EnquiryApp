@@ -119,7 +119,7 @@ const SellerApplicationStatus: React.FC = () => {
         const appData = appResult.data?.application || appResult.data;
         setApplication(appData);
         if (appData?.status) {
-          await AsyncStorage.setItem("sellerStatus", appData.status);
+          await AsyncStorage.setItem("sellerStatus", appData.status.toLowerCase());
         }
       }
 
