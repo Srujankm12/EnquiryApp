@@ -39,6 +39,7 @@ const ProductDetailScreen = () => {
   const [ratings, setRatings] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [companyInfo, setCompanyInfo] = useState<any>(null);
 
   useEffect(() => {
     fetchProductDetails();
@@ -63,6 +64,21 @@ const ProductDetailScreen = () => {
         setProduct(data.product || null);
         setImages(data.images || []);
         setRatingInfo(data.rating_info || null);
+
+        // Fetch company info for the product
+        const productCompanyId = (data.product || data)?.company_id;
+        if (productCompanyId) {
+          try {
+            const companyRes = await axios.get(
+              `${API_URL}/company/get/complete/${productCompanyId}`,
+              { headers }
+            );
+            const companyData = companyRes.data.data?.company_details?.company || companyRes.data.data?.company || companyRes.data.data;
+            setCompanyInfo(companyData);
+          } catch {
+            setCompanyInfo(null);
+          }
+        }
       }
 
       // Fetch ratings
@@ -262,6 +278,46 @@ const ProductDetailScreen = () => {
             <Text style={styles.descriptionText}>{product.product_description}</Text>
           </View>
         </View>
+
+        {/* Seller Info */}
+        {companyInfo && (
+          <TouchableOpacity
+            style={styles.sellerCard}
+            activeOpacity={0.7}
+            onPress={() =>
+              router.push({
+                pathname: '/pages/bussinesProfile' as any,
+                params: { company_id: companyInfo.company_id },
+              })
+            }
+          >
+            <View style={styles.sellerHeader}>
+              {companyInfo.company_profile_url ? (
+                <Image
+                  source={{ uri: getImageUri(companyInfo.company_profile_url)! }}
+                  style={styles.sellerLogo}
+                />
+              ) : (
+                <View style={[styles.sellerLogo, styles.sellerLogoPlaceholder]}>
+                  <Ionicons name="business" size={24} color="#0078D7" />
+                </View>
+              )}
+              <View style={styles.sellerInfo}>
+                <Text style={styles.sellerName}>{companyInfo.company_name}</Text>
+                <Text style={styles.sellerLocation}>
+                  {companyInfo.company_city}, {companyInfo.company_state}
+                </Text>
+                {companyInfo.is_verified && (
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="shield-checkmark" size={12} color="#28A745" />
+                    <Text style={styles.verifiedText}>Verified Seller</Text>
+                  </View>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#999" />
+            </View>
+          </TouchableOpacity>
+        )}
 
         {/* Ratings & Reviews */}
         {ratings.length > 0 && (
@@ -493,6 +549,58 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     lineHeight: 22,
+  },
+  sellerCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  sellerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sellerLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#F0F0F0',
+  },
+  sellerLogoPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E3F2FD',
+  },
+  sellerInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  sellerName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 2,
+  },
+  sellerLocation: {
+    fontSize: 13,
+    color: '#888',
+    marginBottom: 4,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  verifiedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#28A745',
   },
   reviewsSection: {
     marginHorizontal: 16,

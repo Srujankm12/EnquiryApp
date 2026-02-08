@@ -87,13 +87,14 @@ const SellerApplicationStatus: React.FC = () => {
       // Get user's company
       const companyRes = await fetch(`${API_URL}/company/get/user/${userId}`, { headers });
 
-      if (companyRes.status === 404) {
+      if (companyRes.status === 404 || companyRes.status === 400) {
+        // No company found - seller account not created yet
         setApplication(null);
         setCompany(null);
         return;
       }
 
-      if (!companyRes.ok) throw new Error("Failed to fetch company");
+      if (!companyRes.ok) throw new Error("Failed to fetch company details");
 
       const companyResult = await companyRes.json();
       const companyData = companyResult.data?.company || companyResult.data;
@@ -195,9 +196,9 @@ const SellerApplicationStatus: React.FC = () => {
           color: "#6C757D",
           bgColor: "#E2E3E5",
           borderColor: "#D6D8DB",
-          title: "No Application Found",
+          title: "Seller Account Not Created",
           message:
-            "You haven't submitted a seller application yet. Start the process to become a seller.",
+            "You haven't created a seller account yet. Start the application process to become a seller and list your products.",
         };
     }
   };

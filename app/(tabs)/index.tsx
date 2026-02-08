@@ -195,15 +195,54 @@ const HomeScreen = () => {
   const fetchProducts = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
+      if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
-      const res = await axios.get(`${API_URL}/product/get/all`, { headers });
-      const productsData = res.data?.data?.products || res.data?.data || [];
-      const activeProducts = (Array.isArray(productsData) ? productsData : [])
-        .filter((p: any) => p.is_product_active);
+      const decoded: any = jwtDecode(token);
+      const userId = decoded.user_id;
+
+      // Get list of companies the user follows
+      let followedCompanyIds: string[] = [];
+      try {
+        const followingRes = await axios.get(
+          `${API_URL}/company/followers/get/user/${userId}`,
+          { headers }
+        );
+        const companies = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        followedCompanyIds = (Array.isArray(companies) ? companies : []).map(
+          (c: any) => c.company_id
+        );
+      } catch {
+        followedCompanyIds = [];
+      }
+
+      if (followedCompanyIds.length === 0) {
+        setProducts([]);
+        return;
+      }
+
+      // Fetch products from each followed company
+      let allProducts: any[] = [];
+      await Promise.all(
+        followedCompanyIds.map(async (companyId: string) => {
+          try {
+            const res = await axios.get(
+              `${API_URL}/product/get/company/${companyId}`,
+              { headers }
+            );
+            const productsData = res.data?.data?.products || res.data?.data || [];
+            const active = (Array.isArray(productsData) ? productsData : []).filter(
+              (p: any) => p.is_product_active
+            );
+            allProducts = [...allProducts, ...active];
+          } catch {
+            // Company may have no products
+          }
+        })
+      );
 
       // Fetch images for first 6 products
       const productsWithImages = await Promise.all(
-        activeProducts.slice(0, 6).map(async (product: any) => {
+        allProducts.slice(0, 6).map(async (product: any) => {
           try {
             const imgRes = await axios.get(
               `${API_URL}/product/image/get/${product.product_id}`,

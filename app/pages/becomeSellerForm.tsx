@@ -112,8 +112,8 @@ const BecomeSellerFlow = () => {
 
       console.log("📡 Response status:", response.status);
 
-      if (response.status === 404) {
-        console.log("✅ No company (404) - NEW USER");
+      if (response.status === 404 || response.status === 400) {
+        console.log("✅ No company found - NEW USER (Seller account not created yet)");
         await AsyncStorage.multiRemove([
           "companyId",
           "sellerStatus",
