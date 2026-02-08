@@ -24,6 +24,12 @@ const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 interface CompanyDetails {
   company_id: string;
   user_id: string;
@@ -159,7 +165,7 @@ const SellerProfile = () => {
           axios.get(`${API_URL}/company/rating/get/all/${companyId}`, { headers }),
           axios.get(`${API_URL}/company/rating/get/average/${companyId}`, { headers }),
           axios.get(`${API_URL}/company/followers/count/${companyId}`, { headers }),
-          axios.get(`${API_URL}/company/followers/is-following/${companyId}`, { headers }),
+          axios.get(`${API_URL}/company/followers/is-following/${companyId}?user_id=${decoded.user_id}`, { headers }),
           axios.get(`${API_URL}/company/social/get/${companyId}`, { headers }),
           axios.get(`${API_URL}/product/get/all`, { headers }),
         ]);
@@ -246,57 +252,49 @@ const SellerProfile = () => {
     loadProfile();
   };
 
- const handleFollow = async () => {
-  try {
-    const token = await AsyncStorage.getItem('token');
-    if (!token) {
-      Alert.alert('Error', 'Authentication token missing');
-      return;
-    }
+  const handleFollow = async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Error', 'Authentication token missing');
+        return;
+      }
 
-    const decoded: any = jwtDecode(token);
-    const userId = decoded?.user_id;
+      const decoded: any = jwtDecode(token);
+      const userId = decoded?.user_id;
+      const currentCompanyId = company?.company_id;
 
-    if (!userId || !companyId) {
-      Alert.alert('Error', 'Invalid user or company');
-      return;
-    }
+      if (!userId || !currentCompanyId) {
+        Alert.alert('Error', 'Invalid user or company');
+        return;
+      }
 
-    const headers = { Authorization: `Bearer ${token}` };
+      const headers = { Authorization: `Bearer ${token}` };
 
-    if (isFollowing) {
-      await axios.delete(
-        `${API_URL}/company/unfollow/${companyId}`,
-        {
-          headers,
-          data: {
-            user_id: userId,
-            company_id: companyId,
-          },
-        }
+      if (isFollowing) {
+        await axios.delete(
+          `${API_URL}/company/unfollow/${currentCompanyId}/${userId}`,
+          { headers }
+        );
+        setFollowerCount((prev) => Math.max(0, prev - 1));
+      } else {
+        await axios.post(
+          `${API_URL}/company/follow/${currentCompanyId}/${userId}`,
+          {},
+          { headers }
+        );
+        setFollowerCount((prev) => prev + 1);
+      }
+
+      setIsFollowing((prev) => !prev);
+    } catch (error: any) {
+      console.error('Error toggling follow:', error?.response?.data || error);
+      Alert.alert(
+        'Error',
+        error?.response?.data?.message || 'Failed to update follow status'
       );
-      setFollowerCount((prev) => Math.max(0, prev - 1));
-    } else {
-      await axios.post(
-        `${API_URL}/company/follow/${companyId}`,
-        {
-          user_id: userId,
-          company_id: companyId,
-        },
-        { headers }
-      );
-      setFollowerCount((prev) => prev + 1);
     }
-
-    setIsFollowing((prev) => !prev);
-  } catch (error: any) {
-    console.error('Error toggling follow:', error?.response?.data || error);
-    Alert.alert(
-      'Error',
-      error?.response?.data?.message || 'Failed to update follow status'
-    );
-  }
-};
+  };
 
 
   const handleSubmitRating = async () => {
@@ -499,7 +497,7 @@ const SellerProfile = () => {
             <View style={styles.logoContainer}>
               {company.company_profile_url ? (
                 <Image
-                  source={{ uri: `${S3_URL}/${company.company_profile_url}` }}
+                  source={{ uri: getImageUri(company.company_profile_url)! }}
                   style={styles.logo}
                 />
               ) : (
@@ -692,10 +690,10 @@ const SellerProfile = () => {
               {products.map((product) => {
                 const imageUrl =
                   product.images && product.images.length > 0
-                    ? `${S3_URL}/${[...product.images].sort(
+                    ? getImageUri([...product.images].sort(
                         (a: any, b: any) =>
                           a.product_image_sequence_number - b.product_image_sequence_number
-                      )[0].product_image_url}`
+                      )[0].product_image_url)
                     : null;
 
                 return (

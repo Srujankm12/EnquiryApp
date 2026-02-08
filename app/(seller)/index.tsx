@@ -23,6 +23,12 @@ const { width } = Dimensions.get("window");
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 const SellerHomeScreen = () => {
   const [loading, setLoading] = useState(true);
   const [userDetails, setUserDetails] = useState<any>(null);
@@ -173,7 +179,7 @@ const SellerHomeScreen = () => {
                 {companyDetails.company_profile_url ? (
                   <Image
                     source={{
-                      uri: `${S3_URL}/${companyDetails.company_profile_url}`,
+                      uri: getImageUri(companyDetails.company_profile_url)!,
                     }}
                     style={styles.companyLogo}
                   />
@@ -301,7 +307,7 @@ const SellerHomeScreen = () => {
                   onPress={() => handleCategoryPress(item)}
                 >
                   <Image
-                    source={{ uri: `${S3_URL}/${item.category_image_url}` }}
+                    source={{ uri: getImageUri(item.category_image_url)! }}
                     style={styles.categoryImage}
                   />
                   <Text style={styles.categoryName}>{item.category_name}</Text>

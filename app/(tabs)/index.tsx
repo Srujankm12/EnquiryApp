@@ -24,6 +24,12 @@ const { width } = Dimensions.get("window");
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 const BANNERS = [
   {
     id: "1",
@@ -69,6 +75,7 @@ const HomeScreen = () => {
   const [userDetails, setUserDetails] = useState<any>(null);
   const [categories, setCategories] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [showToaster, setShowToaster] = useState(true);
   const [toasterKey, setToasterKey] = useState(0);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
@@ -93,7 +100,7 @@ const HomeScreen = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      await Promise.all([getProfile(), fetchCategories(), fetchCompanies()]);
+      await Promise.all([getProfile(), fetchCategories(), fetchCompanies(), fetchProducts()]);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -150,6 +157,45 @@ const HomeScreen = () => {
     } catch (error) {
       console.error("Error fetching companies:", error);
     }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await axios.get(`${API_URL}/product/get/all`, { headers });
+      const productsData = res.data?.data?.products || res.data?.data || [];
+      const activeProducts = (Array.isArray(productsData) ? productsData : [])
+        .filter((p: any) => p.is_product_active);
+
+      // Fetch images for first 6 products
+      const productsWithImages = await Promise.all(
+        activeProducts.slice(0, 6).map(async (product: any) => {
+          try {
+            const imgRes = await axios.get(
+              `${API_URL}/product/image/get/${product.product_id}`,
+              { headers }
+            );
+            return { ...product, images: imgRes.data.data?.images || [] };
+          } catch {
+            return { ...product, images: [] };
+          }
+        })
+      );
+      setProducts(productsWithImages);
+    } catch (error) {
+      console.error("Error fetching products:", error);
+    }
+  };
+
+  const getProductImageUrl = (product: any): string | null => {
+    if (product.images && product.images.length > 0) {
+      const sorted = [...product.images].sort(
+        (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
+      );
+      return getImageUri(sorted[0].product_image_url);
+    }
+    return null;
   };
 
   const handleCategoryPress = (category: any) => {
@@ -270,13 +316,68 @@ const HomeScreen = () => {
                   onPress={() => handleCategoryPress(item)}
                 >
                   <Image
-                    source={{ uri: `${S3_URL}/${item.category_image_url}` }}
+                    source={{ uri: getImageUri(item.category_image_url)! }}
                     style={styles.categoryImage}
                   />
                   <Text style={styles.categoryName}>{item.category_name}</Text>
                 </TouchableOpacity>
               )}
               keyExtractor={(item) => item.category_id}
+            />
+          </View>
+        )}
+
+        {/* Products */}
+        {products.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Products</Text>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/listing" as any)}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={products}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalList}
+              renderItem={({ item }) => {
+                const imageUrl = getProductImageUrl(item);
+                return (
+                  <TouchableOpacity
+                    style={styles.productCard}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/pages/productDetail" as any,
+                        params: { product_id: item.product_id },
+                      })
+                    }
+                  >
+                    <View style={styles.productImageContainer}>
+                      {imageUrl ? (
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.productImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.productImagePlaceholder}>
+                          <Ionicons name="cube-outline" size={28} color="#CCC" />
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.productInfo}>
+                      <Text style={styles.productName} numberOfLines={1}>
+                        {item.product_name}
+                      </Text>
+                      <Text style={styles.productPrice} numberOfLines={1}>
+                        {item.product_price}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+              keyExtractor={(item) => item.product_id}
             />
           </View>
         )}
@@ -311,7 +412,7 @@ const HomeScreen = () => {
                     {item.company_profile_url ? (
                       <Image
                         source={{
-                          uri: `${S3_URL}/${item.company_profile_url}`,
+                          uri: getImageUri(item.company_profile_url)!,
                         }}
                         style={styles.companyImage}
                       />
@@ -580,6 +681,48 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
     color: "#28A745",
+  },
+  productCard: {
+    width: 150,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    marginRight: 12,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  productImageContainer: {
+    width: "100%",
+    height: 110,
+    backgroundColor: "#F0F0F0",
+  },
+  productImage: {
+    width: "100%",
+    height: 110,
+  },
+  productImagePlaceholder: {
+    width: "100%",
+    height: 110,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8F8F8",
+  },
+  productInfo: {
+    padding: 10,
+  },
+  productName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    marginBottom: 4,
+  },
+  productPrice: {
+    fontSize: 13,
+    color: "#28A745",
+    fontWeight: "600",
   },
 });
 

@@ -117,7 +117,7 @@ const MenuScreen: React.FC = () => {
       route: 'pages/myProducts',
       color: '#177DDF',
       gradientColors: ['#177DDF', '#1567BF'],
-      condition: 'always',
+      condition: 'seller',
     },
     {
       id: '5',

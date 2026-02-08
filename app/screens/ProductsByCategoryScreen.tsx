@@ -21,6 +21,12 @@ const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
+
 interface Product {
   product_id: string;
   product_name: string;
@@ -122,7 +128,7 @@ const ProductsByCategoryScreen = () => {
       const sortedImages = [...product.images].sort(
         (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
       );
-      return `${S3_URL}/${sortedImages[0].product_image_url}`;
+      return getImageUri(sortedImages[0].product_image_url);
     }
     return null;
   };
