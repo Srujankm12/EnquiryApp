@@ -70,6 +70,8 @@ const AddProductsScreen: React.FC = () => {
   // Images
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
 
+  const [companyId, setCompanyId] = useState<string | null>(null);
+
   useEffect(() => {
     checkSellerStatus();
     fetchCategories();
@@ -77,7 +79,8 @@ const AddProductsScreen: React.FC = () => {
 
   const checkSellerStatus = async () => {
     const status = await AsyncStorage.getItem('sellerStatus');
-    if (status?.toLowerCase() !== 'approved') {
+    const storedCompanyId = await AsyncStorage.getItem('companyId');
+    if (status?.toLowerCase() !== 'approved' || !storedCompanyId) {
       setIsSeller(false);
       Alert.alert(
         'Access Denied',
@@ -86,6 +89,7 @@ const AddProductsScreen: React.FC = () => {
       );
     } else {
       setIsSeller(true);
+      setCompanyId(storedCompanyId);
     }
   };
 
@@ -253,8 +257,14 @@ const AddProductsScreen: React.FC = () => {
         'Content-Type': 'application/json',
       };
 
+      if (!companyId) {
+        Alert.alert('Error', 'Company information not found. Please try again.');
+        return;
+      }
+
       // Create product
       const productData: any = {
+        company_id: companyId,
         product_name: productName.trim(),
         product_description: productDescription.trim(),
         product_quantity: productQuantity.trim(),

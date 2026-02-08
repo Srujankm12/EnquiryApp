@@ -11,12 +11,12 @@ import {
   TouchableOpacity,
   View,
   RefreshControl,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import Constants from "expo-constants";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { jwtDecode } from "jwt-decode";
 
 const { width } = Dimensions.get("window");
 
@@ -37,6 +37,7 @@ const ListingsScreen: React.FC = () => {
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [products, setProducts] = useState<any[]>([]);
+  const [followedCompanyIds, setFollowedCompanyIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,15 +49,34 @@ const ListingsScreen: React.FC = () => {
       setLoading(true);
       setError(null);
       const token = await AsyncStorage.getItem("token");
+      if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
+      const decoded: any = jwtDecode(token);
+      const userId = decoded.user_id;
 
       // Fetch categories
       const catRes = await axios.get(`${API_URL}/category/get/complete/all`, { headers });
       const cats = catRes.data.data?.categories || [];
       setCategories(cats);
 
-      // Fetch all products
-      await fetchProducts(null, headers);
+      // Get followed companies
+      let companyIds: string[] = [];
+      try {
+        const followingRes = await axios.get(
+          `${API_URL}/company/followers/get/user/${userId}`,
+          { headers }
+        );
+        const companies = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        companyIds = (Array.isArray(companies) ? companies : []).map(
+          (c: any) => c.company_id
+        );
+      } catch {
+        companyIds = [];
+      }
+      setFollowedCompanyIds(companyIds);
+
+      // Fetch products from followed companies
+      await fetchProductsFromFollowed(null, companyIds, headers);
     } catch (error: any) {
       console.error("Error loading data:", error);
       setError("Unable to load products. Please try again.");
@@ -65,36 +85,72 @@ const ListingsScreen: React.FC = () => {
     }
   };
 
-  const fetchProducts = async (categoryId: string | null, headers?: any) => {
+  const fetchProductsFromFollowed = async (
+    categoryId: string | null,
+    companyIds: string[],
+    headers?: any
+  ) => {
     try {
       if (!headers) {
         const token = await AsyncStorage.getItem("token");
         headers = { Authorization: `Bearer ${token}` };
       }
 
-      let endpoint = `${API_URL}/product/get/all`;
-      if (categoryId) {
-        endpoint = `${API_URL}/product/get/category/${categoryId}`;
+      if (companyIds.length === 0) {
+        setProducts([]);
+        return;
       }
 
-      const res = await axios.get(endpoint, { headers });
-      const productsData = res.data.data?.products || res.data.data || [];
+      let allProducts: any[] = [];
+
+      if (categoryId) {
+        // Fetch by category, then filter by followed companies
+        try {
+          const res = await axios.get(
+            `${API_URL}/product/get/category/${categoryId}`,
+            { headers }
+          );
+          const productsData = res.data.data?.products || res.data.data || [];
+          allProducts = (Array.isArray(productsData) ? productsData : []).filter(
+            (p: any) => p.is_product_active && companyIds.includes(p.company_id)
+          );
+        } catch (err: any) {
+          if (err.response?.status !== 404) throw err;
+        }
+      } else {
+        // Fetch from each followed company
+        await Promise.all(
+          companyIds.map(async (companyId: string) => {
+            try {
+              const res = await axios.get(
+                `${API_URL}/product/get/company/${companyId}`,
+                { headers }
+              );
+              const productsData = res.data?.data?.products || res.data?.data || [];
+              const active = (Array.isArray(productsData) ? productsData : []).filter(
+                (p: any) => p.is_product_active
+              );
+              allProducts = [...allProducts, ...active];
+            } catch {
+              // Company may have no products
+            }
+          })
+        );
+      }
 
       // Fetch images for products
       const productsWithImages = await Promise.all(
-        (Array.isArray(productsData) ? productsData : [])
-          .filter((p: any) => p.is_product_active)
-          .map(async (product: any) => {
-            try {
-              const imgRes = await axios.get(
-                `${API_URL}/product/image/get/${product.product_id}`,
-                { headers }
-              );
-              return { ...product, images: imgRes.data.data?.images || [] };
-            } catch {
-              return { ...product, images: [] };
-            }
-          })
+        allProducts.map(async (product: any) => {
+          try {
+            const imgRes = await axios.get(
+              `${API_URL}/product/image/get/${product.product_id}`,
+              { headers }
+            );
+            return { ...product, images: imgRes.data.data?.images || [] };
+          } catch {
+            return { ...product, images: [] };
+          }
+        })
       );
 
       setProducts(productsWithImages);
@@ -110,13 +166,13 @@ const ListingsScreen: React.FC = () => {
   const handleCategorySelect = async (categoryId: string | null) => {
     setSelectedCategory(categoryId);
     setLoading(true);
-    await fetchProducts(categoryId);
+    await fetchProductsFromFollowed(categoryId, followedCompanyIds);
     setLoading(false);
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchProducts(selectedCategory);
+    await loadInitialData();
     setRefreshing(false);
   };
 
@@ -146,7 +202,7 @@ const ListingsScreen: React.FC = () => {
     });
   };
 
-  const renderProductCard = (product: any) => {
+  const renderProductCard = (product: any, index: number) => {
     const imageUrl = getProductImageUrl(product);
 
     return (
@@ -169,17 +225,15 @@ const ListingsScreen: React.FC = () => {
           <Text style={styles.productName} numberOfLines={1}>
             {product.product_name}
           </Text>
-          <View style={styles.productBottom}>
-            <View>
-              <Text style={styles.productQty}>Qty: {product.product_quantity}</Text>
-              <Text style={styles.productPrice}>
-                Price: {product.product_price}
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.enquireButton}>
-              <Text style={styles.enquireButtonText}>Enquire</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.productQty} numberOfLines={1}>
+            Qty: {product.product_quantity}
+          </Text>
+          <Text style={styles.productPrice} numberOfLines={1}>
+            {product.product_price}
+          </Text>
+          <TouchableOpacity style={styles.enquireButton}>
+            <Text style={styles.enquireButtonText}>Enquire</Text>
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
@@ -270,12 +324,27 @@ const ListingsScreen: React.FC = () => {
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
+      ) : followedCompanyIds.length === 0 ? (
+        <View style={styles.loaderContainer}>
+          <Ionicons name="people-outline" size={64} color="#CCC" />
+          <Text style={styles.emptyText}>No followed companies</Text>
+          <Text style={styles.emptySubtext}>
+            Follow companies from the Seller Directory to see their products here
+          </Text>
+          <TouchableOpacity
+            style={styles.browseButton}
+            onPress={() => router.push("/pages/sellerDirectory" as any)}
+          >
+            <Ionicons name="search-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.browseButtonText}>Browse Sellers</Text>
+          </TouchableOpacity>
+        </View>
       ) : filteredProducts.length === 0 ? (
         <View style={styles.loaderContainer}>
           <Ionicons name="cube-outline" size={64} color="#CCC" />
           <Text style={styles.emptyText}>No products found</Text>
           <Text style={styles.emptySubtext}>
-            {searchQuery ? "Try a different search term" : "No products available in this category"}
+            {searchQuery ? "Try a different search term" : "No products available in this category from followed companies"}
           </Text>
         </View>
       ) : (
@@ -290,13 +359,9 @@ const ListingsScreen: React.FC = () => {
           <Text style={styles.resultCount}>
             {filteredProducts.length} product{filteredProducts.length !== 1 ? "s" : ""} found
           </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.productsHorizontalContent}
-          >
-            {filteredProducts.map((product) => renderProductCard(product))}
-          </ScrollView>
+          <View style={styles.productsGrid}>
+            {filteredProducts.map((product, index) => renderProductCard(product, index))}
+          </View>
         </ScrollView>
       )}
     </View>
@@ -419,28 +484,45 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  browseButton: {
+    marginTop: 20,
+    backgroundColor: "#1E90FF",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  browseButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
   productsScrollView: {
     flex: 1,
   },
   productsContent: {
     paddingBottom: 100,
+    paddingHorizontal: 12,
   },
   resultCount: {
     fontSize: 14,
     color: "#888",
-    paddingHorizontal: 16,
+    paddingHorizontal: 4,
     marginBottom: 12,
     fontWeight: "500",
   },
-  productsHorizontalContent: {
-    paddingHorizontal: 16,
-    paddingRight: 16,
+  productsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
   },
   productCard: {
-    width: 250,
+    width: (width - 36) / 2,
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    marginRight: 12,
+    marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -465,41 +547,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#F8F8F8",
   },
-  productBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
   productInfo: {
-    padding: 12,
+    padding: 10,
   },
   productName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: "#000",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   productQty: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#666",
+    marginBottom: 2,
   },
   productPrice: {
     fontSize: 13,
     color: "#28A745",
     fontWeight: "600",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   enquireButton: {
     backgroundColor: "#1E90FF",
     paddingVertical: 8,
-    paddingHorizontal: 16,
     borderRadius: 6,
-    alignSelf: "flex-start",
-    marginLeft: 12,
-    marginBottom: 12,
+    alignItems: "center",
   },
   enquireButtonText: {
     color: "#FFFFFF",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
   },
 });

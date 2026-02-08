@@ -73,9 +73,15 @@ const MyProductsScreen: React.FC = () => {
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
+      const storedCompanyId = await AsyncStorage.getItem('companyId');
 
-      // Fetch all products (seller sees their own)
-      const res = await axios.get(`${API_URL}/product/get/all`, { headers });
+      // Fetch products by company_id (seller sees their own)
+      let res;
+      if (storedCompanyId) {
+        res = await axios.get(`${API_URL}/product/get/company/${storedCompanyId}`, { headers });
+      } else {
+        res = await axios.get(`${API_URL}/product/get/all`, { headers });
+      }
       const productsData = res.data.data?.products || res.data.data || [];
 
       // Fetch images for each product

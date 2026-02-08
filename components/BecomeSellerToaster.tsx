@@ -131,14 +131,14 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
               ? 'Application Under Review'
               : isRejected
               ? 'Application Rejected'
-              : 'Become a Seller'}
+              : 'Seller Account Not Created'}
           </Text>
           <Text style={styles.subtitle}>
             {isPending
               ? 'Tap to check status'
               : isRejected
               ? 'Tap to resubmit'
-              : 'Start selling now!'}
+              : 'Tap to become a seller and start selling!'}
           </Text>
         </View>
 

@@ -11,135 +11,106 @@ import {
   Dimensions,
   RefreshControl,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { jwtDecode } from 'jwt-decode';
+import axios from 'axios';
+import Constants from 'expo-constants';
 
 const { width } = Dimensions.get('window');
 
-interface Location {
-  id: string;
-  name: string;
-  isSelected: boolean;
-}
+const API_URL = Constants.expoConfig?.extra?.API_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
-interface Category {
-  id: string;
-  name: string;
-  isSelected: boolean;
-}
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${S3_URL}/${url}`;
+};
 
-interface Seller {
-  id: string;
-  name: string;
-  rating: number;
-  location: string;
-  city: string;
-  image: string;
-  isFollowing: boolean;
+interface CompanyInfo {
+  company_id: string;
+  user_id: string;
+  company_name: string;
+  company_email: string;
+  company_phone: string;
+  company_profile_url: string | null;
+  company_address: string;
+  company_city: string;
+  company_state: string;
+  is_approved: boolean;
+  is_verified: boolean;
 }
 
 const SellerDirectoryScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [sellers, setSellers] = useState<Seller[]>([]);
-  const [filteredSellers, setFilteredSellers] = useState<Seller[]>([]);
+  const [companies, setCompanies] = useState<CompanyInfo[]>([]);
+  const [followedCompanyIds, setFollowedCompanyIds] = useState<Set<string>>(new Set());
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [categories, setCategories] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    filterSellers();
-  }, [searchQuery, locations, categories, sellers]);
-
   const fetchData = async () => {
     setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return;
 
-    // Simulate API call delay
-    setTimeout(() => {
-      // Dummy locations data
-      const dummyLocations: Location[] = [
-        { id: '1', name: 'Banglore', isSelected: true },
-        { id: '2', name: 'Manglore', isSelected: false },
-        { id: '3', name: 'Karkala', isSelected: false },
-        { id: '4', name: 'Invali', isSelected: false },
-      ];
+      const decoded: any = jwtDecode(token);
+      const currentUserId = decoded.user_id;
+      setUserId(currentUserId);
+      const headers = { Authorization: `Bearer ${token}` };
 
-      // Dummy categories data
-      const dummyCategories: Category[] = [
-        { id: '1', name: 'Cashew', isSelected: true },
-        { id: '2', name: 'Almond', isSelected: false },
-        { id: '3', name: 'Dates', isSelected: false },
-        { id: '4', name: 'Pista', isSelected: false },
-      ];
+      // Fetch all approved companies
+      let allCompanies: CompanyInfo[] = [];
+      try {
+        const res = await axios.get(`${API_URL}/company/get/all`, { headers });
+        const data = res.data?.data?.companies || res.data?.data || [];
+        allCompanies = (Array.isArray(data) ? data : []).filter(
+          (c: CompanyInfo) => c.is_approved
+        );
+      } catch {
+        allCompanies = [];
+      }
+      setCompanies(allCompanies);
 
-      // Dummy sellers data
-      const dummySellers: Seller[] = [
-        {
-          id: '1',
-          name: 'Crunchy Cashews',
-          rating: 4.5,
-          location: 'Deelban Poojary',
-          city: 'Banglore',
-          image: 'https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=400',
-          isFollowing: false,
-        },
-        {
-          id: '2',
-          name: 'Bolas',
-          rating: 4.0,
-          location: 'Shivaram HR',
-          city: 'Banglore',
-          image: 'https://images.unsplash.com/photo-1621939514649-280e2ee25f60?w=400',
-          isFollowing: false,
-        },
-        {
-          id: '3',
-          name: 'Kade Cashew',
-          rating: 4.5,
-          location: 'Lorem Ipsum',
-          city: 'Banglore',
-          image: 'https://images.unsplash.com/photo-1599599811136-68bce28283d3?w=400',
-          isFollowing: false,
-        },
-        {
-          id: '4',
-          name: 'Sri Saraswathi Cashews',
-          rating: 5.0,
-          location: 'Sathvik KD',
-          city: 'Banglore',
-          image: 'https://images.unsplash.com/photo-1508061253366-f7da158b6d46?w=400',
-          isFollowing: false,
-        },
-        {
-          id: '5',
-          name: 'Kaibavi',
-          rating: 4.5,
-          location: 'Samarth k',
-          city: 'Manglore',
-          image: 'https://images.unsplash.com/photo-1587049352846-4a222e784e38?w=400',
-          isFollowing: false,
-        },
-        {
-          id: '6',
-          name: 'Cashew Coast.',
-          rating: 4.0,
-          location: 'Suresh HL',
-          city: 'Banglore',
-          image: 'https://images.unsplash.com/photo-1568164420504-33f736f85d4f?w=400',
-          isFollowing: false,
-        },
-      ];
+      // Fetch categories
+      try {
+        const catRes = await axios.get(`${API_URL}/category/get/complete/all`, { headers });
+        setCategories(catRes.data.data?.categories || []);
+      } catch {
+        setCategories([]);
+      }
 
-      setLocations(dummyLocations);
-      setCategories(dummyCategories);
-      setSellers(dummySellers);
+      // Fetch user's followed companies
+      try {
+        const followingRes = await axios.get(
+          `${API_URL}/company/followers/get/user/${currentUserId}`,
+          { headers }
+        );
+        const followedData = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        const ids = new Set(
+          (Array.isArray(followedData) ? followedData : []).map((c: any) => c.company_id)
+        );
+        setFollowedCompanyIds(ids);
+      } catch {
+        setFollowedCompanyIds(new Set());
+      }
+    } catch (error) {
+      console.error('Error fetching directory:', error);
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   const onRefresh = async () => {
@@ -152,83 +123,60 @@ const SellerDirectoryScreen: React.FC = () => {
     router.back();
   };
 
-  const toggleLocation = (locationId: string) => {
-    setLocations((prev) =>
-      prev.map((loc) =>
-        loc.id === locationId
-          ? { ...loc, isSelected: !loc.isSelected }
-          : loc
-      )
-    );
-  };
+  const handleFollow = async (companyId: string) => {
+    setProcessingId(companyId);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
 
-  const toggleCategory = (categoryId: string) => {
-    setCategories((prev) =>
-      prev.map((cat) =>
-        cat.id === categoryId
-          ? { ...cat, isSelected: !cat.isSelected }
-          : cat
-      )
-    );
-  };
-
-  const toggleFollow = (sellerId: string) => {
-    setSellers((prev) =>
-      prev.map((seller) =>
-        seller.id === sellerId
-          ? { ...seller, isFollowing: !seller.isFollowing }
-          : seller
-      )
-    );
-  };
-
-  const filterSellers = () => {
-    let filtered = sellers;
-
-    // Filter by search query
-    if (searchQuery.length > 0) {
-      filtered = filtered.filter(
-        (seller) =>
-          seller.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          seller.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          seller.city.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      if (followedCompanyIds.has(companyId)) {
+        // Unfollow
+        await axios.delete(
+          `${API_URL}/company/unfollow/${companyId}/${userId}`,
+          { headers }
+        );
+        setFollowedCompanyIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(companyId);
+          return newSet;
+        });
+      } else {
+        // Follow
+        await axios.post(
+          `${API_URL}/company/follow/${companyId}/${userId}`,
+          {},
+          { headers }
+        );
+        setFollowedCompanyIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.add(companyId);
+          return newSet;
+        });
+      }
+    } catch (error: any) {
+      console.error('Error following/unfollowing:', error?.response?.data || error);
+      Alert.alert('Error', 'Failed to update follow status. Please try again.');
+    } finally {
+      setProcessingId(null);
     }
-
-    // Filter by selected locations
-    const selectedLocations = locations.filter((loc) => loc.isSelected);
-    if (selectedLocations.length > 0) {
-      filtered = filtered.filter((seller) =>
-        selectedLocations.some((loc) => seller.city === loc.name)
-      );
-    }
-
-    // Filter by selected categories (in real app, sellers would have category field)
-    const selectedCategories = categories.filter((cat) => cat.isSelected);
-    if (selectedCategories.length > 0) {
-      // In a real app, you would filter based on seller's categories
-      // For now, we'll just show all if any category is selected
-    }
-
-    setFilteredSellers(filtered);
   };
 
-  const handleProfile = (sellerId: string) => {
-    console.log(`View profile: ${sellerId}`);
-    // router.push(`/pages/sellerProfile/${sellerId}`);
+  const handleProfile = (companyId: string) => {
+    router.push({
+      pathname: '/pages/bussinesProfile' as any,
+      params: { company_id: companyId },
+    });
   };
 
-  const handleContact = (sellerId: string) => {
-    console.log(`Contact seller: ${sellerId}`);
-  };
-
-  const handleMessage = (sellerId: string) => {
-    console.log(`Message seller: ${sellerId}`);
-  };
-
-  const handleWhatsApp = (sellerId: string) => {
-    console.log(`WhatsApp seller: ${sellerId}`);
-  };
+  const filteredCompanies = companies.filter((company) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      company.company_name?.toLowerCase().includes(query) ||
+      company.company_city?.toLowerCase().includes(query) ||
+      company.company_state?.toLowerCase().includes(query)
+    );
+  });
 
   const renderStars = (rating: number) => {
     const stars = [];
@@ -262,81 +210,107 @@ const SellerDirectoryScreen: React.FC = () => {
     return <View style={styles.starsContainer}>{stars}</View>;
   };
 
-  const renderSellerCard = (seller: Seller) => (
-    <View key={seller.id} style={styles.sellerCard}>
-      {/* Seller Header */}
-      <View style={styles.sellerHeader}>
-        <Image
-          source={{ uri: seller.image }}
-          style={styles.sellerImage}
-          resizeMode="cover"
-        />
-        <View style={styles.sellerInfo}>
-          <Text style={styles.sellerName} numberOfLines={1}>
-            {seller.name}
-          </Text>
-          {renderStars(seller.rating)}
-          <Text style={styles.sellerLocation} numberOfLines={1}>
-            {seller.location}
-          </Text>
-          <Text style={styles.sellerCity} numberOfLines={1}>
-            {seller.city}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={[
-            styles.followButton,
-            seller.isFollowing && styles.followingButton,
-          ]}
-          onPress={() => toggleFollow(seller.id)}
-        >
-          <Text
+  const renderSellerCard = (company: CompanyInfo) => {
+    const isFollowing = followedCompanyIds.has(company.company_id);
+    const isProcessing = processingId === company.company_id;
+    const imageUri = getImageUri(company.company_profile_url);
+
+    return (
+      <View key={company.company_id} style={styles.sellerCard}>
+        <View style={styles.sellerHeader}>
+          {imageUri ? (
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.sellerImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.sellerImage, styles.imagePlaceholder]}>
+              <Ionicons name="business" size={24} color="#CCC" />
+            </View>
+          )}
+          <View style={styles.sellerInfo}>
+            <Text style={styles.sellerName} numberOfLines={1}>
+              {company.company_name}
+            </Text>
+            <Text style={styles.sellerLocation} numberOfLines={1}>
+              {company.company_city}, {company.company_state}
+            </Text>
+            {company.company_phone && (
+              <Text style={styles.sellerPhone} numberOfLines={1}>
+                {company.company_phone}
+              </Text>
+            )}
+            {company.is_verified && (
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="shield-checkmark" size={12} color="#28A745" />
+                <Text style={styles.verifiedText}>Verified</Text>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity
             style={[
-              styles.followButtonText,
-              seller.isFollowing && styles.followingButtonText,
+              styles.followButton,
+              isFollowing && styles.followingButton,
+              isProcessing && styles.followButtonDisabled,
             ]}
+            onPress={() => handleFollow(company.company_id)}
+            disabled={isProcessing}
           >
-            {seller.isFollowing ? 'Following' : 'Follow'}
-          </Text>
-        </TouchableOpacity>
+            {isProcessing ? (
+              <ActivityIndicator size="small" color={isFollowing ? '#177DDF' : '#FFFFFF'} />
+            ) : (
+              <Text
+                style={[
+                  styles.followButtonText,
+                  isFollowing && styles.followingButtonText,
+                ]}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => handleProfile(company.company_id)}
+          >
+            <Ionicons name="person-outline" size={18} color="#666" />
+            <Text style={styles.actionButtonText}>Profile</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => {
+              if (company.company_phone) {
+                const { Linking } = require('react-native');
+                Linking.openURL(`tel:${company.company_phone}`);
+              }
+            }}
+          >
+            <Ionicons name="call-outline" size={18} color="#666" />
+            <Text style={styles.actionButtonText}>Contact</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => {
+              if (company.company_email) {
+                const { Linking } = require('react-native');
+                Linking.openURL(`mailto:${company.company_email}`);
+              }
+            }}
+          >
+            <Ionicons name="mail-outline" size={18} color="#666" />
+            <Text style={styles.actionButtonText}>Email</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-
-      {/* Action Buttons */}
-      <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleProfile(seller.id)}
-        >
-          <Ionicons name="person-outline" size={18} color="#666" />
-          <Text style={styles.actionButtonText}>Profile</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleContact(seller.id)}
-        >
-          <Ionicons name="call-outline" size={18} color="#666" />
-          <Text style={styles.actionButtonText}>Contact</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleMessage(seller.id)}
-        >
-          <Ionicons name="mail-outline" size={18} color="#666" />
-          <Text style={styles.actionButtonText}>Message</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleWhatsApp(seller.id)}
-        >
-          <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
-          <Text style={styles.actionButtonText}>WhatsApp</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -364,7 +338,7 @@ const SellerDirectoryScreen: React.FC = () => {
         />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search..."
+          placeholder="Search sellers..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#999"
@@ -395,90 +369,23 @@ const SellerDirectoryScreen: React.FC = () => {
             />
           }
         >
-          {/* Location Filters */}
-          <View style={styles.filterSection}>
-            <View style={styles.filterRow}>
-              <Ionicons
-                name="location"
-                size={18}
-                color="#E53935"
-                style={styles.filterIcon}
-              />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.filterScroll}
-              >
-                {locations.map((location) => (
-                  <TouchableOpacity
-                    key={location.id}
-                    style={[
-                      styles.filterChip,
-                      location.isSelected && styles.filterChipSelected,
-                    ]}
-                    onPress={() => toggleLocation(location.id)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        location.isSelected && styles.filterChipTextSelected,
-                      ]}
-                    >
-                      {location.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-
-          {/* Category Filters */}
-          <View style={styles.filterSection}>
-            <View style={styles.filterRow}>
-              <Ionicons
-                name="options"
-                size={18}
-                color="#666"
-                style={styles.filterIcon}
-              />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.filterScroll}
-              >
-                {categories.map((category) => (
-                  <TouchableOpacity
-                    key={category.id}
-                    style={[
-                      styles.filterChip,
-                      category.isSelected && styles.filterChipSelected,
-                    ]}
-                    onPress={() => toggleCategory(category.id)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        category.isSelected && styles.filterChipTextSelected,
-                      ]}
-                    >
-                      {category.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
+          {/* Results count */}
+          <View style={styles.resultsHeader}>
+            <Text style={styles.resultsCount}>
+              {filteredCompanies.length} seller{filteredCompanies.length !== 1 ? 's' : ''} found
+            </Text>
           </View>
 
           {/* Sellers List */}
           <View style={styles.sellersContainer}>
-            {filteredSellers.length > 0 ? (
-              filteredSellers.map((seller) => renderSellerCard(seller))
+            {filteredCompanies.length > 0 ? (
+              filteredCompanies.map((company) => renderSellerCard(company))
             ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={64} color="#CCC" />
                 <Text style={styles.emptyText}>No sellers found</Text>
                 <Text style={styles.emptySubtext}>
-                  Try adjusting your filters or search query
+                  Try adjusting your search query
                 </Text>
               </View>
             )}
@@ -549,43 +456,17 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  filterSection: {
-    marginBottom: 12,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 16,
-  },
-  filterIcon: {
-    marginRight: 8,
-  },
-  filterScroll: {
-    flex: 1,
-  },
-  filterChip: {
-    backgroundColor: '#FFFFFF',
+  resultsHeader: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    paddingBottom: 8,
   },
-  filterChipSelected: {
-    backgroundColor: '#177DDF',
-    borderColor: '#177DDF',
-  },
-  filterChipText: {
-    fontSize: 13,
-    color: '#666',
+  resultsCount: {
+    fontSize: 14,
+    color: '#888',
     fontWeight: '500',
   },
-  filterChipTextSelected: {
-    color: '#FFFFFF',
-  },
   sellersContainer: {
-    marginTop: 8,
+    marginTop: 4,
   },
   sellerCard: {
     backgroundColor: '#FFFFFF',
@@ -610,6 +491,10 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     backgroundColor: '#E0E0E0',
   },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   sellerInfo: {
     flex: 1,
     marginLeft: 12,
@@ -629,20 +514,38 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 2,
   },
-  sellerCity: {
+  sellerPhone: {
     fontSize: 12,
     color: '#999',
+    marginBottom: 4,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  verifiedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#28A745',
   },
   followButton: {
     backgroundColor: '#177DDF',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 6,
+    minWidth: 85,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 36,
   },
   followingButton: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#177DDF',
+  },
+  followButtonDisabled: {
+    opacity: 0.7,
   },
   followButtonText: {
     fontSize: 13,
