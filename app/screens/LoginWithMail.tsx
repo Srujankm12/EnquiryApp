@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
-import Constants from "expo-constants";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useState } from "react";
@@ -20,7 +19,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const API_URL = Constants.expoConfig?.extra?.API_URL;
+const API_URL = "http://192.168.1.4:8080";
+
+interface FieldErrors {
+  email?: string;
+  password?: string;
+}
 
 const LoginScreenMail: React.FC = () => {
   const [email, setEmail] = useState("");
@@ -28,50 +32,112 @@ const LoginScreenMail: React.FC = () => {
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<FieldErrors>({});
+
+  const clearError = (field: keyof FieldErrors) => {
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const validate = (): boolean => {
+    const newErrors: FieldErrors = {};
+
+    if (email.trim() === "") {
+      newErrors.email = "Email is required";
+    } else if (
+      !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email.trim())
+    ) {
+      newErrors.email = "Enter a valid email address";
+    }
+
+    if (password === "") {
+      newErrors.password = "Password is required";
+    } else if (password.length < 8) {
+      newErrors.password = "Password must be at least 8 characters";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password");
-      return;
-    }
+    if (!validate()) return;
 
     if (!agreeToTerms) {
       Alert.alert("Error", "Please agree to the terms and conditions");
       return;
     }
 
+    console.log("=== LOGIN REQUEST ===");
+    console.log("URL:", `${API_URL}/user/login`);
+    console.log("Email:", email.trim());
+
     try {
       setLoading(true);
-      console.log(email,password)
-      console.log(API_URL)
       const res = await axios.post(`${API_URL}/user/login`, {
-        user_email:email.trim(),
-        user_password:password.trim(),
+        email: email.trim(),
+        password: password.trim(),
       });
-      console.log(res.data.data)
 
-      if (res.data.status && res.data.data.token) {
-        await AsyncStorage.setItem("token", res.data.data.token)
+      console.log("=== LOGIN SUCCESS ===");
+      console.log("Response:", JSON.stringify(res.data, null, 2));
+
+      if (res.data.token) {
+        await AsyncStorage.setItem("token", res.data.token);
         router.replace("/(tabs)");
       } else {
         Alert.alert("Login Failed", "Invalid email or password");
       }
     } catch (error: any) {
-      console.log(error.response?.data || error.message);
-      Alert.alert("Error", "Something went wrong. Try again.");
+      console.log("=== LOGIN ERROR ===");
+      console.log("Error message:", error.message);
+      console.log("Error code:", error.code);
+      console.log("Response status:", error.response?.status);
+      console.log(
+        "Response data:",
+        JSON.stringify(error.response?.data, null, 2),
+      );
+
+      // Network error — can't reach server
+      if (error.code === "ERR_NETWORK" || error.message === "Network Error") {
+        Alert.alert(
+          "Cannot Reach Server",
+          `Make sure:\n\n1. Your Go server is running\n2. Your phone and Mac are on the same WiFi\n\nCurrent URL: ${API_URL}`,
+        );
+        return;
+      }
+
+      const serverMessage: string = error.response?.data?.error ?? "";
+      const statusCode: number = error.response?.status ?? 0;
+
+      if (
+        statusCode === 401 ||
+        serverMessage.toLowerCase().includes("invalid") ||
+        serverMessage.toLowerCase().includes("password")
+      ) {
+        // Wrong credentials — show on both fields
+        setErrors({
+          email: " ", // space to trigger red border without text
+          password: "Incorrect email or password",
+        });
+      } else if (serverMessage.toLowerCase().includes("email")) {
+        setErrors({ email: "No account found with this email" });
+      } else if (statusCode === 500) {
+        Alert.alert(
+          "Server Error",
+          "The server encountered an error. Please try again later.",
+        );
+      } else {
+        Alert.alert(
+          "Login Failed",
+          serverMessage ||
+            `Error ${statusCode || "unknown"} — check console for details`,
+        );
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleGoogleLogin = () => {
-    console.log("Login with Google");
-    // Handle Google login
-  };
-
-  const handleGmailLogin = () => {
-    console.log("Login with Gmail");
-    // Handle Gmail login
   };
 
   const handleForgotPassword = () => {
@@ -82,7 +148,7 @@ const LoginScreenMail: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <StatusBar style="dark" />
@@ -119,35 +185,74 @@ const LoginScreenMail: React.FC = () => {
           </View>
 
           {/* Email Input */}
-          <View style={styles.inputContainer}>
+          <View
+            style={[
+              styles.inputContainer,
+              !!errors.email && errors.email.trim() && styles.inputError,
+            ]}
+          >
             <View style={styles.inputIconContainer}>
-              <Ionicons name="mail-outline" size={20} color="#999" />
+              <Ionicons
+                name="mail-outline"
+                size={20}
+                color={errors.email?.trim() ? "#E53E3E" : "#999"}
+              />
             </View>
             <TextInput
               style={styles.input}
               placeholder="Email"
               placeholderTextColor="#999"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => {
+                setEmail(v);
+                clearError("email");
+              }}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
+              autoCorrect={false}
+              returnKeyType="next"
             />
+            {!!errors.email?.trim() && (
+              <Ionicons
+                name="alert-circle"
+                size={18}
+                color="#E53E3E"
+                style={styles.errorIcon}
+              />
+            )}
           </View>
+          {!!errors.email?.trim() && (
+            <Text style={styles.errorText}>{errors.email}</Text>
+          )}
 
           {/* Password Input */}
-          <View style={styles.inputContainer}>
+          <View
+            style={[
+              styles.inputContainer,
+              !!errors.password && styles.inputError,
+            ]}
+          >
             <View style={styles.inputIconContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#999" />
+              <Ionicons
+                name="lock-closed-outline"
+                size={20}
+                color={errors.password ? "#E53E3E" : "#999"}
+              />
             </View>
             <TextInput
               style={[styles.input, styles.passwordInput]}
               placeholder="Password"
               placeholderTextColor="#999"
-              onChangeText={setPassword}
+              value={password}
+              onChangeText={(v) => {
+                setPassword(v);
+                clearError("password");
+              }}
               secureTextEntry={!isPasswordVisible}
               autoCapitalize="none"
               autoComplete="password"
+              returnKeyType="done"
             />
             <TouchableOpacity
               style={styles.eyeIcon}
@@ -160,6 +265,9 @@ const LoginScreenMail: React.FC = () => {
               />
             </TouchableOpacity>
           </View>
+          {errors.password && (
+            <Text style={styles.errorText}>{errors.password}</Text>
+          )}
 
           {/* Forgot Password */}
           <TouchableOpacity
@@ -205,32 +313,13 @@ const LoginScreenMail: React.FC = () => {
             )}
           </TouchableOpacity>
 
-          {/* Divider */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Social Login Buttons */}
-          <View style={styles.socialButtonsContainer}>
+          {/* Register Link */}
+          <View style={styles.registerContainer}>
+            <Text style={styles.registerText}>Don't have an account? </Text>
             <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleGoogleLogin}
-              activeOpacity={0.7}
+              onPress={() => router.push("/screens/RegisterScreen")}
             >
-              <Image
-                source={{ uri: "https://www.google.com/favicon.ico" }}
-                style={styles.socialIcon}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleGmailLogin}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="mail" size={28} color="#EA4335" />
+              <Text style={styles.registerLink}>Register</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -243,6 +332,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  keyboardView: {
+    flex: 1,
   },
   scrollContainer: {
     flexGrow: 1,
@@ -311,9 +403,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#F5F5F5",
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: 4,
     paddingHorizontal: 16,
     height: 56,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+  },
+  inputError: {
+    borderColor: "#E53E3E",
+    backgroundColor: "#FFF5F5",
   },
   inputIconContainer: {
     marginRight: 12,
@@ -331,9 +429,19 @@ const styles = StyleSheet.create({
     right: 16,
     padding: 4,
   },
+  errorIcon: {
+    marginLeft: 4,
+  },
+  errorText: {
+    fontSize: 12,
+    color: "#E53E3E",
+    marginBottom: 12,
+    marginLeft: 4,
+  },
   forgotPasswordContainer: {
     alignSelf: "flex-end",
     marginBottom: 20,
+    marginTop: 4,
   },
   forgotPasswordText: {
     fontSize: 14,
@@ -378,10 +486,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 30,
     shadowColor: "#0078D7",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
@@ -396,48 +501,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.5,
   },
-  dividerContainer: {
+  registerContainer: {
     flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 30,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E0E0E0",
-  },
-  dividerText: {
-    marginHorizontal: 16,
+  registerText: {
     fontSize: 14,
-    color: "#999",
-    fontWeight: "500",
+    color: "#666",
   },
-  socialButtonsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 24,
-  },
-  socialButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  socialIcon: {
-    width: 32,
-    height: 32,
+  registerLink: {
+    fontSize: 14,
+    color: "#0078D7",
+    fontWeight: "600",
   },
 });
 
