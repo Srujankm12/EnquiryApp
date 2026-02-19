@@ -146,7 +146,7 @@ const ProfileSettingsScreen: React.FC = () => {
         }
 
         const presignedUrlRes = await axios.get(
-          `${API_URL}/generate/user/${userId}`,
+          `${API_URL}/user/get/presigned/${userId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             timeout: 10000,
@@ -161,18 +161,15 @@ const ProfileSettingsScreen: React.FC = () => {
         await uploadImageToS3(s3PresignedUrl, selectedImageUri);
 
         const updateRes = await axios.put(
-          `${API_URL}/update/user/profile/image`,
-          { user_id: userId },
+          `${API_URL}/user/update/image/${userId}`,
+          null,
           {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
+            headers: { Authorization: `Bearer ${token}` },
             timeout: 10000,
           }
         );
 
-        if (updateRes.data.status === 'success') {
+        if (updateRes.status === 200 || updateRes.data.message) {
           await fetchProfileData(false);
           setUploadingImage(false);
           Alert.alert('Success', 'Profile picture updated successfully!');

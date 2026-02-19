@@ -37,7 +37,8 @@ interface UserDetails {
 
 const UpdateProfileDetailsScreen: React.FC = () => {
   const [userId, setUserId] = useState<string>("");
-  const [userName, setUserName] = useState<string>("");
+  const [firstName, setFirstName] = useState<string>("");
+  const [lastName, setLastName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [userPhone, setUserPhone] = useState<string>("");
 
@@ -54,35 +55,25 @@ const UpdateProfileDetailsScreen: React.FC = () => {
       const token = await AsyncStorage.getItem("token");
 
       if (!token) {
-        Alert.alert(
-          "Error",
-          "Authentication token not found. Please login again."
-        );
-        router.replace("/login" as any);
+        Alert.alert("Error", "Authentication token not found. Please login again.");
+        router.replace("/pages/loginMail" as any);
         return;
       }
 
       const decodedToken = jwtDecode<DecodedToken>(token);
-      console.log("Decoded Token:", decodedToken);
-
       setUserId(decodedToken.user_id);
 
       const res = await axios.get(
         `${API_URL}/get/user/details/${decodedToken.user_id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      console.log("User Details Response:", res.data);
 
       if (res.data.status === "success") {
         const userDetails: UserDetails = res.data.data.user_details;
-
-        // Prefill form with existing data
-        setUserName(userDetails.user_name || "");
+        // Split user_name into first and last name
+        const nameParts = (userDetails.user_name || "").split(" ");
+        setFirstName(nameParts[0] || "");
+        setLastName(nameParts.slice(1).join(" ") || "");
         setUserEmail(userDetails.user_email || "");
         setUserPhone(userDetails.user_phone || "");
       }
@@ -90,12 +81,6 @@ const UpdateProfileDetailsScreen: React.FC = () => {
       setLoading(false);
     } catch (error: any) {
       console.error("Error fetching profile:", error);
-      console.error("Error details:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
-
       Alert.alert("Error", "Failed to load profile data. Please try again.");
       setLoading(false);
     }
@@ -106,44 +91,25 @@ const UpdateProfileDetailsScreen: React.FC = () => {
   };
 
   const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 
   const validatePhone = (phone: string): boolean => {
-    // Basic phone validation - at least 10 digits
-    const phoneRegex = /^\d{10,}$/;
-    return phoneRegex.test(phone.replace(/[\s\-\(\)]/g, ""));
+    return /^\d{7,15}$/.test(phone.replace(/[\s\-\(\)]/g, ""));
   };
 
   const handleUpdateProfile = async () => {
     try {
-      // Validation
-      if (!userName.trim()) {
-        Alert.alert("Error", "Please enter your name");
+      if (!firstName.trim()) {
+        Alert.alert("Error", "Please enter your first name");
         return;
       }
-
-      if (!userEmail.trim()) {
-        Alert.alert("Error", "Please enter your email");
-        return;
-      }
-
-      if (!validateEmail(userEmail)) {
+      if (!userEmail.trim() || !validateEmail(userEmail)) {
         Alert.alert("Error", "Please enter a valid email address");
         return;
       }
-
-      if (!userPhone.trim()) {
-        Alert.alert("Error", "Please enter your phone number");
-        return;
-      }
-
-      if (!validatePhone(userPhone)) {
-        Alert.alert(
-          "Error",
-          "Please enter a valid phone number (at least 10 digits)"
-        );
+      if (!userPhone.trim() || !validatePhone(userPhone)) {
+        Alert.alert("Error", "Please enter a valid phone number (7–15 digits)");
         return;
       }
 
@@ -151,44 +117,31 @@ const UpdateProfileDetailsScreen: React.FC = () => {
 
       const token = await AsyncStorage.getItem("token");
       if (!token) {
-        Alert.alert(
-          "Error",
-          "Authentication token not found. Please login again."
-        );
+        Alert.alert("Error", "Authentication token not found. Please login again.");
         setUpdating(false);
         return;
       }
 
-      console.log("Updating profile for user:", userId);
-
       const response = await axios.put(
-        `${API_URL}/update/user/profile/details`,
+        `${API_URL}/user/update/details/${userId}`,
         {
-          user_id: userId,
-          user_name: userName.trim(),
-          user_email: userEmail.trim(),
-          user_phone: userPhone.trim(),
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          email: userEmail.trim(),
+          phone: userPhone.trim(),
         },
         {
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          timeout: 10000, // 10 second timeout
+          timeout: 10000,
         }
       );
 
-      console.log("Update profile response:", response.data);
-
-      if (response.data.status === "success") {
+      if (response.status === 200 || response.data.message) {
         Alert.alert("Success", "Profile updated successfully!", [
-          {
-            text: "OK",
-            onPress: () => {
-              // Navigate back
-              router.back();
-            },
-          },
+          { text: "OK", onPress: () => router.back() },
         ]);
       } else {
         throw new Error(response.data.message || "Failed to update profile");
@@ -197,22 +150,12 @@ const UpdateProfileDetailsScreen: React.FC = () => {
       setUpdating(false);
     } catch (error: any) {
       console.error("Error updating profile:", error);
-      console.error("Error details:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
-
       let errorMessage = "Failed to update profile. Please try again.";
-
       if (error.response) {
-        errorMessage =
-          error.response.data?.message ||
-          `Server error: ${error.response.status}`;
+        errorMessage = error.response.data?.error || error.response.data?.message || `Server error: ${error.response.status}`;
       } else if (error.message) {
         errorMessage = error.message;
       }
-
       Alert.alert("Error", errorMessage);
       setUpdating(false);
     }
@@ -223,11 +166,7 @@ const UpdateProfileDetailsScreen: React.FC = () => {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="#177DDF"
-        translucent={false}
-      />
+      <StatusBar barStyle="light-content" backgroundColor="#177DDF" translucent={false} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -253,43 +192,49 @@ const UpdateProfileDetailsScreen: React.FC = () => {
             <View style={styles.infoCard}>
               <Ionicons name="information-circle" size={24} color="#177DDF" />
               <Text style={styles.infoText}>
-                Update your personal information below. Make sure all details
-                are accurate.
+                Update your personal information below. Make sure all details are accurate.
               </Text>
             </View>
 
-            {/* User Name */}
+            {/* First Name */}
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Full Name</Text>
+              <Text style={styles.label}>First Name *</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons
-                  name="person-outline"
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
-                />
+                <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your full name"
+                  placeholder="Enter your first name"
                   placeholderTextColor="#999"
-                  value={userName}
-                  onChangeText={setUserName}
+                  value={firstName}
+                  onChangeText={setFirstName}
                   autoCapitalize="words"
                   autoCorrect={false}
                 />
               </View>
             </View>
 
-            {/* User Email */}
+            {/* Last Name */}
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Email Address</Text>
+              <Text style={styles.label}>Last Name (optional)</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons
-                  name="mail-outline"
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
+                <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your last name"
+                  placeholderTextColor="#999"
+                  value={lastName}
+                  onChangeText={setLastName}
+                  autoCapitalize="words"
+                  autoCorrect={false}
                 />
+              </View>
+            </View>
+
+            {/* Email */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Email Address *</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your email"
@@ -303,16 +248,11 @@ const UpdateProfileDetailsScreen: React.FC = () => {
               </View>
             </View>
 
-            {/* User Phone */}
+            {/* Phone */}
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.label}>Phone Number *</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons
-                  name="call-outline"
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
-                />
+                <Ionicons name="call-outline" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your phone number"
@@ -320,16 +260,14 @@ const UpdateProfileDetailsScreen: React.FC = () => {
                   value={userPhone}
                   onChangeText={setUserPhone}
                   keyboardType="phone-pad"
+                  maxLength={15}
                 />
               </View>
             </View>
 
             {/* Update Button */}
             <TouchableOpacity
-              style={[
-                styles.updateButton,
-                updating && styles.updateButtonDisabled,
-              ]}
+              style={[styles.updateButton, updating && styles.updateButtonDisabled]}
               onPress={handleUpdateProfile}
               disabled={updating}
             >
@@ -350,10 +288,7 @@ const UpdateProfileDetailsScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-  },
+  container: { flex: 1, backgroundColor: "#F5F5F5" },
   header: {
     backgroundColor: "#177DDF",
     paddingTop: 50,
@@ -362,34 +297,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  backButton: {
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
+  backButton: { marginRight: 16 },
+  headerTitle: { fontSize: 20, fontWeight: "600", color: "#FFFFFF" },
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
+  scrollView: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
+  content: { flex: 1, padding: 16 },
   infoCard: {
     backgroundColor: "#E3F2FD",
     borderRadius: 8,
@@ -400,22 +314,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: "#177DDF",
   },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
-    marginLeft: 12,
-    lineHeight: 20,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333",
-    marginBottom: 8,
-  },
+  infoText: { flex: 1, fontSize: 14, color: "#333", marginLeft: 12, lineHeight: 20 },
+  inputContainer: { marginBottom: 20 },
+  label: { fontSize: 16, fontWeight: "500", color: "#333", marginBottom: 8 },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -430,15 +331,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: "#000",
-  },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, paddingVertical: 14, fontSize: 16, color: "#000" },
   updateButton: {
     backgroundColor: "#177DDF",
     borderRadius: 8,
@@ -453,15 +347,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     marginTop: 8,
   },
-  updateButtonDisabled: {
-    backgroundColor: "#A0C4E8",
-  },
-  updateButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-    marginLeft: 8,
-  },
+  updateButtonDisabled: { backgroundColor: "#A0C4E8" },
+  updateButtonText: { fontSize: 16, fontWeight: "600", color: "#FFFFFF", marginLeft: 8 },
 });
 
 export default UpdateProfileDetailsScreen;
