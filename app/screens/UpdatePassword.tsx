@@ -132,23 +132,20 @@ const UpdatePasswordScreen: React.FC = () => {
       console.log('Updating password for user:', userId);
 
       const response = await axios.put(
-        `${API_URL}/update/user/password`,
+        `${API_URL}/user/update/password/${userId}`,
         {
-          user_id: userId,
-          user_password: newPassword,
+          password: newPassword,
         },
         {
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          timeout: 10000, // 10 second timeout
+          timeout: 10000,
         }
       );
 
-      console.log('Update password response:', response.data);
-
-      if (response.data.status === 'success') {
+      if (response.status === 200 || response.data.message) {
         Alert.alert(
           'Success',
           'Password updated successfully!',

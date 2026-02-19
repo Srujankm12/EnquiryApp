@@ -73,6 +73,7 @@ const QUICK_ACTIONS = [
 const HomeScreen = () => {
   const [loading, setLoading] = useState(true);
   const [userDetails, setUserDetails] = useState<any>(null);
+  const [jwtUserName, setJwtUserName] = useState<string>("");
   const [categories, setCategories] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -146,6 +147,10 @@ const HomeScreen = () => {
       const token = await AsyncStorage.getItem("token");
       if (token) {
         const decodedToken: any = jwtDecode(token);
+        // Show name from JWT immediately without waiting for API
+        if (decodedToken.user_name) {
+          setJwtUserName(decodedToken.user_name);
+        }
         const res = await axios.get(
           `${API_URL}/get/user/details/${decodedToken?.user_id}`,
           {
@@ -303,7 +308,7 @@ const HomeScreen = () => {
           <Ionicons name="person-circle-outline" size={24} color="#FFFFFF" />
           <View style={styles.locationText}>
             <Text style={styles.locationName}>
-              {userDetails?.user_name || "Welcome"}
+              {jwtUserName || userDetails?.user_name || "Welcome"}
             </Text>
             <Text style={styles.locationAddress}>
               {userDetails?.user_email || ""}
