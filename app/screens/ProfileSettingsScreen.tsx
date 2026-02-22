@@ -32,7 +32,7 @@ const ProfileSettingsScreen: React.FC = () => {
   const [uploadingImage, setUploadingImage] = useState<boolean>(false);
   const [userId, setUserId] = useState<string>('');
   const [userDetails, setUserDetails] = useState<any>(null);
-  const [companyDetails, setCompanyDetails] = useState<any>(null);
+  const [businessDetails, setBusinessDetails] = useState<any>(null);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,38 +65,58 @@ const ProfileSettingsScreen: React.FC = () => {
       setUserId(decodedToken.user_id);
 
       // Fetch user details
-      const res = await axios.get(
-        `${API_URL}/get/user/details/${decodedToken.user_id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      try {
+        const res = await axios.get(
+          `${API_URL}/user/get/user/${decodedToken.user_id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
 
-      if (res.data.status === 'success') {
-        const details = res.data.data.user_details;
-        setUserDetails(details);
+        if (res.data) {
+          const details = res.data.details || res.data.data?.user_details || res.data;
+          setUserDetails(details);
 
-        if (details.user_profile_url) {
-          const fullImageUrl = `${S3_FETCH_URL}/${details.user_profile_url}`;
-          setProfileImage(`${fullImageUrl}?timestamp=${Date.now()}`);
-        } else {
-          setProfileImage(null);
+          const profileUrl = details.user_profile_url || details.profile_image;
+          if (profileUrl) {
+            const fullImageUrl = `${S3_FETCH_URL}/${profileUrl}`;
+            setProfileImage(`${fullImageUrl}?timestamp=${Date.now()}`);
+          } else {
+            setProfileImage(null);
+          }
         }
+      } catch (e) {
+        console.error('Error fetching user details:', e);
       }
 
       // Fetch seller status
       const status = await AsyncStorage.getItem('sellerStatus');
       setSellerStatus(status);
 
-      // Fetch company details if seller
+      // Fetch business details if seller
       if (status === 'approved' || status === 'pending') {
         try {
-          const companyRes = await axios.get(
-            `${API_URL}/company/get/user/${decodedToken.user_id}`,
-            { headers: { Authorization: `Bearer ${token}` } }
+          const businessIdRes = await fetch(
+            `${API_URL}/business/get/user/${decodedToken.user_id}`,
+            { headers: { 'Content-Type': 'application/json' } }
           );
-          const compData = companyRes.data.data?.company || companyRes.data.data;
-          setCompanyDetails(compData);
+
+          if (businessIdRes.ok) {
+            const businessIdResult = await businessIdRes.json();
+            const businessId = businessIdResult.business_id;
+
+            if (businessId) {
+              const businessRes = await fetch(
+                `${API_URL}/business/get/${businessId}`,
+                { headers: { 'Content-Type': 'application/json' } }
+              );
+
+              if (businessRes.ok) {
+                const businessResult = await businessRes.json();
+                setBusinessDetails({ ...businessResult.details, id: businessId });
+              }
+            }
+          }
         } catch (e) {
-          // No company found
+          // No business found
         }
       }
 
@@ -153,7 +173,7 @@ const ProfileSettingsScreen: React.FC = () => {
           }
         );
 
-        const s3PresignedUrl = presignedUrlRes.data.data.url;
+        const s3PresignedUrl = presignedUrlRes.data.data?.url || presignedUrlRes.data.url;
         if (!s3PresignedUrl) {
           throw new Error('Invalid response from server: missing presigned URL');
         }
@@ -240,10 +260,10 @@ const ProfileSettingsScreen: React.FC = () => {
             {/* User Info Below Image */}
             {userDetails && (
               <View style={styles.userInfoBelowImage}>
-                <Text style={styles.userName}>{userDetails.user_name}</Text>
-                <Text style={styles.userEmail}>{userDetails.user_email}</Text>
-                {userDetails.user_phone && (
-                  <Text style={styles.userPhone}>{userDetails.user_phone}</Text>
+                <Text style={styles.userName}>{userDetails.user_name || userDetails.name}</Text>
+                <Text style={styles.userEmail}>{userDetails.user_email || userDetails.email}</Text>
+                {(userDetails.user_phone || userDetails.phone) && (
+                  <Text style={styles.userPhone}>{userDetails.user_phone || userDetails.phone}</Text>
                 )}
               </View>
             )}
@@ -256,37 +276,40 @@ const ProfileSettingsScreen: React.FC = () => {
                 <Ionicons name="person" size={20} color="#0078D7" />
                 <Text style={styles.detailCardTitle}>Personal Information</Text>
               </View>
-              <DetailRow label="Name" value={userDetails.user_name} />
-              <DetailRow label="Email" value={userDetails.user_email} />
-              {userDetails.user_phone && (
-                <DetailRow label="Phone" value={userDetails.user_phone} />
+              <DetailRow label="Name" value={userDetails.user_name || userDetails.name} />
+              <DetailRow label="Email" value={userDetails.user_email || userDetails.email} />
+              {(userDetails.user_phone || userDetails.phone) && (
+                <DetailRow label="Phone" value={userDetails.user_phone || userDetails.phone} />
               )}
             </View>
           )}
 
-          {/* Company Details Card (for sellers) */}
-          {companyDetails && (
+          {/* Business Details Card (for sellers) */}
+          {businessDetails && (
             <View style={styles.detailCard}>
               <View style={styles.detailCardHeader}>
                 <Ionicons name="business" size={20} color="#0078D7" />
-                <Text style={styles.detailCardTitle}>Company Information</Text>
+                <Text style={styles.detailCardTitle}>Business Information</Text>
               </View>
-              <DetailRow label="Company" value={companyDetails.company_name} />
-              <DetailRow label="Email" value={companyDetails.company_email} />
-              <DetailRow label="Phone" value={companyDetails.company_phone} />
+              <DetailRow label="Business" value={businessDetails.name} />
+              <DetailRow label="Email" value={businessDetails.email} />
+              <DetailRow label="Phone" value={businessDetails.phone} />
               <DetailRow
                 label="Location"
-                value={`${companyDetails.company_city}, ${companyDetails.company_state}`}
+                value={`${businessDetails.city}, ${businessDetails.state}`}
               />
-              <DetailRow label="Pincode" value={companyDetails.company_pincode} />
+              <DetailRow label="Pincode" value={businessDetails.pincode} />
+              {businessDetails.business_type && (
+                <DetailRow label="Type" value={businessDetails.business_type} />
+              )}
               <View style={styles.badgesInCard}>
-                {companyDetails.is_verified && (
+                {businessDetails.is_business_verified && (
                   <View style={styles.verifiedBadge}>
                     <Ionicons name="checkmark-circle" size={14} color="#28A745" />
                     <Text style={styles.verifiedText}>Verified</Text>
                   </View>
                 )}
-                {companyDetails.is_approved && (
+                {businessDetails.is_business_approved && (
                   <View style={styles.approvedBadge}>
                     <Ionicons name="shield-checkmark" size={14} color="#0078D7" />
                     <Text style={styles.approvedText}>Approved</Text>
@@ -329,10 +352,10 @@ const ProfileSettingsScreen: React.FC = () => {
               <TouchableOpacity
                 style={styles.sellerActionButton}
                 onPress={() => {
-                  if (companyDetails?.company_id) {
+                  if (businessDetails?.id) {
                     router.push({
                       pathname: '/pages/sellerProfile' as any,
-                      params: { company_id: companyDetails.company_id },
+                      params: { business_id: businessDetails.id },
                     });
                   }
                 }}
@@ -386,274 +409,66 @@ const MenuItem = ({ title, onPress }: { title: string; onPress: () => void }) =>
 );
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  header: {
-    backgroundColor: '#177DDF',
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backButton: {
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  profileSection: {
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    paddingVertical: 24,
-    marginBottom: 12,
-  },
-  profileImageContainer: {
-    position: 'relative',
-    width: 120,
-    height: 120,
-    marginBottom: 12,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#E0E0E0',
-  },
-  profileImagePlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#E0E0E0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  header: { backgroundColor: '#177DDF', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' },
+  backButton: { marginRight: 16 },
+  headerTitle: { fontSize: 20, fontWeight: '600', color: '#FFFFFF' },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, fontSize: 16, color: '#666' },
+  scrollView: { flex: 1 },
+  profileSection: { backgroundColor: '#FFFFFF', alignItems: 'center', paddingVertical: 24, marginBottom: 12 },
+  profileImageContainer: { position: 'relative', width: 120, height: 120, marginBottom: 12 },
+  profileImage: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#E0E0E0' },
+  profileImagePlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' },
   cameraButton: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#177DDF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+    position: 'absolute', bottom: 4, right: 4, width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#177DDF', justifyContent: 'center', alignItems: 'center', elevation: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4,
+    borderWidth: 2, borderColor: '#FFFFFF',
   },
-  userInfoBelowImage: {
-    alignItems: 'center',
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 4,
-  },
-  userEmail: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 2,
-  },
-  userPhone: {
-    fontSize: 14,
-    color: '#888',
-  },
+  userInfoBelowImage: { alignItems: 'center' },
+  userName: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
+  userEmail: { fontSize: 14, color: '#888', marginBottom: 2 },
+  userPhone: { fontSize: 14, color: '#888' },
   detailCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    padding: 16,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 12, padding: 16,
+    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
   },
-  detailCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  detailCardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F8F8F8',
-  },
-  detailLabel: {
-    fontSize: 13,
-    color: '#888',
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1A1A1A',
-  },
-  badgesInCard: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-  },
-  verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  verifiedText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#28A745',
-  },
-  approvedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  approvedText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0078D7',
-  },
+  detailCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  detailCardTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F8F8F8' },
+  detailLabel: { fontSize: 13, color: '#888' },
+  detailValue: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
+  badgesInCard: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  verifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  verifiedText: { fontSize: 12, fontWeight: '600', color: '#28A745' },
+  approvedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  approvedText: { fontSize: 12, fontWeight: '600', color: '#0078D7' },
   applicationStatusCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    borderWidth: 1,
-    borderColor: '#FFE0B2',
+    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 12, padding: 16,
+    flexDirection: 'row', alignItems: 'center', elevation: 1,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
+    borderWidth: 1, borderColor: '#FFE0B2',
   },
-  applicationStatusInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  applicationStatusTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A1A1A',
-  },
-  applicationStatusSubtitle: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
-  },
+  applicationStatusInfo: { flex: 1, marginLeft: 12 },
+  applicationStatusTitle: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
+  applicationStatusSubtitle: { fontSize: 12, color: '#888', marginTop: 2 },
   approvedSellerCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    padding: 16,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    borderWidth: 1,
-    borderColor: '#C8F5D5',
+    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 12, padding: 16,
+    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
+    borderWidth: 1, borderColor: '#C8F5D5',
   },
-  approvedSellerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  approvedSellerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#28A745',
-  },
-  sellerActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F8F8F8',
-    gap: 10,
-  },
-  sellerActionText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#1A1A1A',
-  },
-  menuContainer: {
-    paddingHorizontal: 16,
-    marginTop: 4,
-  },
+  approvedSellerHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  approvedSellerTitle: { fontSize: 15, fontWeight: '700', color: '#28A745' },
+  sellerActionButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F8F8F8', gap: 10 },
+  sellerActionText: { flex: 1, fontSize: 15, fontWeight: '500', color: '#1A1A1A' },
+  menuContainer: { paddingHorizontal: 16, marginTop: 4 },
   menuItem: {
-    backgroundColor: '#FFFFFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 18,
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 8,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 18, paddingHorizontal: 16, marginBottom: 12, borderRadius: 8,
+    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
   },
-  menuItemText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000',
-    flex: 1,
-  },
+  menuItemText: { fontSize: 16, fontWeight: '500', color: '#000', flex: 1 },
 });
 
 export default ProfileSettingsScreen;
