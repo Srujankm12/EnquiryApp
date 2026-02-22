@@ -5,7 +5,8 @@
     "version": "1.0.0",
     "extra": {
       "API_URL": "http://192.168.1.4:8080",
-      "S3_FETCH_URL": "https://southcanaraagromart.s3.ap-south-1.amazonaws.com"
+      "S3_FETCH_URL": "https://southcanaraagromart.s3.ap-south-1.amazonaws.com",
+      "CLOUDFRONT_URL": "https://d2vlu5wnz2z43l.cloudfront.net"
     },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

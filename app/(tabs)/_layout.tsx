@@ -44,18 +44,18 @@ export default function TabLayout() {
       <Tabs.Screen
         name="listing"
         options={{
-          title: 'Listing',
+          title: 'Seller',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list-outline" size={24} color={color} />
+            <Ionicons name="storefront-outline" size={24} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="enquiries"
         options={{
-          title: 'Enquiries',
+          title: 'Buyer',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="help-circle-outline" size={24} color={color} />
+            <Ionicons name="cart-outline" size={24} color={color} />
           ),
         }}
       />
