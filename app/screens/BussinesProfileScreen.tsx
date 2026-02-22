@@ -17,7 +17,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
-import axios from 'axios';
 import Constants from 'expo-constants';
 
 const { width } = Dimensions.get('window');
@@ -32,23 +31,18 @@ const getImageUri = (url: string | null | undefined): string | null => {
 };
 
 const BusinessProfileScreen: React.FC = () => {
-  const { company_id } = useLocalSearchParams();
+  const { business_id } = useLocalSearchParams();
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'products' | 'statutory'>('products');
-  const [companyDetails, setCompanyDetails] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'info' | 'legal'>('info');
+  const [businessDetails, setBusinessDetails] = useState<any>(null);
   const [socialDetails, setSocialDetails] = useState<any>(null);
   const [legalDetails, setLegalDetails] = useState<any>(null);
-  const [products, setProducts] = useState<any[]>([]);
-  const [followerCount, setFollowerCount] = useState(0);
-  const [ratingInfo, setRatingInfo] = useState<any>(null);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followProcessing, setFollowProcessing] = useState(false);
   const [userId, setUserId] = useState<string>('');
 
   useEffect(() => {
     fetchBusinessProfile();
-  }, [company_id]);
+  }, [business_id]);
 
   const fetchBusinessProfile = async () => {
     try {
@@ -57,142 +51,51 @@ const BusinessProfileScreen: React.FC = () => {
       if (!token) return;
 
       const decoded: any = jwtDecode(token);
-      const currentUserId = decoded.user_id;
-      setUserId(currentUserId);
-      const headers = { Authorization: `Bearer ${token}` };
+      setUserId(decoded.user_id);
 
-      const companyId = company_id as string;
+      const businessId = business_id as string;
 
-      // Fetch company complete details
+      // Fetch complete business details
       try {
-        const completeRes = await axios.get(
-          `${API_URL}/company/get/complete/${companyId}`,
-          { headers }
-        );
-        const details = completeRes.data.data?.company_details;
-        if (details) {
-          setCompanyDetails(details.company);
-          setRatingInfo(details.rating_info);
-          setFollowerCount(details.follower_count || 0);
+        const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (completeRes.ok) {
+          const result = await completeRes.json();
+          const details = result.details;
+          setBusinessDetails(details.business_details);
+          setSocialDetails(details.social_details);
+          setLegalDetails(details.legal_details);
+        } else {
+          // Fallback: fetch individually
+          const [bizRes, socialRes, legalRes] = await Promise.allSettled([
+            fetch(`${API_URL}/business/get/${businessId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            }),
+            fetch(`${API_URL}/business/social/get/${businessId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            }),
+            fetch(`${API_URL}/business/legal/get/${businessId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          ]);
+
+          if (bizRes.status === 'fulfilled' && bizRes.value.ok) {
+            const r = await bizRes.value.json();
+            setBusinessDetails(r.details);
+          }
+          if (socialRes.status === 'fulfilled' && socialRes.value.ok) {
+            const r = await socialRes.value.json();
+            setSocialDetails(r.details);
+          }
+          if (legalRes.status === 'fulfilled' && legalRes.value.ok) {
+            const r = await legalRes.value.json();
+            setLegalDetails(r.details);
+          }
         }
       } catch {
-        try {
-          const basicRes = await axios.get(
-            `${API_URL}/company/get/${companyId}`,
-            { headers }
-          );
-          setCompanyDetails(basicRes.data.data?.company || basicRes.data.data);
-        } catch {
-          setCompanyDetails(null);
-        }
-      }
-
-      // Fetch social details
-      try {
-        const socialRes = await axios.get(
-          `${API_URL}/company/social/get/${companyId}`,
-          { headers }
-        );
-        setSocialDetails(socialRes.data.data?.social_details || socialRes.data.data);
-      } catch {
-        setSocialDetails(null);
-      }
-
-      // Fetch legal details
-      try {
-        const legalRes = await axios.get(
-          `${API_URL}/company/legal/get/${companyId}`,
-          { headers }
-        );
-        setLegalDetails(legalRes.data.data?.legal_details || legalRes.data.data);
-      } catch {
-        setLegalDetails(null);
-      }
-
-      // Fetch follower count from dedicated endpoint
-      try {
-        const countRes = await axios.get(
-          `${API_URL}/company/followers/count/${companyId}`,
-          { headers }
-        );
-        const countData = countRes.data?.data;
-        const count = typeof countData === 'number'
-          ? countData
-          : countData?.follower_count || countData?.count || 0;
-        setFollowerCount(count);
-      } catch {
-        // Keep follower count from complete details or default to 0
-      }
-
-      // Fetch average rating from dedicated endpoint
-      try {
-        const ratingRes = await axios.get(
-          `${API_URL}/company/rating/get/average/${companyId}`,
-          { headers }
-        );
-        const ratingData = ratingRes.data?.data?.rating_info || ratingRes.data?.data;
-        if (ratingData) {
-          setRatingInfo(ratingData);
-        }
-      } catch {
-        // Keep rating info from complete details or default
-      }
-
-      // Check if user follows this company
-      try {
-        const followingRes = await axios.get(
-          `${API_URL}/company/followers/is-following/${companyId}?user_id=${currentUserId}`,
-          { headers }
-        );
-        const followData = followingRes.data?.data;
-        const isFollowed = typeof followData === 'boolean'
-          ? followData
-          : followData?.is_following || false;
-        setIsFollowing(isFollowed);
-      } catch {
-        // Fallback: check by fetching user's followed companies
-        try {
-          const followingRes2 = await axios.get(
-            `${API_URL}/company/followers/get/user/${currentUserId}`,
-            { headers }
-          );
-          const followedCompanies = followingRes2.data?.data?.companies || followingRes2.data?.data || [];
-          const isFollowed = (Array.isArray(followedCompanies) ? followedCompanies : []).some(
-            (c: any) => c.company_id === companyId
-          );
-          setIsFollowing(isFollowed);
-        } catch {
-          setIsFollowing(false);
-        }
-      }
-
-      // Fetch products by company_id
-      try {
-        const prodRes = await axios.get(
-          `${API_URL}/product/get/company/${companyId}`,
-          { headers }
-        );
-        const productsData = prodRes.data?.data?.products || prodRes.data?.data || [];
-        const productsList = (Array.isArray(productsData) ? productsData : []).filter(
-          (p: any) => p.is_product_active
-        );
-
-        const productsWithImages = await Promise.all(
-          productsList.map(async (product: any) => {
-            try {
-              const imgRes = await axios.get(
-                `${API_URL}/product/image/get/${product.product_id}`,
-                { headers }
-              );
-              return { ...product, images: imgRes.data.data?.images || [] };
-            } catch {
-              return { ...product, images: [] };
-            }
-          })
-        );
-        setProducts(productsWithImages);
-      } catch {
-        setProducts([]);
+        setBusinessDetails(null);
       }
     } catch (error) {
       console.error('Error fetching business profile:', error);
@@ -211,159 +114,20 @@ const BusinessProfileScreen: React.FC = () => {
     router.back();
   };
 
-  const handleFollow = async () => {
-    if (!company_id) return;
-    setFollowProcessing(true);
-    try {
-      const token = await AsyncStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-      const companyId = company_id as string;
-
-      if (isFollowing) {
-        await axios.delete(
-          `${API_URL}/company/unfollow/${companyId}/${userId}`,
-          { headers }
-        );
-        setIsFollowing(false);
-        setFollowerCount((prev) => Math.max(0, prev - 1));
-      } else {
-        await axios.post(
-          `${API_URL}/company/follow/${companyId}/${userId}`,
-          {},
-          { headers }
-        );
-        setIsFollowing(true);
-        setFollowerCount((prev) => prev + 1);
-      }
-    } catch (error: any) {
-      console.error('Error following/unfollowing:', error?.response?.data || error);
-      Alert.alert('Error', 'Failed to update follow status.');
-    } finally {
-      setFollowProcessing(false);
-    }
-  };
-
   const handleContact = () => {
-    if (companyDetails?.company_phone) {
-      Linking.openURL(`tel:${companyDetails.company_phone}`);
+    if (businessDetails?.phone) {
+      Linking.openURL(`tel:${businessDetails.phone}`);
     }
   };
 
   const handleEmail = () => {
-    if (companyDetails?.company_email) {
-      Linking.openURL(`mailto:${companyDetails.company_email}`);
-    }
-  };
-
-  const handleWhatsApp = () => {
-    if (socialDetails?.whatsapp_number) {
-      Linking.openURL(`whatsapp://send?phone=${socialDetails.whatsapp_number}`);
+    if (businessDetails?.email) {
+      Linking.openURL(`mailto:${businessDetails.email}`);
     }
   };
 
   const handleSocialMedia = (url?: string | null) => {
-    if (url) {
-      Linking.openURL(url);
-    }
-  };
-
-  const handleProductPress = (product: any) => {
-    router.push({
-      pathname: '/pages/productDetail' as any,
-      params: { product_id: product.product_id },
-    });
-  };
-
-  const handleEnquire = (product: any) => {
-    router.push({
-      pathname: '/pages/requestQutation' as any,
-      params: {
-        product_id: product.product_id,
-        product_name: product.product_name,
-        company_id: company_id as string,
-      },
-    });
-  };
-
-  const getProductImageUrl = (product: any): string | null => {
-    if (product.images && product.images.length > 0) {
-      const sorted = [...product.images].sort(
-        (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
-      );
-      return getImageUri(sorted[0].product_image_url);
-    }
-    return null;
-  };
-
-  const renderStars = (rating: number) => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
-
-    for (let i = 0; i < fullStars; i++) {
-      stars.push(
-        <Ionicons key={`full-${i}`} name="star" size={18} color="#FFB800" />
-      );
-    }
-
-    if (hasHalfStar) {
-      stars.push(
-        <Ionicons key="half" name="star-half" size={18} color="#FFB800" />
-      );
-    }
-
-    const remainingStars = 5 - Math.ceil(rating);
-    for (let i = 0; i < remainingStars; i++) {
-      stars.push(
-        <Ionicons
-          key={`empty-${i}`}
-          name="star-outline"
-          size={18}
-          color="#FFB800"
-        />
-      );
-    }
-
-    return stars;
-  };
-
-  const renderProductCard = (product: any) => {
-    const imageUrl = getProductImageUrl(product);
-
-    return (
-      <View key={product.product_id} style={styles.productCard}>
-        <TouchableOpacity onPress={() => handleProductPress(product)}>
-          {imageUrl ? (
-            <Image
-              source={{ uri: imageUrl }}
-              style={styles.productImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={[styles.productImage, styles.productImagePlaceholder]}>
-              <Ionicons name="cube-outline" size={28} color="#CCC" />
-            </View>
-          )}
-        </TouchableOpacity>
-        <View style={styles.productInfo}>
-          <Text style={styles.productName} numberOfLines={1}>
-            {product.product_name}
-          </Text>
-          <Text style={styles.productQuantity} numberOfLines={1}>
-            Qty: {product.product_quantity}
-          </Text>
-          <Text style={styles.productPrice} numberOfLines={1}>
-            {product.product_price}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={styles.enquireBtn}
-          onPress={() => handleEnquire(product)}
-        >
-          <Text style={styles.enquireBtnText}>Enquire</Text>
-        </TouchableOpacity>
-      </View>
-    );
+    if (url) Linking.openURL(url);
   };
 
   if (loading) {
@@ -384,7 +148,7 @@ const BusinessProfileScreen: React.FC = () => {
     );
   }
 
-  if (!companyDetails) {
+  if (!businessDetails) {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#177DDF" translucent={false} />
@@ -396,7 +160,7 @@ const BusinessProfileScreen: React.FC = () => {
         </View>
         <View style={styles.loaderContainer}>
           <Ionicons name="business-outline" size={64} color="#CCC" />
-          <Text style={styles.loadingText}>Company not found</Text>
+          <Text style={styles.loadingText}>Business not found</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={fetchBusinessProfile}>
             <Text style={styles.retryBtnText}>Retry</Text>
           </TouchableOpacity>
@@ -405,9 +169,7 @@ const BusinessProfileScreen: React.FC = () => {
     );
   }
 
-  const avgRating = ratingInfo?.average_rating || 0;
-  const totalRatings = ratingInfo?.total_ratings || 0;
-  const imageUri = getImageUri(companyDetails.company_profile_url);
+  const imageUri = getImageUri(businessDetails.profile_image);
 
   return (
     <View style={styles.container}>
@@ -429,10 +191,16 @@ const BusinessProfileScreen: React.FC = () => {
       >
         <View style={styles.profileHeaderSection}>
           <View style={styles.badgesContainer}>
-            {companyDetails.is_verified && (
+            {businessDetails.is_business_verified && (
               <View style={styles.trustedBadge}>
                 <Ionicons name="shield-checkmark" size={16} color="#4CAF50" />
                 <Text style={styles.trustedText}>Verified</Text>
+              </View>
+            )}
+            {businessDetails.is_business_trusted && (
+              <View style={styles.trustedBadge}>
+                <Ionicons name="ribbon" size={16} color="#FF9500" />
+                <Text style={[styles.trustedText, { color: '#FF9500' }]}>Trusted</Text>
               </View>
             )}
           </View>
@@ -449,67 +217,31 @@ const BusinessProfileScreen: React.FC = () => {
             </View>
 
             <View style={styles.basicInfo}>
-              <Text style={styles.businessName}>{companyDetails.company_name}</Text>
-              {totalRatings > 0 && (
-                <View style={styles.ratingContainer}>
-                  {renderStars(avgRating)}
-                  <Text style={styles.reviewsText}>({totalRatings})</Text>
-                </View>
-              )}
-              {companyDetails.company_phone && (
+              <Text style={styles.businessName}>{businessDetails.name}</Text>
+              {businessDetails.phone && (
                 <View style={styles.infoRow}>
                   <Ionicons name="call-outline" size={14} color="#666" />
-                  <Text style={styles.infoText}>{companyDetails.company_phone}</Text>
+                  <Text style={styles.infoText}>{businessDetails.phone}</Text>
                 </View>
               )}
               <View style={styles.infoRow}>
                 <Ionicons name="location-outline" size={14} color="#666" />
                 <Text style={styles.infoText} numberOfLines={1}>
-                  {companyDetails.company_city}, {companyDetails.company_state}
+                  {businessDetails.city}, {businessDetails.state}
                 </Text>
               </View>
-              {companyDetails.company_email && (
+              {businessDetails.email && (
                 <View style={styles.infoRow}>
                   <Ionicons name="mail-outline" size={14} color="#666" />
-                  <Text style={styles.infoText} numberOfLines={1}>{companyDetails.company_email}</Text>
+                  <Text style={styles.infoText} numberOfLines={1}>{businessDetails.email}</Text>
+                </View>
+              )}
+              {businessDetails.business_type && (
+                <View style={styles.businessTypeBadge}>
+                  <Text style={styles.businessTypeText}>{businessDetails.business_type}</Text>
                 </View>
               )}
             </View>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.followButton, isFollowing && styles.followingButton, followProcessing && styles.followButtonDisabled]}
-            onPress={handleFollow}
-            disabled={followProcessing}
-          >
-            {followProcessing ? (
-              <ActivityIndicator size="small" color={isFollowing ? '#177DDF' : '#FFFFFF'} />
-            ) : (
-              <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                {isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{followerCount}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{products.length}</Text>
-              <Text style={styles.statLabel}>Products</Text>
-            </View>
-            {totalRatings > 0 && (
-              <>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{avgRating.toFixed(1)}</Text>
-                  <Text style={styles.statLabel}>Rating</Text>
-                </View>
-              </>
-            )}
           </View>
 
           <View style={styles.actionButtons}>
@@ -521,33 +253,44 @@ const BusinessProfileScreen: React.FC = () => {
               <Ionicons name="mail-outline" size={20} color="#666" />
               <Text style={styles.actionButtonText}>Email</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={handleWhatsApp}>
-              <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-              <Text style={styles.actionButtonText}>WhatsApp</Text>
-            </TouchableOpacity>
           </View>
 
-          {socialDetails && (
+          {socialDetails && (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook || socialDetails.website || socialDetails.youtube || socialDetails.telegram || socialDetails.x) && (
             <View style={styles.socialMediaSection}>
               <Text style={styles.socialMediaTitle}>Follow us:</Text>
               <View style={styles.socialMediaIcons}>
-                {socialDetails.instagram_url && (
-                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.instagram_url)}>
+                {socialDetails.instagram && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.instagram)}>
                     <Ionicons name="logo-instagram" size={24} color="#E4405F" />
                   </TouchableOpacity>
                 )}
-                {socialDetails.facebook_url && (
-                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.facebook_url)}>
+                {socialDetails.facebook && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.facebook)}>
                     <Ionicons name="logo-facebook" size={24} color="#1877F2" />
                   </TouchableOpacity>
                 )}
-                {socialDetails.linkedin_url && (
-                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.linkedin_url)}>
+                {socialDetails.linkedin && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.linkedin)}>
                     <Ionicons name="logo-linkedin" size={24} color="#0A66C2" />
                   </TouchableOpacity>
                 )}
-                {socialDetails.website_url && (
-                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.website_url)}>
+                {socialDetails.youtube && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.youtube)}>
+                    <Ionicons name="logo-youtube" size={24} color="#FF0000" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.x && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.x)}>
+                    <Ionicons name="logo-twitter" size={24} color="#000" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.telegram && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.telegram)}>
+                    <Ionicons name="paper-plane-outline" size={24} color="#0088CC" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.website && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.website)}>
                     <Ionicons name="globe-outline" size={24} color="#666" />
                   </TouchableOpacity>
                 )}
@@ -558,104 +301,107 @@ const BusinessProfileScreen: React.FC = () => {
 
         <View style={styles.tabsContainer}>
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'products' && styles.activeTab]}
-            onPress={() => setActiveTab('products')}
+            style={[styles.tab, activeTab === 'info' && styles.activeTab]}
+            onPress={() => setActiveTab('info')}
           >
-            <Text style={[styles.tabText, activeTab === 'products' && styles.activeTabText]}>
-              Products ({products.length})
+            <Text style={[styles.tabText, activeTab === 'info' && styles.activeTabText]}>
+              Business Info
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'statutory' && styles.activeTab]}
-            onPress={() => setActiveTab('statutory')}
+            style={[styles.tab, activeTab === 'legal' && styles.activeTab]}
+            onPress={() => setActiveTab('legal')}
           >
-            <Text style={[styles.tabText, activeTab === 'statutory' && styles.activeTabText]}>
-              Company Info
+            <Text style={[styles.tabText, activeTab === 'legal' && styles.activeTabText]}>
+              Legal Details
             </Text>
           </TouchableOpacity>
         </View>
 
-        {activeTab === 'products' ? (
-          <View style={styles.productsContainer}>
-            {products.length > 0 ? (
-              <View style={styles.productsGrid}>
-                {products.map((product) => renderProductCard(product))}
-              </View>
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="cube-outline" size={64} color="#CCC" />
-                <Text style={styles.emptyText}>No products available</Text>
-              </View>
-            )}
-          </View>
-        ) : (
+        {activeTab === 'info' ? (
           <View style={styles.statutoryContainer}>
             <View style={styles.infoCard}>
               <View style={styles.infoCardHeader}>
                 <Ionicons name="business" size={18} color="#177DDF" />
-                <Text style={styles.infoCardTitle}>Company Details</Text>
+                <Text style={styles.infoCardTitle}>Business Details</Text>
               </View>
-              {companyDetails.company_address && (
+              {businessDetails.address && (
                 <View style={styles.infoCardRow}>
                   <Text style={styles.infoCardLabel}>Address</Text>
-                  <Text style={styles.infoCardValue}>{companyDetails.company_address}</Text>
+                  <Text style={styles.infoCardValue}>{businessDetails.address}</Text>
                 </View>
               )}
               <View style={styles.infoCardRow}>
                 <Text style={styles.infoCardLabel}>City</Text>
-                <Text style={styles.infoCardValue}>{companyDetails.company_city}</Text>
+                <Text style={styles.infoCardValue}>{businessDetails.city}</Text>
               </View>
               <View style={styles.infoCardRow}>
                 <Text style={styles.infoCardLabel}>State</Text>
-                <Text style={styles.infoCardValue}>{companyDetails.company_state}</Text>
+                <Text style={styles.infoCardValue}>{businessDetails.state}</Text>
               </View>
-              {companyDetails.company_pincode && (
+              {businessDetails.pincode && (
                 <View style={styles.infoCardRow}>
                   <Text style={styles.infoCardLabel}>Pincode</Text>
-                  <Text style={styles.infoCardValue}>{companyDetails.company_pincode}</Text>
+                  <Text style={styles.infoCardValue}>{businessDetails.pincode}</Text>
                 </View>
               )}
-              {companyDetails.company_establishment_date && (
+              {businessDetails.business_type && (
                 <View style={styles.infoCardRow}>
-                  <Text style={styles.infoCardLabel}>Established</Text>
-                  <Text style={styles.infoCardValue}>
-                    {new Date(companyDetails.company_establishment_date).toLocaleDateString()}
-                  </Text>
+                  <Text style={styles.infoCardLabel}>Business Type</Text>
+                  <Text style={styles.infoCardValue}>{businessDetails.business_type}</Text>
                 </View>
               )}
             </View>
-
-            {legalDetails && (legalDetails.pan_number || legalDetails.gst_number || legalDetails.msme_number) && (
+          </View>
+        ) : (
+          <View style={styles.statutoryContainer}>
+            {legalDetails && (legalDetails.pan || legalDetails.gst || legalDetails.msme || legalDetails.aadhaar || legalDetails.fassi || legalDetails.export_import) ? (
               <View style={styles.infoCard}>
                 <View style={styles.infoCardHeader}>
                   <Ionicons name="document-text" size={18} color="#177DDF" />
                   <Text style={styles.infoCardTitle}>Legal Information</Text>
                 </View>
-                {legalDetails.gst_number && (
+                {legalDetails.aadhaar && (
                   <View style={styles.infoCardRow}>
-                    <Text style={styles.infoCardLabel}>GST Number</Text>
-                    <Text style={styles.infoCardValue}>{legalDetails.gst_number}</Text>
+                    <Text style={styles.infoCardLabel}>Aadhaar</Text>
+                    <Text style={styles.infoCardValue}>{legalDetails.aadhaar}</Text>
                   </View>
                 )}
-                {legalDetails.pan_number && (
+                {legalDetails.pan && (
                   <View style={styles.infoCardRow}>
-                    <Text style={styles.infoCardLabel}>PAN Number</Text>
-                    <Text style={styles.infoCardValue}>{legalDetails.pan_number}</Text>
+                    <Text style={styles.infoCardLabel}>PAN</Text>
+                    <Text style={styles.infoCardValue}>{legalDetails.pan}</Text>
                   </View>
                 )}
-                {legalDetails.msme_number && (
+                {legalDetails.gst && (
                   <View style={styles.infoCardRow}>
-                    <Text style={styles.infoCardLabel}>MSME Number</Text>
-                    <Text style={styles.infoCardValue}>{legalDetails.msme_number}</Text>
+                    <Text style={styles.infoCardLabel}>GST</Text>
+                    <Text style={styles.infoCardValue}>{legalDetails.gst}</Text>
+                  </View>
+                )}
+                {legalDetails.msme && (
+                  <View style={styles.infoCardRow}>
+                    <Text style={styles.infoCardLabel}>MSME</Text>
+                    <Text style={styles.infoCardValue}>{legalDetails.msme}</Text>
+                  </View>
+                )}
+                {legalDetails.fassi && (
+                  <View style={styles.infoCardRow}>
+                    <Text style={styles.infoCardLabel}>FSSAI</Text>
+                    <Text style={styles.infoCardValue}>{legalDetails.fassi}</Text>
+                  </View>
+                )}
+                {legalDetails.export_import && (
+                  <View style={styles.infoCardRow}>
+                    <Text style={styles.infoCardLabel}>Export/Import</Text>
+                    <Text style={styles.infoCardValue}>{legalDetails.export_import}</Text>
                   </View>
                 )}
               </View>
-            )}
-
-            {!legalDetails && (
+            ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="document-text-outline" size={64} color="#CCC" />
-                <Text style={styles.emptyText}>No additional details available</Text>
+                <Text style={styles.emptyText}>No legal details available</Text>
               </View>
             )}
           </View>
@@ -686,7 +432,10 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3,
   },
   badgesContainer: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 16, paddingTop: 12, gap: 12 },
-  trustedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F5E9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, gap: 4 },
+  trustedBadge: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F5E9',
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, gap: 4,
+  },
   trustedText: { fontSize: 12, fontWeight: '600', color: '#4CAF50' },
   profileHeader: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 22 },
   logoContainer: {
@@ -697,27 +446,13 @@ const styles = StyleSheet.create({
   logoPlaceholder: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E3F2FD' },
   basicInfo: { flex: 1, marginLeft: 16 },
   businessName: { fontSize: 22, fontWeight: '700', color: '#000', marginBottom: 6 },
-  ratingContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 4 },
-  reviewsText: { fontSize: 13, color: '#666', marginLeft: 4 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 6 },
   infoText: { fontSize: 13, color: '#666', flex: 1 },
-  followButton: {
-    backgroundColor: '#177DDF', marginHorizontal: 16, marginTop: 16, paddingVertical: 12,
-    borderRadius: 8, alignItems: 'center', elevation: 2,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2,
+  businessTypeBadge: {
+    alignSelf: 'flex-start', backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 4,
   },
-  followingButton: { backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#177DDF' },
-  followButtonDisabled: { opacity: 0.7 },
-  followButtonText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
-  followingButtonText: { color: '#177DDF' },
-  statsContainer: {
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 16,
-    paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#F0F0F0', marginHorizontal: 16,
-  },
-  statItem: { alignItems: 'center', paddingHorizontal: 24 },
-  statNumber: { fontSize: 18, fontWeight: '700', color: '#000', marginBottom: 2 },
-  statLabel: { fontSize: 13, color: '#666' },
-  statDivider: { width: 1, height: 30, backgroundColor: '#E0E0E0' },
+  businessTypeText: { fontSize: 12, fontWeight: '600', color: '#0078D7' },
   actionButtons: {
     flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 8,
     paddingVertical: 16, borderBottomWidth: 1, borderColor: '#F0F0F0', marginTop: 12,
@@ -740,21 +475,6 @@ const styles = StyleSheet.create({
   activeTab: { borderBottomColor: '#177DDF' },
   tabText: { fontSize: 15, fontWeight: '500', color: '#999' },
   activeTabText: { color: '#177DDF', fontWeight: '600' },
-  productsContainer: { padding: 8 },
-  productsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  productCard: {
-    width: (width - 32) / 2, backgroundColor: '#FFFFFF', borderRadius: 12, marginBottom: 12,
-    overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1, shadowRadius: 3,
-  },
-  productImage: { width: '100%', height: 140, backgroundColor: '#E0E0E0' },
-  productImagePlaceholder: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F8F8' },
-  productInfo: { padding: 12 },
-  productName: { fontSize: 15, fontWeight: '600', color: '#000', marginBottom: 6 },
-  productQuantity: { fontSize: 13, color: '#666', marginBottom: 4 },
-  productPrice: { fontSize: 14, color: '#28A745', fontWeight: '600', marginBottom: 8 },
-  enquireBtn: { backgroundColor: '#177DDF', marginHorizontal: 12, marginBottom: 12, paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
-  enquireBtnText: { fontSize: 13, fontWeight: '600', color: '#FFFFFF' },
   statutoryContainer: { flex: 1, padding: 16 },
   infoCard: {
     backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12, elevation: 2,
