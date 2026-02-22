@@ -23,10 +23,12 @@ const { width } = Dimensions.get("window");
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}/${url}`;
   return `${S3_URL}/${url}`;
 };
 
@@ -98,32 +100,64 @@ const HomeScreen = () => {
       const status = await AsyncStorage.getItem("sellerStatus");
       setSellerStatus(status?.toLowerCase() || null);
 
-      // Also refresh from API to keep in sync
+      // Refresh from API to keep in sync
       const token = await AsyncStorage.getItem("token");
       if (token) {
         const decoded: any = jwtDecode(token);
-        const headers = { Authorization: `Bearer ${token}` };
-        try {
-          const companyRes = await axios.get(
-            `${API_URL}/company/get/user/${decoded.user_id}`,
-            { headers }
-          );
-          const companyData = companyRes.data?.data?.company || companyRes.data?.data;
-          if (companyData?.company_id) {
-            await AsyncStorage.setItem("companyId", companyData.company_id);
-            const appRes = await axios.get(
-              `${API_URL}/company/application/get/company/${companyData.company_id}`,
-              { headers }
-            );
-            const appData = appRes.data?.data?.application || appRes.data?.data;
-            if (appData?.status) {
-              const normalizedStatus = appData.status.toLowerCase();
-              await AsyncStorage.setItem("sellerStatus", normalizedStatus);
-              setSellerStatus(normalizedStatus);
+
+        // Use business_id from token if available
+        let businessId = decoded.business_id;
+
+        if (!businessId) {
+          // Fallback: try fetching business by user_id
+          try {
+            const bizRes = await fetch(`${API_URL}/business/get/user/${decoded.user_id}`, {
+              headers: { "Content-Type": "application/json" },
+            });
+            if (bizRes.ok) {
+              const bizData = await bizRes.json();
+              businessId = bizData.business_id;
+            }
+          } catch {
+            // No business found
+          }
+        }
+
+        if (businessId) {
+          await AsyncStorage.setItem("companyId", businessId);
+
+          // Check application status
+          try {
+            const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
+              headers: { "Content-Type": "application/json" },
+            });
+            if (appRes.ok) {
+              const appData = await appRes.json();
+              const appStatus = appData.details?.status || appData.status;
+              if (appStatus) {
+                const normalizedStatus = appStatus.toLowerCase();
+                await AsyncStorage.setItem("sellerStatus", normalizedStatus);
+                setSellerStatus(normalizedStatus);
+              }
+            }
+          } catch {
+            // Check if business itself is approved
+            try {
+              const bizDetailRes = await fetch(`${API_URL}/business/get/${businessId}`, {
+                headers: { "Content-Type": "application/json" },
+              });
+              if (bizDetailRes.ok) {
+                const bizDetail = await bizDetailRes.json();
+                const biz = bizDetail.details;
+                if (biz?.is_business_approved) {
+                  await AsyncStorage.setItem("sellerStatus", "approved");
+                  setSellerStatus("approved");
+                }
+              }
+            } catch {
+              // Business not accessible
             }
           }
-        } catch {
-          // Company not found - user is not a seller
         }
       }
     } catch (error) {
@@ -151,13 +185,19 @@ const HomeScreen = () => {
         if (decodedToken.user_name) {
           setJwtUserName(decodedToken.user_name);
         }
-        const res = await axios.get(
-          `${API_URL}/get/user/details/${decodedToken?.user_id}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-        setUserDetails(res.data.data.user_details);
+        try {
+          const res = await axios.get(
+            `${API_URL}/user/get/user/${decodedToken?.user_id}`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+          // Backend returns: { details: { id, first_name, last_name, email, phone, profile_image, ... } }
+          const details = res.data?.details || res.data?.data?.user_details || res.data;
+          setUserDetails(details);
+        } catch {
+          // API error - rely on token data
+        }
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -308,10 +348,10 @@ const HomeScreen = () => {
           <Ionicons name="person-circle-outline" size={24} color="#FFFFFF" />
           <View style={styles.locationText}>
             <Text style={styles.locationName}>
-              {jwtUserName || userDetails?.user_name || "Welcome"}
+              {jwtUserName || (userDetails?.first_name ? `${userDetails.first_name}${userDetails.last_name ? ' ' + userDetails.last_name : ''}` : "Welcome")}
             </Text>
             <Text style={styles.locationAddress}>
-              {userDetails?.user_email || ""}
+              {userDetails?.email || ""}
             </Text>
           </View>
         </View>

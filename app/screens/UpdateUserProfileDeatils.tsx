@@ -20,8 +20,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Constants from "expo-constants";
 
-const API_URL ="http://192.168.1.4:8080";
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface DecodedToken {
   user_id: string;

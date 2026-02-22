@@ -79,7 +79,7 @@ const ProfileSettingsScreen: React.FC = () => {
       setTokenData(decoded);
       setUserId(decoded.user_id);
 
-      // Fetch user details
+      // Fetch user details - Backend User struct: { id, profile_image, first_name, last_name, email, phone, is_user_seller, ... }
       try {
         const res = await axios.get(
           `${API_URL}/user/get/user/${decoded.user_id}`,
@@ -89,7 +89,8 @@ const ProfileSettingsScreen: React.FC = () => {
           const details = res.data.details || res.data.data?.user_details || res.data;
           setUserDetails(details);
 
-          const profileUrl = details.user_profile_url || details.profile_image;
+          // Profile image path from DB: e.g. "/profile/users/{id}.png"
+          const profileUrl = details.profile_image;
           if (profileUrl) {
             const fullImageUrl = getImageUri(profileUrl);
             setProfileImage(`${fullImageUrl}?t=${Date.now()}`);
@@ -101,13 +102,43 @@ const ProfileSettingsScreen: React.FC = () => {
         console.error('Error fetching user details:', e);
       }
 
-      // Fetch seller status
-      const status = await AsyncStorage.getItem('sellerStatus');
+      // Sync seller status from API
+      let status = await AsyncStorage.getItem('sellerStatus');
+      const businessId = decoded.business_id || await AsyncStorage.getItem('companyId');
+
+      if (businessId) {
+        try {
+          const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (appRes.ok) {
+            const appData = await appRes.json();
+            const appStatus = appData.details?.status || appData.status;
+            if (appStatus) {
+              status = appStatus.toLowerCase();
+              await AsyncStorage.setItem('sellerStatus', status);
+            }
+          }
+        } catch {
+          try {
+            const bizCheckRes = await fetch(`${API_URL}/business/get/${businessId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (bizCheckRes.ok) {
+              const bizCheck = await bizCheckRes.json();
+              if (bizCheck.details?.is_business_approved) {
+                status = 'approved';
+                await AsyncStorage.setItem('sellerStatus', 'approved');
+              }
+            }
+          } catch {}
+        }
+        await AsyncStorage.setItem('companyId', businessId);
+      }
       setSellerStatus(status);
 
-      // Fetch business details using business_id from token or AsyncStorage
-      const businessId = decoded.business_id || await AsyncStorage.getItem('companyId');
-      if (businessId && (status === 'approved' || status === 'pending' || decoded.business_id)) {
+      // Fetch business details
+      if (businessId) {
         try {
           // Try complete endpoint first
           const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, {
@@ -236,15 +267,19 @@ const ProfileSettingsScreen: React.FC = () => {
   };
 
   const getUserName = () => {
-    return userDetails?.user_name || userDetails?.name || tokenData?.user_name || 'N/A';
+    // Backend returns first_name + last_name, token has user_name
+    if (userDetails?.first_name) {
+      return `${userDetails.first_name}${userDetails.last_name ? ' ' + userDetails.last_name : ''}`;
+    }
+    return tokenData?.user_name || 'N/A';
   };
 
   const getUserEmail = () => {
-    return userDetails?.user_email || userDetails?.email || 'N/A';
+    return userDetails?.email || 'N/A';
   };
 
   const getUserPhone = () => {
-    return userDetails?.user_phone || userDetails?.phone || '';
+    return userDetails?.phone || '';
   };
 
   return (

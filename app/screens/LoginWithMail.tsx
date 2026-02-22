@@ -18,8 +18,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Constants from "expo-constants";
 
-const API_URL = "http://192.168.1.4:8080";
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface FieldErrors {
   email?: string;

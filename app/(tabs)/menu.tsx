@@ -79,10 +79,42 @@ const MenuScreen: React.FC = () => {
       setUserName(decoded.user_name || '');
       setBusinessId(decoded.business_id || '');
 
-      const status = await AsyncStorage.getItem('sellerStatus');
+      let status = await AsyncStorage.getItem('sellerStatus');
       const storedCompanyId = await AsyncStorage.getItem('companyId');
+      const bId = storedCompanyId || decoded.business_id;
+      setCompanyId(bId);
+
+      // Sync seller status from API if we have a business_id
+      if (bId) {
+        try {
+          const appRes = await fetch(`${API_URL}/business/application/get/${bId}`, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (appRes.ok) {
+            const appData = await appRes.json();
+            const appStatus = appData.details?.status || appData.status;
+            if (appStatus) {
+              status = appStatus.toLowerCase();
+              await AsyncStorage.setItem('sellerStatus', status);
+            }
+          }
+        } catch {
+          // Check if business is approved directly
+          try {
+            const bizRes = await fetch(`${API_URL}/business/get/${bId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (bizRes.ok) {
+              const bizData = await bizRes.json();
+              if (bizData.details?.is_business_approved) {
+                status = 'approved';
+                await AsyncStorage.setItem('sellerStatus', 'approved');
+              }
+            }
+          } catch {}
+        }
+      }
       setSellerStatus(status);
-      setCompanyId(storedCompanyId || decoded.business_id);
 
       // Fetch user details for email and profile image
       try {
@@ -92,8 +124,12 @@ const MenuScreen: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           const details = data.details || data.data?.user_details || data;
-          setUserEmail(details.user_email || details.email || '');
-          const profileUrl = details.user_profile_url || details.profile_image;
+          // Backend returns: first_name, last_name, email, phone, profile_image
+          setUserEmail(details.email || '');
+          if (details.first_name) {
+            setUserName(`${details.first_name}${details.last_name ? ' ' + details.last_name : ''}`);
+          }
+          const profileUrl = details.profile_image;
           if (profileUrl) {
             setProfileImage(`${getImageUri(profileUrl)}?t=${Date.now()}`);
           }

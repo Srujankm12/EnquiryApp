@@ -238,26 +238,38 @@ const BusinessProfileScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Badges Row */}
+          {/* Badges Row - show all statuses */}
           <View style={styles.badgesContainer}>
-            {businessDetails.is_business_verified && (
-              <View style={[styles.badge, { backgroundColor: '#E8F5E9' }]}>
-                <Ionicons name="shield-checkmark" size={14} color="#4CAF50" />
-                <Text style={[styles.badgeText, { color: '#4CAF50' }]}>Verified</Text>
-              </View>
-            )}
-            {businessDetails.is_business_trusted && (
-              <View style={[styles.badge, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="ribbon" size={14} color="#FF9500" />
-                <Text style={[styles.badgeText, { color: '#FF9500' }]}>Trusted</Text>
-              </View>
-            )}
-            {businessDetails.is_business_approved && (
-              <View style={[styles.badge, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="checkmark-circle" size={14} color="#0078D7" />
-                <Text style={[styles.badgeText, { color: '#0078D7' }]}>Approved</Text>
-              </View>
-            )}
+            <View style={[styles.badge, { backgroundColor: businessDetails.is_business_verified ? '#E8F5E9' : '#F5F5F5' }]}>
+              <Ionicons
+                name={businessDetails.is_business_verified ? 'shield-checkmark' : 'shield-outline'}
+                size={14}
+                color={businessDetails.is_business_verified ? '#4CAF50' : '#999'}
+              />
+              <Text style={[styles.badgeText, { color: businessDetails.is_business_verified ? '#4CAF50' : '#999' }]}>
+                {businessDetails.is_business_verified ? 'Verified' : 'Not Verified'}
+              </Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: businessDetails.is_business_trusted ? '#FFF3E0' : '#F5F5F5' }]}>
+              <Ionicons
+                name={businessDetails.is_business_trusted ? 'ribbon' : 'ribbon-outline'}
+                size={14}
+                color={businessDetails.is_business_trusted ? '#FF9500' : '#999'}
+              />
+              <Text style={[styles.badgeText, { color: businessDetails.is_business_trusted ? '#FF9500' : '#999' }]}>
+                {businessDetails.is_business_trusted ? 'Trusted' : 'Untrusted'}
+              </Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: businessDetails.is_business_approved ? '#E3F2FD' : '#F5F5F5' }]}>
+              <Ionicons
+                name={businessDetails.is_business_approved ? 'checkmark-circle' : 'close-circle-outline'}
+                size={14}
+                color={businessDetails.is_business_approved ? '#0078D7' : '#999'}
+              />
+              <Text style={[styles.badgeText, { color: businessDetails.is_business_approved ? '#0078D7' : '#999' }]}>
+                {businessDetails.is_business_approved ? 'Approved' : 'Not Approved'}
+              </Text>
+            </View>
           </View>
 
           {/* Followers / Following Row */}
