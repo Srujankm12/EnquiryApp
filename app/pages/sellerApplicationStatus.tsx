@@ -132,11 +132,8 @@ const SellerApplicationStatus: React.FC = () => {
           setApplication(appData);
 
           // Normalize status for AsyncStorage
-          const normalizedStatus =
-            appData.status === "APPLIED"
-              ? "pending"
-              : (appData.status || "pending").toLowerCase();
-          await AsyncStorage.setItem("sellerStatus", normalizedStatus);
+          const ns = normalizeStatus(appData.status || "pending");
+          await AsyncStorage.setItem("sellerStatus", ns);
         }
       } else {
         // Fallback: fetch individual endpoints
@@ -164,11 +161,8 @@ const SellerApplicationStatus: React.FC = () => {
         if (appRes.status === "fulfilled" && appRes.value.ok) {
           const r = await appRes.value.json();
           setApplication(r.details);
-          const normalizedStatus =
-            r.details?.status === "APPLIED"
-              ? "pending"
-              : (r.details?.status || "pending").toLowerCase();
-          await AsyncStorage.setItem("sellerStatus", normalizedStatus);
+          const ns = normalizeStatus(r.details?.status || "pending");
+          await AsyncStorage.setItem("sellerStatus", ns);
         }
 
         if (socialRes.status === "fulfilled" && socialRes.value.ok) {
@@ -206,9 +200,16 @@ const SellerApplicationStatus: React.FC = () => {
     });
   };
 
+  const normalizeStatus = (status: string): string => {
+    const s = status?.toLowerCase()?.trim();
+    if (s === "applied" || s === "under_review") return "pending";
+    if (s === "accepted" || s === "active") return "approved";
+    if (s === "declined") return "rejected";
+    return s || "none";
+  };
+
   const getStatusConfig = (status: string) => {
-    const normalizedStatus =
-      status === "APPLIED" ? "pending" : status?.toLowerCase();
+    const normalizedStatus = normalizeStatus(status);
 
     switch (normalizedStatus) {
       case "approved":
@@ -295,8 +296,7 @@ const SellerApplicationStatus: React.FC = () => {
   }
 
   const rawStatus = application?.status || "none";
-  const normalizedStatus =
-    rawStatus === "APPLIED" ? "pending" : rawStatus.toLowerCase();
+  const normalizedStatus = normalizeStatus(rawStatus);
   const config = getStatusConfig(rawStatus);
   const isPending = normalizedStatus === "pending";
   const isRejected = normalizedStatus === "rejected";
@@ -572,8 +572,12 @@ const SellerApplicationStatus: React.FC = () => {
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Status</Text>
               <Text style={styles.infoValue}>
-                {application.status === "APPLIED"
+                {normalizedStatus === "pending"
                   ? "Under Review"
+                  : normalizedStatus === "approved"
+                  ? "Approved"
+                  : normalizedStatus === "rejected"
+                  ? "Rejected"
                   : application.status}
               </Text>
             </View>
