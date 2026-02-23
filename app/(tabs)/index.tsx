@@ -28,8 +28,9 @@ const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}/${url}`;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
 };
 
 const BANNERS = [
@@ -98,7 +99,15 @@ const HomeScreen = () => {
   const checkSellerStatus = async () => {
     try {
       const status = await AsyncStorage.getItem("sellerStatus");
-      setSellerStatus(status?.toLowerCase() || null);
+      const normalizedStored = status?.toLowerCase()?.trim() || null;
+
+      // If already approved, no need for API calls
+      if (normalizedStored === "approved" || normalizedStored === "accepted" || normalizedStored === "active") {
+        setSellerStatus("approved");
+        return;
+      }
+
+      setSellerStatus(normalizedStored);
 
       // Refresh from API to keep in sync
       const token = await AsyncStorage.getItem("token");
@@ -116,7 +125,7 @@ const HomeScreen = () => {
             });
             if (bizRes.ok) {
               const bizData = await bizRes.json();
-              businessId = bizData.business_id;
+              businessId = bizData.business_id || bizData.details?.business_id || bizData.id;
             }
           } catch {
             // No business found
@@ -126,6 +135,28 @@ const HomeScreen = () => {
         if (businessId) {
           await AsyncStorage.setItem("companyId", businessId);
 
+          // First check business status endpoint (simple check)
+          try {
+            const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, {
+              headers: { "Content-Type": "application/json" },
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (
+                statusData?.is_approved === true ||
+                statusData?.details?.is_approved === true ||
+                statusData?.is_business_approved === true ||
+                statusData?.details?.is_business_approved === true
+              ) {
+                await AsyncStorage.setItem("sellerStatus", "approved");
+                setSellerStatus("approved");
+                return;
+              }
+            }
+          } catch {
+            // Status endpoint not available
+          }
+
           // Check application status
           try {
             const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
@@ -133,11 +164,25 @@ const HomeScreen = () => {
             });
             if (appRes.ok) {
               const appData = await appRes.json();
-              const appStatus = appData.details?.status || appData.status;
-              if (appStatus) {
-                const normalizedStatus = appStatus.toLowerCase();
-                await AsyncStorage.setItem("sellerStatus", normalizedStatus);
-                setSellerStatus(normalizedStatus);
+              const appStatus = (
+                appData.details?.status ||
+                appData.application?.status ||
+                appData.status ||
+                ""
+              ).toLowerCase().trim();
+
+              if (appStatus === "approved" || appStatus === "accepted" || appStatus === "active") {
+                await AsyncStorage.setItem("sellerStatus", "approved");
+                setSellerStatus("approved");
+              } else if (appStatus === "applied" || appStatus === "pending" || appStatus === "under_review") {
+                await AsyncStorage.setItem("sellerStatus", "pending");
+                setSellerStatus("pending");
+              } else if (appStatus === "rejected" || appStatus === "declined") {
+                await AsyncStorage.setItem("sellerStatus", "rejected");
+                setSellerStatus("rejected");
+              } else if (appStatus) {
+                await AsyncStorage.setItem("sellerStatus", appStatus);
+                setSellerStatus(appStatus);
               }
             }
           } catch {
@@ -148,8 +193,8 @@ const HomeScreen = () => {
               });
               if (bizDetailRes.ok) {
                 const bizDetail = await bizDetailRes.json();
-                const biz = bizDetail.details;
-                if (biz?.is_business_approved) {
+                const biz = bizDetail.details || bizDetail.business;
+                if (biz?.is_business_approved || biz?.is_approved) {
                   await AsyncStorage.setItem("sellerStatus", "approved");
                   setSellerStatus("approved");
                 }
@@ -192,8 +237,8 @@ const HomeScreen = () => {
               headers: { Authorization: `Bearer ${token}` },
             }
           );
-          // Backend returns: { details: { id, first_name, last_name, email, phone, profile_image, ... } }
-          const details = res.data?.details || res.data?.data?.user_details || res.data;
+          // Backend returns: { message: "...", user: { id, first_name, last_name, email, phone, profile_image, ... } }
+          const details = res.data?.user || res.data;
           setUserDetails(details);
         } catch {
           // API error - rely on token data
@@ -207,11 +252,11 @@ const HomeScreen = () => {
   const fetchCategories = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
-      const res = await axios.get(`${API_URL}/category/get/complete/all`, {
+      const res = await axios.get(`${API_URL}/category/get/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.data?.data?.categories) {
-        setCategories(res.data.data.categories);
+      if (res.data?.categories) {
+        setCategories(res.data.categories);
       }
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -318,7 +363,7 @@ const HomeScreen = () => {
   const handleCategoryPress = (category: any) => {
     router.push({
       pathname: "/pages/specificCategory",
-      params: { id: category.category_id, name: category.category_name },
+      params: { id: category.id, name: category.name },
     });
   };
 
@@ -334,7 +379,7 @@ const HomeScreen = () => {
   return (
     <View style={styles.container}>
       {/* Become Seller Toaster - only show if not approved */}
-      {sellerStatus?.toLowerCase() !== "approved" && (
+      {sellerStatus !== "approved" && sellerStatus !== "accepted" && sellerStatus !== "active" && (
         <BecomeSellerToaster
           key={toasterKey}
           visible={showToaster}
@@ -432,14 +477,20 @@ const HomeScreen = () => {
                   style={styles.categoryCard}
                   onPress={() => handleCategoryPress(item)}
                 >
-                  <Image
-                    source={{ uri: getImageUri(item.category_image_url)! }}
-                    style={styles.categoryImage}
-                  />
-                  <Text style={styles.categoryName}>{item.category_name}</Text>
+                  {item.category_image ? (
+                    <Image
+                      source={{ uri: getImageUri(item.category_image)! }}
+                      style={styles.categoryImage}
+                    />
+                  ) : (
+                    <View style={[styles.categoryImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#EBF5FF' }]}>
+                      <Ionicons name="leaf-outline" size={24} color="#0078D7" />
+                    </View>
+                  )}
+                  <Text style={styles.categoryName}>{item.name}</Text>
                 </TouchableOpacity>
               )}
-              keyExtractor={(item) => item.category_id}
+              keyExtractor={(item) => item.id}
             />
           </View>
         )}

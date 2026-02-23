@@ -26,7 +26,8 @@ const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${S3_URL}${path}`;
 };
 
 const SellerHomeScreen = () => {
@@ -145,11 +146,11 @@ const SellerHomeScreen = () => {
 
   const fetchCategories = async (token: string) => {
     try {
-      const res = await axios.get(`${API_URL}/category/get/complete/all`, {
+      const res = await axios.get(`${API_URL}/category/get/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.data?.data?.categories) {
-        setCategories(res.data.data.categories);
+      if (res.data?.categories) {
+        setCategories(res.data.categories);
       }
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -159,7 +160,7 @@ const SellerHomeScreen = () => {
   const handleCategoryPress = (category: any) => {
     router.push({
       pathname: "/pages/specificCategory",
-      params: { id: category.category_id, name: category.category_name },
+      params: { id: category.id, name: category.name },
     });
   };
 
@@ -428,14 +429,20 @@ const SellerHomeScreen = () => {
                   style={styles.categoryCard}
                   onPress={() => handleCategoryPress(item)}
                 >
-                  <Image
-                    source={{ uri: getImageUri(item.category_image_url)! }}
-                    style={styles.categoryImage}
-                  />
-                  <Text style={styles.categoryName}>{item.category_name}</Text>
+                  {item.category_image ? (
+                    <Image
+                      source={{ uri: getImageUri(item.category_image)! }}
+                      style={styles.categoryImage}
+                    />
+                  ) : (
+                    <View style={[styles.categoryImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#EBF5FF' }]}>
+                      <Ionicons name="leaf-outline" size={24} color="#0078D7" />
+                    </View>
+                  )}
+                  <Text style={styles.categoryName}>{item.name}</Text>
                 </TouchableOpacity>
               )}
-              keyExtractor={(item) => item.category_id}
+              keyExtractor={(item) => item.id}
             />
           </View>
         )}

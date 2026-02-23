@@ -26,23 +26,29 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
 };
 
 interface Category {
-  category_id: string;
-  category_name: string;
-  category_image_url: string;
+  id: string;
+  name: string;
+  category_image: string | null;
+  description: string;
 }
 
 interface SubCategory {
-  sub_category_id: string;
-  sub_category_name: string;
-  sub_category_image_url: string;
+  id: string;
+  category_id: string;
+  name: string;
+  category_image: string | null;
+  description: string;
 }
 
 const AddProductsScreen: React.FC = () => {
@@ -97,10 +103,10 @@ const AddProductsScreen: React.FC = () => {
     try {
       setLoadingCategories(true);
       const token = await AsyncStorage.getItem('token');
-      const res = await axios.get(`${API_URL}/category/get/complete/all`, {
+      const res = await axios.get(`${API_URL}/category/get/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setCategories(res.data.data?.categories || []);
+      setCategories(res.data?.categories || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
       Alert.alert('Error', 'Unable to load categories. Please try again.');
@@ -115,10 +121,10 @@ const AddProductsScreen: React.FC = () => {
       setSubCategories([]);
       const token = await AsyncStorage.getItem('token');
       const res = await axios.get(
-        `${API_URL}/category/get/sub/complete/all/${categoryId}`,
+        `${API_URL}/category/sub/get/category/${categoryId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSubCategories(res.data.data?.sub_categories || []);
+      setSubCategories(res.data?.sub_categories || []);
     } catch (error) {
       console.error('Error fetching sub-categories:', error);
       setSubCategories([]);
@@ -131,7 +137,7 @@ const AddProductsScreen: React.FC = () => {
     setSelectedCategory(category);
     setSelectedSubCategory(null);
     setShowCategoryModal(false);
-    fetchSubCategories(category.category_id);
+    fetchSubCategories(category.id);
   };
 
   const handleSubCategorySelect = (subCategory: SubCategory) => {
@@ -269,11 +275,11 @@ const AddProductsScreen: React.FC = () => {
         product_description: productDescription.trim(),
         product_quantity: productQuantity.trim(),
         product_price: productPrice.trim(),
-        product_category_id: selectedCategory!.category_id,
+        product_category_id: selectedCategory!.id,
       };
 
       if (selectedSubCategory) {
-        productData.product_sub_category_id = selectedSubCategory.sub_category_id;
+        productData.product_sub_category_id = selectedSubCategory.id;
       }
 
       const createRes = await axios.post(
@@ -413,7 +419,7 @@ const AddProductsScreen: React.FC = () => {
                 ]}
               >
                 {selectedCategory
-                  ? selectedCategory.category_name
+                  ? selectedCategory.name
                   : 'Select a category'}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
@@ -440,7 +446,7 @@ const AddProductsScreen: React.FC = () => {
                       ]}
                     >
                       {selectedSubCategory
-                        ? selectedSubCategory.sub_category_name
+                        ? selectedSubCategory.name
                         : subCategories.length > 0
                         ? 'Select a sub-category'
                         : 'No sub-categories available'}
@@ -526,24 +532,24 @@ const AddProductsScreen: React.FC = () => {
             ) : (
               <FlatList
                 data={categories}
-                keyExtractor={(item) => item.category_id}
+                keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[
                       styles.modalItem,
-                      selectedCategory?.category_id === item.category_id &&
+                      selectedCategory?.id === item.id &&
                         styles.modalItemSelected,
                     ]}
                     onPress={() => handleCategorySelect(item)}
                   >
-                    {item.category_image_url && (
+                    {item.category_image && (
                       <Image
-                        source={{ uri: getImageUri(item.category_image_url)! }}
+                        source={{ uri: getImageUri(item.category_image)! }}
                         style={styles.modalItemImage}
                       />
                     )}
-                    <Text style={styles.modalItemText}>{item.category_name}</Text>
-                    {selectedCategory?.category_id === item.category_id && (
+                    <Text style={styles.modalItemText}>{item.name}</Text>
+                    {selectedCategory?.id === item.id && (
                       <Ionicons name="checkmark" size={20} color="#0078D7" />
                     )}
                   </TouchableOpacity>
@@ -574,24 +580,24 @@ const AddProductsScreen: React.FC = () => {
             </View>
             <FlatList
               data={subCategories}
-              keyExtractor={(item) => item.sub_category_id}
+              keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[
                     styles.modalItem,
-                    selectedSubCategory?.sub_category_id === item.sub_category_id &&
+                    selectedSubCategory?.id === item.id &&
                       styles.modalItemSelected,
                   ]}
                   onPress={() => handleSubCategorySelect(item)}
                 >
-                  {item.sub_category_image_url && (
+                  {item.category_image && (
                     <Image
-                      source={{ uri: getImageUri(item.sub_category_image_url)! }}
+                      source={{ uri: getImageUri(item.category_image)! }}
                       style={styles.modalItemImage}
                     />
                   )}
-                  <Text style={styles.modalItemText}>{item.sub_category_name}</Text>
-                  {selectedSubCategory?.sub_category_id === item.sub_category_id && (
+                  <Text style={styles.modalItemText}>{item.name}</Text>
+                  {selectedSubCategory?.id === item.id && (
                     <Ionicons name="checkmark" size={20} color="#0078D7" />
                   )}
                 </TouchableOpacity>

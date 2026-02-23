@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Dimensions,
   RefreshControl,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,24 +24,24 @@ interface Enquiry {
   contactPerson: string;
   location: string;
   isNew: boolean;
+  date?: string;
+  productName?: string;
 }
 
 const EnquiriesScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [newEnquiries, setNewEnquiries] = useState<Enquiry[]>([]);
   const [oldEnquiries, setOldEnquiries] = useState<Enquiry[]>([]);
 
-  // Fetch enquiries on component mount
   useEffect(() => {
     fetchEnquiries();
   }, []);
 
   const fetchEnquiries = async () => {
     setLoading(true);
-
-    // Simulate API call delay
     setTimeout(() => {
       const dummyNewEnquiries: Enquiry[] = [
         {
@@ -51,6 +52,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Yogeswaran KK',
           location: 'Vellala',
           isNew: true,
+          date: 'Today',
+          productName: 'Raw Cashew Nuts',
         },
         {
           id: '2',
@@ -60,6 +63,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Jeevanantham KL',
           location: 'Mangare',
           isNew: true,
+          date: 'Today',
+          productName: 'Processed Cashew',
         },
         {
           id: '3',
@@ -69,6 +74,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Ragival S',
           location: 'Mlangare',
           isNew: true,
+          date: 'Yesterday',
+          productName: 'Cashew Butter',
         },
         {
           id: '4',
@@ -78,6 +85,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Ravi KD',
           location: 'Mangalire',
           isNew: true,
+          date: 'Yesterday',
+          productName: 'Roasted Cashew',
         },
       ];
 
@@ -90,6 +99,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Chethan Poojary',
           location: 'Kuvali',
           isNew: false,
+          date: '2 days ago',
+          productName: 'Premium Cashews',
         },
         {
           id: '6',
@@ -99,6 +110,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Guruprasth L',
           location: 'Manguru',
           isNew: false,
+          date: '3 days ago',
+          productName: 'Cashew Oil',
         },
         {
           id: '7',
@@ -108,6 +121,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Pavan HL',
           location: 'Bangare',
           isNew: false,
+          date: '1 week ago',
+          productName: 'Organic Cashew',
         },
         {
           id: '8',
@@ -117,6 +132,8 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Melkathith Kulal',
           location: 'Mangore',
           isNew: false,
+          date: '2 weeks ago',
+          productName: 'Cashew Mix',
         },
         {
           id: '9',
@@ -126,34 +143,29 @@ const EnquiriesScreen: React.FC = () => {
           contactPerson: 'Dinesh KR',
           location: 'Mangore',
           isNew: false,
+          date: '1 month ago',
+          productName: 'Whole Cashews',
         },
       ];
 
       setNewEnquiries(dummyNewEnquiries);
       setOldEnquiries(dummyOldEnquiries);
       setLoading(false);
-    }, 1500);
+    }, 1000);
   };
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchEnquiries();
     setRefreshing(false);
-  };
+  }, []);
 
   const handleRead = (enquiryId: string, companyName: string) => {
     console.log(`Read enquiry from ${companyName}`);
-    // Navigate to enquiry details or show modal
   };
 
   const handleView = (enquiryId: string, companyName: string) => {
     console.log(`View enquiry from ${companyName}`);
-    // Navigate to enquiry details
-  };
-
-  const handleBack = () => {
-    // Navigate back
-    console.log('Back pressed');
   };
 
   const renderStars = (rating: number) => {
@@ -163,9 +175,9 @@ const EnquiriesScreen: React.FC = () => {
         <Ionicons
           key={i}
           name={i <= rating ? 'star' : 'star-outline'}
-          size={14}
+          size={12}
           color="#FFD700"
-          style={styles.star}
+          style={{ marginRight: 1 }}
         />
       );
     }
@@ -173,21 +185,49 @@ const EnquiriesScreen: React.FC = () => {
   };
 
   const renderEnquiryCard = (enquiry: Enquiry) => (
-    <View key={enquiry.id} style={styles.enquiryCard}>
+    <TouchableOpacity
+      key={enquiry.id}
+      style={styles.enquiryCard}
+      activeOpacity={0.7}
+      onPress={() =>
+        enquiry.isNew
+          ? handleRead(enquiry.id, enquiry.companyName)
+          : handleView(enquiry.id, enquiry.companyName)
+      }
+    >
       <View style={styles.cardContent}>
         {/* Company Logo */}
-        <Image
-          source={{ uri: enquiry.companyLogo }}
-          style={styles.companyLogo}
-          resizeMode="cover"
-        />
+        <View style={styles.logoContainer}>
+          <Image
+            source={{ uri: enquiry.companyLogo }}
+            style={styles.companyLogo}
+            resizeMode="cover"
+          />
+          {enquiry.isNew && <View style={styles.newDot} />}
+        </View>
 
         {/* Company Info */}
         <View style={styles.companyInfo}>
-          <Text style={styles.companyName}>{enquiry.companyName}</Text>
+          <View style={styles.companyNameRow}>
+            <Text style={styles.companyName} numberOfLines={1}>{enquiry.companyName}</Text>
+            <Text style={styles.dateText}>{enquiry.date}</Text>
+          </View>
           {renderStars(enquiry.rating)}
-          <Text style={styles.contactPerson}>{enquiry.contactPerson}</Text>
-          <Text style={styles.location}>{enquiry.location}</Text>
+          {enquiry.productName && (
+            <Text style={styles.productNameText} numberOfLines={1}>
+              {enquiry.productName}
+            </Text>
+          )}
+          <View style={styles.metaRow}>
+            <View style={styles.metaItem}>
+              <Ionicons name="person-outline" size={12} color="#888" />
+              <Text style={styles.contactPerson}>{enquiry.contactPerson}</Text>
+            </View>
+            <View style={styles.metaItem}>
+              <Ionicons name="location-outline" size={12} color="#888" />
+              <Text style={styles.location}>{enquiry.location}</Text>
+            </View>
+          </View>
         </View>
 
         {/* Action Button */}
@@ -202,51 +242,83 @@ const EnquiriesScreen: React.FC = () => {
               : handleView(enquiry.id, enquiry.companyName)
           }
         >
-          <Text style={enquiry.isNew ? styles.actionButtonText : styles.viewText}>
+          <Ionicons
+            name={enquiry.isNew ? 'mail-unread-outline' : 'eye-outline'}
+            size={16}
+            color={enquiry.isNew ? '#FFFFFF' : '#1E90FF'}
+          />
+          <Text style={enquiry.isNew ? styles.readButtonText : styles.viewButtonText}>
             {enquiry.isNew ? 'Read' : 'View'}
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
-  const filteredNewEnquiries = newEnquiries.filter((enquiry) =>
-    enquiry.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    enquiry.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    enquiry.location.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const currentEnquiries = activeTab === 'new' ? newEnquiries : oldEnquiries;
 
-  const filteredOldEnquiries = oldEnquiries.filter((enquiry) =>
-    enquiry.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    enquiry.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    enquiry.location.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredEnquiries = currentEnquiries.filter((enquiry) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      enquiry.companyName.toLowerCase().includes(query) ||
+      enquiry.contactPerson.toLowerCase().includes(query) ||
+      enquiry.location.toLowerCase().includes(query) ||
+      (enquiry.productName?.toLowerCase().includes(query) ?? false)
+    );
+  });
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Enquiries</Text>
+        {newEnquiries.length > 0 && (
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>{newEnquiries.length} new</Text>
+          </View>
+        )}
       </View>
 
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor="#999"
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color="#999" />
-          </TouchableOpacity>
-        )}
+      <View style={styles.searchWrapper}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="#999" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search enquiries..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#999"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={20} color="#999" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Tab Selector */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'new' && styles.tabActive]}
+          onPress={() => setActiveTab('new')}
+        >
+          <Text style={[styles.tabText, activeTab === 'new' && styles.tabTextActive]}>
+            New ({newEnquiries.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'history' && styles.tabActive]}
+          onPress={() => setActiveTab('history')}
+        >
+          <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>
+            History ({oldEnquiries.length})
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Loading Indicator */}
@@ -256,49 +328,38 @@ const EnquiriesScreen: React.FC = () => {
           <Text style={styles.loadingText}>Loading enquiries...</Text>
         </View>
       ) : (
-        /* Enquiries List */
         <ScrollView
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
               colors={['#1E90FF']}
-              tintColor="#1E90FF"
             />
           }
         >
-          {/* New Enquiries Section */}
-          {filteredNewEnquiries.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>New Enquiries</Text>
-              {filteredNewEnquiries.map((enquiry) => renderEnquiryCard(enquiry))}
-            </View>
-          )}
-
-          {/* Old Enquiries Section */}
-          {filteredOldEnquiries.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Old Enquiries</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewAllText}>View all</Text>
-                </TouchableOpacity>
-              </View>
-              {filteredOldEnquiries.map((enquiry) => renderEnquiryCard(enquiry))}
-            </View>
-          )}
-
-          {/* Empty State */}
-          {filteredNewEnquiries.length === 0 && filteredOldEnquiries.length === 0 && (
+          {filteredEnquiries.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="mail-outline" size={64} color="#CCC" />
-              <Text style={styles.emptyText}>No enquiries found</Text>
+              <Ionicons
+                name={activeTab === 'new' ? 'mail-outline' : 'time-outline'}
+                size={64}
+                color="#CCC"
+              />
+              <Text style={styles.emptyTitle}>
+                {searchQuery ? 'No Results' : activeTab === 'new' ? 'No New Enquiries' : 'No History'}
+              </Text>
               <Text style={styles.emptySubtext}>
-                Try adjusting your search
+                {searchQuery
+                  ? 'Try adjusting your search term'
+                  : activeTab === 'new'
+                  ? 'New enquiries will appear here'
+                  : 'Your past enquiries will appear here'}
               </Text>
             </View>
+          ) : (
+            filteredEnquiries.map((enquiry) => renderEnquiryCard(enquiry))
           )}
 
           <View style={styles.bottomPadding} />
@@ -311,47 +372,76 @@ const EnquiriesScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F8F9FA',
   },
   header: {
     backgroundColor: '#1E90FF',
     paddingTop: 50,
-    paddingBottom: 15,
+    paddingBottom: 12,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  backButton: {
-    marginRight: 16,
+    justifyContent: 'space-between',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: '#FFFFFF',
+  },
+  headerBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  headerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  searchWrapper: {
+    backgroundColor: '#1E90FF',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
   searchContainer: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 16,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  searchIcon: {
-    marginRight: 8,
+    height: 44,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
+    marginLeft: 8,
     fontSize: 15,
     color: '#333',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: '#1E90FF',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#999',
+  },
+  tabTextActive: {
+    color: '#1E90FF',
   },
   loaderContainer: {
     flex: 1,
@@ -360,120 +450,137 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
   },
   scrollView: {
     flex: 1,
   },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  viewAllText: {
-    fontSize: 14,
-    color: '#717171',
-    fontWeight: '500',
+  scrollContent: {
+    paddingTop: 12,
+    paddingBottom: 20,
   },
   enquiryCard: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     borderRadius: 12,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.06,
     shadowRadius: 3,
   },
   cardContent: {
     flexDirection: 'row',
-    padding: 12,
+    padding: 14,
     alignItems: 'center',
   },
+  logoContainer: {
+    position: 'relative',
+  },
   companyLogo: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    width: 52,
+    height: 52,
+    borderRadius: 12,
     backgroundColor: '#E0E0E0',
+  },
+  newDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF3B30',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   companyInfo: {
     flex: 1,
     marginLeft: 12,
   },
+  companyNameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
   companyName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
+    color: '#1A1A1A',
+    flex: 1,
+    marginRight: 8,
+  },
+  dateText: {
+    fontSize: 11,
+    color: '#AAA',
   },
   starsContainer: {
     flexDirection: 'row',
     marginBottom: 4,
   },
-  star: {
-    marginRight: 2,
+  productNameText: {
+    fontSize: 12,
+    color: '#1E90FF',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
   contactPerson: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 2,
+    fontSize: 12,
+    color: '#888',
   },
   location: {
     fontSize: 12,
-    color: '#999',
+    color: '#888',
   },
   actionButton: {
     paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 6,
-    minWidth: 60,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     alignItems: 'center',
-  },
-  viewText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#717171',
+    flexDirection: 'row',
+    gap: 4,
+    marginLeft: 8,
   },
   readButton: {
-    marginTop: 10,
     backgroundColor: '#1E90FF',
   },
   viewButton: {
-    marginTop: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F0F7FF',
     borderWidth: 1,
-    borderColor: '#DDD',
+    borderColor: '#D0E3F7',
   },
-  actionButtonText: {
-    fontSize: 14,
+  readButtonText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#ffff',
+    color: '#FFFFFF',
+  },
+  viewButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E90FF',
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 80,
     paddingHorizontal: 40,
   },
-  emptyText: {
+  emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#666',
+    color: '#333',
     marginTop: 16,
   },
   emptySubtext: {
@@ -481,9 +588,10 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 8,
     textAlign: 'center',
+    lineHeight: 20,
   },
   bottomPadding: {
-    height: 100,
+    height: 80,
   },
 });
 

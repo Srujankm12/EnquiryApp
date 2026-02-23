@@ -28,7 +28,8 @@ const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${S3_URL}${path}`;
 };
 
 interface CompanyInfo {
@@ -86,8 +87,8 @@ const SellerDirectoryScreen: React.FC = () => {
 
       // Fetch categories
       try {
-        const catRes = await axios.get(`${API_URL}/category/get/complete/all`, { headers });
-        setCategories(catRes.data.data?.categories || []);
+        const catRes = await axios.get(`${API_URL}/category/get/all`, { headers });
+        setCategories(catRes.data?.categories || []);
       } catch {
         setCategories([]);
       }
