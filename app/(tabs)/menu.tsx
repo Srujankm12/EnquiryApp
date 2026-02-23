@@ -28,8 +28,9 @@ const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}/${url}`;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
 };
 
 interface DecodedToken {
@@ -123,8 +124,8 @@ const MenuScreen: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          const details = data.details || data.data?.user_details || data;
-          // Backend returns: first_name, last_name, email, phone, profile_image
+          // Backend returns: { message: "...", user: { first_name, last_name, email, phone, profile_image, ... } }
+          const details = data.user || data;
           setUserEmail(details.email || '');
           if (details.first_name) {
             setUserName(`${details.first_name}${details.last_name ? ' ' + details.last_name : ''}`);

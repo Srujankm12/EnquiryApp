@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
   RefreshControl,
+  StatusBar,
 } from "react-native";
 import { useRouter } from "expo-router";
 import Constants from "expo-constants";
@@ -22,11 +23,14 @@ const { width } = Dimensions.get("window");
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
 };
 
 const ListingsScreen: React.FC = () => {
@@ -55,8 +59,8 @@ const ListingsScreen: React.FC = () => {
       const userId = decoded.user_id;
 
       // Fetch categories
-      const catRes = await axios.get(`${API_URL}/category/get/complete/all`, { headers });
-      const cats = catRes.data.data?.categories || [];
+      const catRes = await axios.get(`${API_URL}/category/get/all`, { headers });
+      const cats = catRes.data?.categories || [];
       setCategories(cats);
 
       // Get followed companies
@@ -104,7 +108,6 @@ const ListingsScreen: React.FC = () => {
       let allProducts: any[] = [];
 
       if (categoryId) {
-        // Fetch by category, then filter by followed companies
         try {
           const res = await axios.get(
             `${API_URL}/product/get/category/${categoryId}`,
@@ -118,7 +121,6 @@ const ListingsScreen: React.FC = () => {
           if (err.response?.status !== 404) throw err;
         }
       } else {
-        // Fetch from each followed company
         await Promise.all(
           companyIds.map(async (companyId: string) => {
             try {
@@ -170,11 +172,11 @@ const ListingsScreen: React.FC = () => {
     setLoading(false);
   };
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadInitialData();
     setRefreshing(false);
-  };
+  }, []);
 
   const getProductImageUrl = (product: any): string | null => {
     if (product.images && product.images.length > 0) {
@@ -222,7 +224,7 @@ const ListingsScreen: React.FC = () => {
           )}
         </View>
         <View style={styles.productInfo}>
-          <Text style={styles.productName} numberOfLines={1}>
+          <Text style={styles.productName} numberOfLines={2}>
             {product.product_name}
           </Text>
           <Text style={styles.productQty} numberOfLines={1}>
@@ -241,29 +243,35 @@ const ListingsScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Products</Text>
+        {products.length > 0 && (
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>{filteredProducts.length}</Text>
+          </View>
+        )}
       </View>
 
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search products..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor="#999"
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <Ionicons name="close-circle" size={20} color="#999" />
-          </TouchableOpacity>
-        )}
+      <View style={styles.searchWrapper}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="#999" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search products..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#999"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle" size={20} color="#999" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Category Filter Pills */}
@@ -291,20 +299,20 @@ const ListingsScreen: React.FC = () => {
         </TouchableOpacity>
         {categories.map((category) => (
           <TouchableOpacity
-            key={category.category_id}
+            key={category.id}
             style={[
               styles.categoryPill,
-              selectedCategory === category.category_id && styles.categoryPillActive,
+              selectedCategory === category.id && styles.categoryPillActive,
             ]}
-            onPress={() => handleCategorySelect(category.category_id)}
+            onPress={() => handleCategorySelect(category.id)}
           >
             <Text
               style={[
                 styles.categoryText,
-                selectedCategory === category.category_id && styles.categoryTextActive,
+                selectedCategory === category.id && styles.categoryTextActive,
               ]}
             >
-              {category.category_name}
+              {category.name}
             </Text>
           </TouchableOpacity>
         ))}
@@ -319,15 +327,17 @@ const ListingsScreen: React.FC = () => {
       ) : error ? (
         <View style={styles.loaderContainer}>
           <Ionicons name="cloud-offline-outline" size={64} color="#CCC" />
+          <Text style={styles.errorTitle}>Connection Error</Text>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={loadInitialData}>
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Ionicons name="refresh" size={18} color="#FFFFFF" />
+            <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
       ) : followedCompanyIds.length === 0 ? (
         <View style={styles.loaderContainer}>
           <Ionicons name="people-outline" size={64} color="#CCC" />
-          <Text style={styles.emptyText}>No followed companies</Text>
+          <Text style={styles.emptyTitle}>No Followed Companies</Text>
           <Text style={styles.emptySubtext}>
             Follow companies from the Seller Directory to see their products here
           </Text>
@@ -342,10 +352,18 @@ const ListingsScreen: React.FC = () => {
       ) : filteredProducts.length === 0 ? (
         <View style={styles.loaderContainer}>
           <Ionicons name="cube-outline" size={64} color="#CCC" />
-          <Text style={styles.emptyText}>No products found</Text>
+          <Text style={styles.emptyTitle}>No Products Found</Text>
           <Text style={styles.emptySubtext}>
             {searchQuery ? "Try a different search term" : "No products available in this category from followed companies"}
           </Text>
+          {searchQuery ? (
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={() => setSearchQuery("")}
+            >
+              <Text style={styles.clearButtonText}>Clear Search</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : (
         <ScrollView
@@ -371,73 +389,80 @@ const ListingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F8F9FA",
   },
   header: {
     backgroundColor: "#1E90FF",
     paddingTop: 50,
-    paddingBottom: 15,
+    paddingBottom: 12,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-  },
-  backButton: {
-    marginRight: 16,
+    justifyContent: "space-between",
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 22,
+    fontWeight: "700",
     color: "#FFFFFF",
+  },
+  headerBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  headerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  searchWrapper: {
+    backgroundColor: "#1E90FF",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
   searchContainer: {
     backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  searchIcon: {
-    marginRight: 8,
+    height: 44,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
+    marginLeft: 8,
     fontSize: 15,
     color: "#333",
   },
   categoriesContainer: {
-    maxHeight: 80,
+    maxHeight: 56,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
   },
   categoriesContent: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingVertical: 10,
+    alignItems: "center",
   },
   categoryPill: {
-    height: 40,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
+    height: 36,
+    paddingHorizontal: 18,
+    justifyContent: "center",
+    borderRadius: 18,
+    borderWidth: 1.5,
     borderColor: "#1E90FF",
-    marginRight: 10,
-    marginTop: 12,
+    marginRight: 8,
     backgroundColor: "#FFFFFF",
   },
   categoryPillActive: {
     backgroundColor: "#1E90FF",
   },
   categoryText: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#1E90FF",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   categoryTextActive: {
     color: "#FFFFFF",
@@ -450,20 +475,26 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 16,
-    color: "#666",
-  },
-  errorText: {
     fontSize: 15,
     color: "#666",
-    textAlign: "center",
-    marginTop: 16,
-    lineHeight: 22,
   },
-  emptyText: {
+  errorTitle: {
     fontSize: 18,
     fontWeight: "600",
+    color: "#333",
+    marginTop: 16,
+  },
+  errorText: {
+    fontSize: 14,
     color: "#666",
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
     marginTop: 16,
   },
   emptySubtext: {
@@ -471,13 +502,17 @@ const styles = StyleSheet.create({
     color: "#999",
     marginTop: 8,
     textAlign: "center",
+    lineHeight: 20,
   },
   retryButton: {
-    marginTop: 16,
+    marginTop: 20,
     backgroundColor: "#1E90FF",
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   retryButtonText: {
     color: "#FFFFFF",
@@ -489,7 +524,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E90FF",
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -499,15 +534,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  clearButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#1E90FF",
+  },
+  clearButtonText: {
+    color: "#1E90FF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
   productsScrollView: {
     flex: 1,
   },
   productsContent: {
     paddingBottom: 100,
     paddingHorizontal: 12,
+    paddingTop: 12,
   },
   resultCount: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#888",
     paddingHorizontal: 4,
     marginBottom: 12,
@@ -524,28 +573,27 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     overflow: "hidden",
-    elevation: 3,
+    elevation: 2,
   },
   productImageContainer: {
     width: "100%",
-    height: 120,
-    backgroundColor: "#F0F0F0",
+    height: 140,
+    backgroundColor: "#F0F4F8",
   },
   productImage: {
     width: "100%",
-    height: 120,
-    backgroundColor: "#E0E0E0",
+    height: 140,
   },
   productImagePlaceholder: {
     width: "100%",
-    height: 120,
+    height: 140,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F8F8F8",
+    backgroundColor: "#F8F9FA",
   },
   productInfo: {
     padding: 10,
@@ -553,24 +601,25 @@ const styles = StyleSheet.create({
   productName: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#000",
+    color: "#1A1A1A",
     marginBottom: 4,
+    lineHeight: 18,
   },
   productQty: {
     fontSize: 12,
-    color: "#666",
+    color: "#888",
     marginBottom: 2,
   },
   productPrice: {
-    fontSize: 13,
+    fontSize: 15,
     color: "#28A745",
-    fontWeight: "600",
+    fontWeight: "700",
     marginBottom: 8,
   },
   enquireButton: {
     backgroundColor: "#1E90FF",
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 8,
     alignItems: "center",
   },
   enquireButtonText: {

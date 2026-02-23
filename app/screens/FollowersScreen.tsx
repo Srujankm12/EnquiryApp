@@ -25,7 +25,8 @@ const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${S3_URL}${path}`;
 };
 
 interface CompanyFollower {

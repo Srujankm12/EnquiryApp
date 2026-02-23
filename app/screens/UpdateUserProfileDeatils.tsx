@@ -20,9 +20,18 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import Constants from "expo-constants";
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
+};
 
 interface DecodedToken {
   user_id: string;
@@ -41,22 +50,24 @@ const UpdateProfileDetailsScreen: React.FC = () => {
   const [lastName, setLastName] = useState<string>("");
   const [email, setEmail] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
-  const [profileImage, setProfileImage] = useState<string | null>(null); // local URI or remote URL
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState<boolean>(false);
   const [updating, setUpdating] = useState<boolean>(false);
+  const [loadingData, setLoadingData] = useState<boolean>(true);
   const [errors, setErrors] = useState<FieldErrors>({});
 
   useEffect(() => {
-    loadUserIdFromToken();
+    loadUserData();
   }, []);
 
   const clearError = (field: keyof FieldErrors) => {
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }));
   };
 
-  // ─── Load userId from JWT token ────────────────────────────────────────────
-  const loadUserIdFromToken = async () => {
+  // ─── Load user data from token + API ───────────────────────────────────────
+  const loadUserData = async () => {
     try {
+      setLoadingData(true);
       const token = await AsyncStorage.getItem("token");
       if (!token) {
         Alert.alert("Session Expired", "Please login again.");
@@ -64,12 +75,35 @@ const UpdateProfileDetailsScreen: React.FC = () => {
         return;
       }
       const decoded = jwtDecode<DecodedToken>(token);
-      console.log("=== USER ID FROM TOKEN ===", decoded.user_id);
       setUserId(decoded.user_id);
+
+      // Fetch existing user details to prefill fields
+      try {
+        const res = await axios.get(
+          `${API_URL}/user/get/user/${decoded.user_id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        // Backend returns: { message: "...", user: { first_name, last_name, email, phone, profile_image, ... } }
+        const user = res.data?.user || res.data;
+        if (user) {
+          if (user.first_name) setFirstName(user.first_name);
+          if (user.last_name) setLastName(user.last_name);
+          if (user.email) setEmail(user.email);
+          if (user.phone) setPhone(user.phone);
+          if (user.profile_image) {
+            const imgUrl = getImageUri(user.profile_image);
+            if (imgUrl) setProfileImage(`${imgUrl}?t=${Date.now()}`);
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching user details for prefill:", e);
+      }
     } catch (error: any) {
       console.error("Token decode error:", error);
       Alert.alert("Error", "Failed to get user information. Please login again.");
       router.replace("/pages/loginMail" as any);
+    } finally {
+      setLoadingData(false);
     }
   };
 
@@ -280,11 +314,26 @@ const UpdateProfileDetailsScreen: React.FC = () => {
     }
   };
 
+  if (loadingData) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0078D7" translucent={false} />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Update Profile</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color="#0078D7" />
+          <Text style={{ marginTop: 12, fontSize: 16, color: "#666" }}>Loading profile...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0078D7" translucent={false} />
 
       {/* Header */}
@@ -295,13 +344,18 @@ const UpdateProfileDetailsScreen: React.FC = () => {
         <Text style={styles.headerTitle}>Update Profile</Text>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
-        <View style={styles.content}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
 
           {/* ── Profile Image Section ── */}
           <View style={styles.avatarSection}>
@@ -459,8 +513,9 @@ const UpdateProfileDetailsScreen: React.FC = () => {
           </TouchableOpacity>
 
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 };
 

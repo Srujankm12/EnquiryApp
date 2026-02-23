@@ -9,6 +9,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 interface BecomeSellerToasterProps {
   visible?: boolean;
@@ -37,9 +40,80 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
   const checkToasterStatus = async () => {
     try {
       const status = await AsyncStorage.getItem('sellerStatus');
-      setSellerStatus(status);
+      const normalizedStatus = status?.toLowerCase()?.trim() || null;
 
-      if (status?.toLowerCase() !== 'approved') {
+      // Check multiple approved states
+      if (
+        normalizedStatus === 'approved' ||
+        normalizedStatus === 'accepted' ||
+        normalizedStatus === 'active'
+      ) {
+        setSellerStatus('approved');
+        setShow(false);
+        return;
+      }
+
+      // Also check via API if businessId is available
+      const businessId = await AsyncStorage.getItem('companyId');
+      if (businessId) {
+        try {
+          const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            // Check if business is approved from status endpoint
+            if (
+              statusData?.is_approved === true ||
+              statusData?.details?.is_approved === true ||
+              statusData?.is_business_approved === true ||
+              statusData?.details?.is_business_approved === true
+            ) {
+              await AsyncStorage.setItem('sellerStatus', 'approved');
+              setSellerStatus('approved');
+              setShow(false);
+              return;
+            }
+          }
+        } catch {
+          // Status endpoint not available, continue with stored status
+        }
+
+        // Also check application status
+        try {
+          const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (appRes.ok) {
+            const appData = await appRes.json();
+            const appStatus = (
+              appData?.details?.status ||
+              appData?.application?.status ||
+              appData?.status ||
+              ''
+            ).toLowerCase().trim();
+
+            if (appStatus === 'approved' || appStatus === 'accepted' || appStatus === 'active') {
+              await AsyncStorage.setItem('sellerStatus', 'approved');
+              setSellerStatus('approved');
+              setShow(false);
+              return;
+            } else if (appStatus === 'applied' || appStatus === 'pending' || appStatus === 'under_review') {
+              await AsyncStorage.setItem('sellerStatus', 'pending');
+              setSellerStatus('pending');
+            } else if (appStatus === 'rejected' || appStatus === 'declined') {
+              await AsyncStorage.setItem('sellerStatus', 'rejected');
+              setSellerStatus('rejected');
+            }
+          }
+        } catch {
+          // Application endpoint not available
+        }
+      }
+
+      setSellerStatus(normalizedStatus);
+
+      if (normalizedStatus !== 'approved') {
         setShow(true);
         slideUp();
       }
@@ -83,9 +157,9 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
   const handlePress = () => {
     slideDown();
     const normalizedStatus = sellerStatus?.toLowerCase();
-    if (normalizedStatus === 'pending') {
+    if (normalizedStatus === 'pending' || normalizedStatus === 'applied' || normalizedStatus === 'under_review') {
       router.push('/pages/sellerApplicationStatus');
-    } else if (normalizedStatus === 'rejected') {
+    } else if (normalizedStatus === 'rejected' || normalizedStatus === 'declined') {
       router.push('/pages/becomeSellerForm');
     } else {
       router.push('/pages/becomeSellerForm');
@@ -96,8 +170,8 @@ const BecomeSellerToaster: React.FC<BecomeSellerToasterProps> = ({
     return null;
   }
 
-  const isPending = sellerStatus?.toLowerCase() === 'pending';
-  const isRejected = sellerStatus?.toLowerCase() === 'rejected';
+  const isPending = sellerStatus === 'pending' || sellerStatus === 'applied' || sellerStatus === 'under_review';
+  const isRejected = sellerStatus === 'rejected' || sellerStatus === 'declined';
 
   return (
     <Animated.View

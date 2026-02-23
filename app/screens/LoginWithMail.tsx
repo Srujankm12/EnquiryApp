@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -34,6 +34,7 @@ const LoginScreenMail: React.FC = () => {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const passwordRef = useRef<TextInput>(null);
 
   const clearError = (field: keyof FieldErrors) => {
     if (errors[field]) {
@@ -70,19 +71,12 @@ const LoginScreenMail: React.FC = () => {
       return;
     }
 
-    console.log("=== LOGIN REQUEST ===");
-    console.log("URL:", `${API_URL}/user/login`);
-    console.log("Email:", email.trim());
-
     try {
       setLoading(true);
       const res = await axios.post(`${API_URL}/user/login`, {
         email: email.trim(),
         password: password.trim(),
       });
-
-      console.log("=== LOGIN SUCCESS ===");
-      console.log("Response:", JSON.stringify(res.data, null, 2));
 
       if (res.data.token) {
         await AsyncStorage.setItem("token", res.data.token);
@@ -91,20 +85,10 @@ const LoginScreenMail: React.FC = () => {
         Alert.alert("Login Failed", "Invalid email or password");
       }
     } catch (error: any) {
-      console.log("=== LOGIN ERROR ===");
-      console.log("Error message:", error.message);
-      console.log("Error code:", error.code);
-      console.log("Response status:", error.response?.status);
-      console.log(
-        "Response data:",
-        JSON.stringify(error.response?.data, null, 2),
-      );
-
-      // Network error — can't reach server
       if (error.code === "ERR_NETWORK" || error.message === "Network Error") {
         Alert.alert(
           "Cannot Reach Server",
-          `Make sure:\n\n1. Your Go server is running\n2. Your phone and Mac are on the same WiFi\n\nCurrent URL: ${API_URL}`,
+          `Make sure:\n\n1. Your server is running\n2. Your phone and server are on the same network\n\nCurrent URL: ${API_URL}`,
         );
         return;
       }
@@ -117,9 +101,8 @@ const LoginScreenMail: React.FC = () => {
         serverMessage.toLowerCase().includes("invalid") ||
         serverMessage.toLowerCase().includes("password")
       ) {
-        // Wrong credentials — show on both fields
         setErrors({
-          email: " ", // space to trigger red border without text
+          email: " ",
           password: "Incorrect email or password",
         });
       } else if (serverMessage.toLowerCase().includes("email")) {
@@ -142,33 +125,29 @@ const LoginScreenMail: React.FC = () => {
   };
 
   const handleForgotPassword = () => {
-    console.log("Forgot password");
-    // Navigate to forgot password screen
+    router.push("/screens/ForgotPasswordScreen" as any);
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar style="dark" />
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <StatusBar style="dark" />
         <ScrollView
           contentContainerStyle={styles.scrollContainer}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          bounces={false}
         >
           {/* Logo Section */}
           <View style={styles.logoContainer}>
-            <View style={styles.logoBox}>
-              <View style={styles.logoIconContainer}>
-                <Image
-                  source={require("../../assets/images/Small Logo.png")}
-                  resizeMode="contain"
-                  style={styles.logoBox}
-                />
-              </View>
-            </View>
+            <Image
+              source={require("../../assets/images/Small Logo.png")}
+              resizeMode="contain"
+              style={styles.logoImage}
+            />
             <View style={styles.brandTextContainer}>
               <Text style={styles.brandName}>South Canara</Text>
               <Text style={styles.brandSubtitle}>Agro Mart</Text>
@@ -178,31 +157,30 @@ const LoginScreenMail: React.FC = () => {
 
           {/* Title Section */}
           <View style={styles.titleContainer}>
-            <Text style={styles.title}>Login with Email</Text>
+            <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>
-              Enter your Email and Password and make sure the provided details
-              are valid
+              Sign in with your email and password to continue
             </Text>
           </View>
 
           {/* Email Input */}
+          <Text style={styles.fieldLabel}>Email Address</Text>
           <View
             style={[
               styles.inputContainer,
               !!errors.email && errors.email.trim() && styles.inputError,
             ]}
           >
-            <View style={styles.inputIconContainer}>
-              <Ionicons
-                name="mail-outline"
-                size={20}
-                color={errors.email?.trim() ? "#E53E3E" : "#999"}
-              />
-            </View>
+            <Ionicons
+              name="mail-outline"
+              size={20}
+              color={errors.email?.trim() ? "#E53E3E" : "#999"}
+              style={styles.inputIcon}
+            />
             <TextInput
               style={styles.input}
-              placeholder="Email"
-              placeholderTextColor="#999"
+              placeholder="Enter your email"
+              placeholderTextColor="#B0B0B0"
               value={email}
               onChangeText={(v) => {
                 setEmail(v);
@@ -213,14 +191,10 @@ const LoginScreenMail: React.FC = () => {
               autoComplete="email"
               autoCorrect={false}
               returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
             />
             {!!errors.email?.trim() && (
-              <Ionicons
-                name="alert-circle"
-                size={18}
-                color="#E53E3E"
-                style={styles.errorIcon}
-              />
+              <Ionicons name="alert-circle" size={18} color="#E53E3E" />
             )}
           </View>
           {!!errors.email?.trim() && (
@@ -228,23 +202,24 @@ const LoginScreenMail: React.FC = () => {
           )}
 
           {/* Password Input */}
+          <Text style={styles.fieldLabel}>Password</Text>
           <View
             style={[
               styles.inputContainer,
               !!errors.password && styles.inputError,
             ]}
           >
-            <View style={styles.inputIconContainer}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={20}
-                color={errors.password ? "#E53E3E" : "#999"}
-              />
-            </View>
+            <Ionicons
+              name="lock-closed-outline"
+              size={20}
+              color={errors.password ? "#E53E3E" : "#999"}
+              style={styles.inputIcon}
+            />
             <TextInput
-              style={[styles.input, styles.passwordInput]}
-              placeholder="Password"
-              placeholderTextColor="#999"
+              ref={passwordRef}
+              style={[styles.input, { paddingRight: 44 }]}
+              placeholder="Enter your password"
+              placeholderTextColor="#B0B0B0"
               value={password}
               onChangeText={(v) => {
                 setPassword(v);
@@ -254,10 +229,12 @@ const LoginScreenMail: React.FC = () => {
               autoCapitalize="none"
               autoComplete="password"
               returnKeyType="done"
+              onSubmitEditing={handleLogin}
             />
             <TouchableOpacity
               style={styles.eyeIcon}
               onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Ionicons
                 name={isPasswordVisible ? "eye-outline" : "eye-off-outline"}
@@ -278,7 +255,7 @@ const LoginScreenMail: React.FC = () => {
             <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
 
-          {/* Terms and Conditions Checkbox */}
+          {/* Terms and Conditions */}
           <TouchableOpacity
             style={styles.checkboxContainer}
             onPress={() => setAgreeToTerms(!agreeToTerms)}
@@ -292,12 +269,12 @@ const LoginScreenMail: React.FC = () => {
               )}
             </View>
             <Text style={styles.checkboxLabel}>
-              I agree to all the terms and conditions mentioned while using
-              this. <Text style={styles.termsLink}>terms&conditions</Text>
+              I agree to the{" "}
+              <Text style={styles.termsLink}>Terms & Conditions</Text>
             </Text>
           </TouchableOpacity>
 
-          {/* Submit Button */}
+          {/* Login Button */}
           <TouchableOpacity
             style={[
               styles.submitButton,
@@ -310,7 +287,7 @@ const LoginScreenMail: React.FC = () => {
             {loading ? (
               <ActivityIndicator color="#FFFFFF" size="small" />
             ) : (
-              <Text style={styles.submitButtonText}>Submit</Text>
+              <Text style={styles.submitButtonText}>Sign In</Text>
             )}
           </TouchableOpacity>
 
@@ -320,7 +297,7 @@ const LoginScreenMail: React.FC = () => {
             <TouchableOpacity
               onPress={() => router.push("/screens/RegisterScreen")}
             >
-              <Text style={styles.registerLink}>Register</Text>
+              <Text style={styles.registerLink}>Create Account</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -340,98 +317,88 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 40,
+    paddingTop: 24,
     paddingBottom: 40,
   },
   logoContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 36,
   },
-  logoBox: {
-    width: 120,
-    height: 120,
+  logoImage: {
+    width: 72,
+    height: 72,
     borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 16,
-  },
-  logoIconContainer: {
-    width: 60,
-    height: 60,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
+    marginRight: 14,
   },
   brandTextContainer: {
     flex: 1,
   },
   brandName: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
-    color: "#2C3E50",
-    letterSpacing: 0.5,
+    color: "#1A1A1A",
+    letterSpacing: 0.3,
   },
   brandSubtitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
-    color: "#2C3E50",
-    letterSpacing: 0.5,
+    color: "#1A1A1A",
+    letterSpacing: 0.3,
   },
   brandTagline: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 13,
+    color: "#888",
     marginTop: 2,
     fontWeight: "500",
   },
   titleContainer: {
-    marginBottom: 30,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "700",
-    color: "#000",
+    color: "#1A1A1A",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#666",
+    color: "#888",
     lineHeight: 20,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2C3E50",
+    marginBottom: 8,
   },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F8F9FA",
     borderRadius: 12,
     marginBottom: 4,
-    paddingHorizontal: 16,
-    height: 56,
+    paddingHorizontal: 14,
+    height: 52,
     borderWidth: 1.5,
-    borderColor: "transparent",
+    borderColor: "#E8E8E8",
   },
   inputError: {
     borderColor: "#E53E3E",
     backgroundColor: "#FFF5F5",
   },
-  inputIconContainer: {
-    marginRight: 12,
+  inputIcon: {
+    marginRight: 10,
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    color: "#000",
-  },
-  passwordInput: {
-    paddingRight: 40,
+    fontSize: 15,
+    color: "#1A1A1A",
   },
   eyeIcon: {
     position: "absolute",
-    right: 16,
+    right: 14,
     padding: 4,
-  },
-  errorIcon: {
-    marginLeft: 4,
   },
   errorText: {
     fontSize: 12,
@@ -442,12 +409,12 @@ const styles = StyleSheet.create({
   forgotPasswordContainer: {
     alignSelf: "flex-end",
     marginBottom: 20,
-    marginTop: 4,
+    marginTop: 8,
   },
   forgotPasswordText: {
     fontSize: 14,
     color: "#0078D7",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   checkboxContainer: {
     flexDirection: "row",
@@ -459,7 +426,7 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: "#DDD",
+    borderColor: "#D0D0D0",
     marginRight: 10,
     marginTop: 2,
     justifyContent: "center",
@@ -472,35 +439,36 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     flex: 1,
     fontSize: 13,
-    color: "#999",
+    color: "#888",
     lineHeight: 20,
   },
   termsLink: {
     color: "#0078D7",
-    textDecorationLine: "underline",
+    fontWeight: "600",
   },
   submitButton: {
     backgroundColor: "#0078D7",
     borderRadius: 12,
-    height: 56,
+    height: 52,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 30,
+    marginBottom: 28,
     shadowColor: "#0078D7",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 6,
   },
   submitButtonDisabled: {
     backgroundColor: "#B0C4DE",
-    shadowOpacity: 0.1,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   submitButtonText: {
     color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "600",
-    letterSpacing: 0.5,
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.4,
   },
   registerContainer: {
     flexDirection: "row",
@@ -509,12 +477,12 @@ const styles = StyleSheet.create({
   },
   registerText: {
     fontSize: 14,
-    color: "#666",
+    color: "#888",
   },
   registerLink: {
     fontSize: 14,
     color: "#0078D7",
-    fontWeight: "600",
+    fontWeight: "700",
   },
 });
 
