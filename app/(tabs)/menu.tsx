@@ -153,7 +153,6 @@ const MenuScreen: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          // Backend returns: { message: "...", user: { first_name, last_name, email, phone, profile_image, ... } }
           const details = data.user || data;
           setUserEmail(details.email || '');
           if (details.first_name) {
@@ -175,13 +174,18 @@ const MenuScreen: React.FC = () => {
   };
 
   const gridItems: GridItem[] = [
+    // Seller-specific items
     { id: 'business-profile', title: 'Business\nProfile', icon: 'business', color: '#0078D7', bgColor: '#E3F2FD', route: 'business-profile', condition: 'seller' },
+    { id: 'my-products', title: 'My\nProducts', icon: 'cube', color: '#177DDF', bgColor: '#E3F2FD', route: 'pages/myProducts', condition: 'seller' },
+    { id: 'add-product', title: 'Add\nProduct', icon: 'add-circle', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/addProduct', condition: 'seller' },
     { id: 'manage-post', title: 'Manage\nPost', icon: 'create-outline', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/myProducts', condition: 'seller' },
+    // Non-seller items
     { id: 'become-seller', title: 'Become\nSeller', icon: 'storefront', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/becomeSellerForm', condition: 'not-seller' },
     { id: 'app-status', title: 'Application\nStatus', icon: 'document-text', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'has-application' },
+    // Common items
+    { id: 'followers', title: 'Followers &\nFollowing', icon: 'people-outline', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/followers', condition: 'always' },
     { id: 'interested', title: 'Interested\nIn', icon: 'heart-outline', color: '#E91E63', bgColor: '#FCE4EC', condition: 'always' },
     { id: 'saved', title: 'Saved', icon: 'bookmark-outline', color: '#9C27B0', bgColor: '#F3E5F5', condition: 'always' },
-    { id: 'followers', title: 'Followers &\nFollowing', icon: 'people-outline', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/followers', condition: 'always' },
     { id: 'product-interest', title: 'Product\nInterested', icon: 'cube-outline', color: '#FF5722', bgColor: '#FBE9E7', condition: 'always' },
     { id: 'blog', title: 'Blog', icon: 'newspaper-outline', color: '#607D8B', bgColor: '#ECEFF1', condition: 'always' },
     { id: 'news', title: 'News', icon: 'globe-outline', color: '#00BCD4', bgColor: '#E0F7FA', condition: 'always' },
@@ -297,27 +301,12 @@ const MenuScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
 
-        {/* Seller Dashboard Quick Access */}
+        {/* Seller Status Badge */}
         {isApproved && (
-          <TouchableOpacity
-            style={styles.sellerDashboardBanner}
-            activeOpacity={0.7}
-            onPress={() => router.push('/(seller)' as any)}
-          >
-            <LinearGradient
-              colors={['#177DDF', '#1567BF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.sellerDashboardGradient}
-            >
-              <Ionicons name="storefront" size={24} color="#FFFFFF" />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.sellerDashboardTitle}>Seller Dashboard</Text>
-                <Text style={styles.sellerDashboardSubtitle}>Manage your business</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-            </LinearGradient>
-          </TouchableOpacity>
+          <View style={styles.sellerStatusBadge}>
+            <Ionicons name="shield-checkmark" size={18} color="#0078D7" />
+            <Text style={styles.sellerStatusText}>Approved Seller</Text>
+          </View>
         )}
 
         {/* Features Grid */}
@@ -358,6 +347,24 @@ const MenuScreen: React.FC = () => {
         {/* Quick Actions */}
         <View style={styles.quickActionsContainer}>
           <Text style={styles.sectionLabel}>Quick Actions</Text>
+          {isApproved && (
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => {
+                const bId = companyId || businessId;
+                if (bId) {
+                  router.push({
+                    pathname: '/pages/sellerProfile' as any,
+                    params: { business_id: bId },
+                  });
+                }
+              }}
+            >
+              <Ionicons name="storefront-outline" size={22} color="#0078D7" />
+              <Text style={styles.quickActionText}>View Seller Profile</Text>
+              <Ionicons name="chevron-forward" size={18} color="#999" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.quickAction}
             onPress={() => router.push('/pages/updateUserProfileScreen' as any)}
@@ -421,12 +428,12 @@ const styles = StyleSheet.create({
   profileName: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
   profileEmail: { fontSize: 13, color: '#888', marginBottom: 4 },
   profileLink: { fontSize: 13, fontWeight: '600', color: '#0078D7' },
-  sellerDashboardBanner: { marginHorizontal: 16, marginBottom: 16, borderRadius: 14, overflow: 'hidden' },
-  sellerDashboardGradient: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16,
+  sellerStatusBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#E3F2FD', marginHorizontal: 16, marginBottom: 16,
+    paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12,
   },
-  sellerDashboardTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  sellerDashboardSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  sellerStatusText: { fontSize: 14, fontWeight: '600', color: '#0078D7' },
   sectionLabel: {
     fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 14, paddingHorizontal: 4,
   },
