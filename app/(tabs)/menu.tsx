@@ -176,7 +176,9 @@ const MenuScreen: React.FC = () => {
 
   const gridItems: GridItem[] = [
     { id: 'business-profile', title: 'Business\nProfile', icon: 'business', color: '#0078D7', bgColor: '#E3F2FD', route: 'business-profile', condition: 'seller' },
-    { id: 'manage-post', title: 'Manage\nPost', icon: 'create-outline', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/myProducts', condition: 'seller' },
+    { id: 'my-products', title: 'My\nProducts', icon: 'cube-outline', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/myProducts', condition: 'seller' },
+    { id: 'add-product', title: 'Add\nProduct', icon: 'add-circle-outline', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/addProduct', condition: 'seller' },
+    { id: 'manage-post', title: 'Manage\nPost', icon: 'create-outline', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/myProducts', condition: 'seller' },
     { id: 'become-seller', title: 'Become\nSeller', icon: 'storefront', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/becomeSellerForm', condition: 'not-seller' },
     { id: 'app-status', title: 'Application\nStatus', icon: 'document-text', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'has-application' },
     { id: 'interested', title: 'Interested\nIn', icon: 'heart-outline', color: '#E91E63', bgColor: '#FCE4EC', condition: 'always' },
@@ -297,29 +299,6 @@ const MenuScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
 
-        {/* Seller Dashboard Quick Access */}
-        {isApproved && (
-          <TouchableOpacity
-            style={styles.sellerDashboardBanner}
-            activeOpacity={0.7}
-            onPress={() => router.push('/(seller)' as any)}
-          >
-            <LinearGradient
-              colors={['#177DDF', '#1567BF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.sellerDashboardGradient}
-            >
-              <Ionicons name="storefront" size={24} color="#FFFFFF" />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.sellerDashboardTitle}>Seller Dashboard</Text>
-                <Text style={styles.sellerDashboardSubtitle}>Manage your business</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
-
         {/* Features Grid */}
         <View style={styles.gridContainer}>
           <Text style={styles.sectionLabel}>Features</Text>
@@ -421,12 +400,6 @@ const styles = StyleSheet.create({
   profileName: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
   profileEmail: { fontSize: 13, color: '#888', marginBottom: 4 },
   profileLink: { fontSize: 13, fontWeight: '600', color: '#0078D7' },
-  sellerDashboardBanner: { marginHorizontal: 16, marginBottom: 16, borderRadius: 14, overflow: 'hidden' },
-  sellerDashboardGradient: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16,
-  },
-  sellerDashboardTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  sellerDashboardSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
   sectionLabel: {
     fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 14, paddingHorizontal: 4,
   },

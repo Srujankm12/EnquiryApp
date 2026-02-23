@@ -220,7 +220,7 @@ const SellerApplicationStatus: React.FC = () => {
           borderColor: "#C3E6CB",
           title: "Application Approved",
           message:
-            "Your seller application has been approved. You can now access the seller dashboard.",
+            "Your seller application has been approved. You can now add products and manage your business.",
         };
       case "pending":
         return {
@@ -253,10 +253,6 @@ const SellerApplicationStatus: React.FC = () => {
             "You haven't created a seller account yet. Start the application process to become a seller.",
         };
     }
-  };
-
-  const handleGoToSellerDashboard = () => {
-    router.replace("/(seller)");
   };
 
   const handleViewSellerProfile = () => {
@@ -604,26 +600,15 @@ const SellerApplicationStatus: React.FC = () => {
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
           {isApproved && (
-            <>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.sellerProfileButton]}
-                onPress={handleViewSellerProfile}
-              >
-                <Ionicons name="business" size={20} color="#FFFFFF" />
-                <Text style={styles.primaryButtonText}>
-                  View Seller Profile
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.primaryButton]}
-                onPress={handleGoToSellerDashboard}
-              >
-                <Ionicons name="storefront" size={20} color="#FFFFFF" />
-                <Text style={styles.primaryButtonText}>
-                  Go to Seller Dashboard
-                </Text>
-              </TouchableOpacity>
-            </>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.sellerProfileButton]}
+              onPress={handleViewSellerProfile}
+            >
+              <Ionicons name="business" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>
+                View Business Profile
+              </Text>
+            </TouchableOpacity>
           )}
 
           {isRejected && (

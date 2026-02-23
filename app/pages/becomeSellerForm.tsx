@@ -197,10 +197,10 @@ const BecomeSellerFlow = () => {
       // Handle approved status
       if (applicationStatus === "APPROVED" || applicationStatus === "approved") {
         await AsyncStorage.setItem("sellerStatus", "approved");
-        Alert.alert("Already Approved", "Redirecting to dashboard...", [
+        Alert.alert("Already Approved", "Your seller account is active. You can manage your products from the menu.", [
           {
-            text: "OK",
-            onPress: () => router.replace("/(seller)"),
+            text: "View Status",
+            onPress: () => router.replace("/pages/sellerApplicationStatus"),
           },
         ]);
         return;
