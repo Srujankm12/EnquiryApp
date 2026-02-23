@@ -256,7 +256,7 @@ const SellerApplicationStatus: React.FC = () => {
   };
 
   const handleGoToSellerDashboard = () => {
-    router.replace("/(seller)");
+    router.replace("/(tabs)");
   };
 
   const handleViewSellerProfile = () => {

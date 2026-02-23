@@ -200,7 +200,7 @@ const BecomeSellerFlow = () => {
         Alert.alert("Already Approved", "Redirecting to dashboard...", [
           {
             text: "OK",
-            onPress: () => router.replace("/(seller)"),
+            onPress: () => router.replace("/(tabs)"),
           },
         ]);
         return;

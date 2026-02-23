@@ -14,10 +14,11 @@ import {
   RefreshControl,
   StatusBar,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import Constants from "expo-constants";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { jwtDecode } from "jwt-decode";
 
 const { width } = Dimensions.get("window");
 
@@ -54,7 +55,7 @@ interface Company {
   is_verified: boolean;
 }
 
-const ListingsScreen: React.FC = () => {
+const SellerTab: React.FC = () => {
   const router = useRouter();
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -63,9 +64,22 @@ const ListingsScreen: React.FC = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Seller-specific state
+  const [sellerStatus, setSellerStatus] = useState<string | null>(null);
+  const [companyDetails, setCompanyDetails] = useState<any>(null);
+  const [myProducts, setMyProducts] = useState<any[]>([]);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [ratingInfo, setRatingInfo] = useState<any>(null);
+
   useEffect(() => {
     loadData();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const loadData = async () => {
     try {
@@ -74,6 +88,17 @@ const ListingsScreen: React.FC = () => {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
+      const decoded: any = jwtDecode(token);
+      const userId = decoded.user_id;
+
+      // Check seller status
+      let status = await AsyncStorage.getItem("sellerStatus");
+      const normalizedStatus = status?.toLowerCase()?.trim() || null;
+      const isApproved =
+        normalizedStatus === "approved" ||
+        normalizedStatus === "accepted" ||
+        normalizedStatus === "active";
+      setSellerStatus(isApproved ? "approved" : normalizedStatus);
 
       // Fetch categories and companies in parallel
       const [catRes, companyRes] = await Promise.allSettled([
@@ -92,6 +117,72 @@ const ListingsScreen: React.FC = () => {
           companyRes.value.data?.companies ||
           [];
         setCompanies(Array.isArray(compData) ? compData : []);
+      }
+
+      // If user is an approved seller, fetch their company details and products
+      if (isApproved) {
+        try {
+          const companyRes = await axios.get(
+            `${API_URL}/company/get/user/${userId}`,
+            { headers }
+          );
+          const companyData =
+            companyRes.data.data?.company || companyRes.data.data;
+          const companyId = companyData?.company_id;
+
+          if (companyId) {
+            // Fetch complete company details
+            try {
+              const completeRes = await axios.get(
+                `${API_URL}/company/get/complete/${companyId}`,
+                { headers }
+              );
+              const details = completeRes.data.data?.company_details;
+              if (details) {
+                setCompanyDetails(details.company);
+                setRatingInfo(details.rating_info);
+                setFollowerCount(details.follower_count || 0);
+              }
+            } catch {
+              setCompanyDetails(companyData);
+            }
+
+            // Fetch seller's own products
+            try {
+              const prodRes = await axios.get(
+                `${API_URL}/product/get/company/${companyId}`,
+                { headers }
+              );
+              const productsData =
+                prodRes.data?.data?.products || prodRes.data?.data || [];
+              const productsList = Array.isArray(productsData)
+                ? productsData
+                : [];
+
+              const productsWithImages = await Promise.all(
+                productsList.slice(0, 6).map(async (product: any) => {
+                  try {
+                    const imgRes = await axios.get(
+                      `${API_URL}/product/image/get/${product.product_id}`,
+                      { headers }
+                    );
+                    return {
+                      ...product,
+                      images: imgRes.data.data?.images || [],
+                    };
+                  } catch {
+                    return { ...product, images: [] };
+                  }
+                })
+              );
+              setMyProducts(productsWithImages);
+            } catch {
+              setMyProducts([]);
+            }
+          }
+        } catch {
+          // Company not found
+        }
       }
     } catch (err: any) {
       console.error("Error loading data:", err);
@@ -125,6 +216,17 @@ const ListingsScreen: React.FC = () => {
     router.push("/pages/sellerDirectory" as any);
   };
 
+  const getProductImageUrl = (product: any): string | null => {
+    if (product.images && product.images.length > 0) {
+      const sorted = [...product.images].sort(
+        (a: any, b: any) =>
+          a.product_image_sequence_number - b.product_image_sequence_number
+      );
+      return getImageUri(sorted[0].product_image_url);
+    }
+    return null;
+  };
+
   const filteredCompanies = companies.filter((c) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
@@ -133,6 +235,8 @@ const ListingsScreen: React.FC = () => {
       c.company_city?.toLowerCase().includes(q)
     );
   });
+
+  const isApproved = sellerStatus === "approved";
 
   const renderCategoryItem = ({ item }: { item: Category }) => (
     <TouchableOpacity
@@ -202,8 +306,18 @@ const ListingsScreen: React.FC = () => {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Sellers</Text>
-        {companies.length > 0 && (
+        <Text style={styles.headerTitle}>
+          {isApproved ? "My Business" : "Sellers"}
+        </Text>
+        {isApproved && companyDetails && (
+          <TouchableOpacity
+            onPress={() => router.push("/pages/sellerDirectory" as any)}
+            style={styles.headerBadge}
+          >
+            <Text style={styles.headerBadgeText}>Browse Sellers</Text>
+          </TouchableOpacity>
+        )}
+        {!isApproved && companies.length > 0 && (
           <View style={styles.headerBadge}>
             <Text style={styles.headerBadgeText}>{companies.length}</Text>
           </View>
@@ -216,7 +330,11 @@ const ListingsScreen: React.FC = () => {
           <Ionicons name="search" size={20} color="#999" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search sellers, locations..."
+            placeholder={
+              isApproved
+                ? "Search your products..."
+                : "Search sellers, locations..."
+            }
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholderTextColor="#999"
@@ -232,7 +350,7 @@ const ListingsScreen: React.FC = () => {
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#1E90FF" />
-          <Text style={styles.loadingText}>Loading sellers...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       ) : error ? (
         <View style={styles.loaderContainer}>
@@ -256,6 +374,273 @@ const ListingsScreen: React.FC = () => {
             />
           }
         >
+          {/* === SELLER VIEW (Approved Sellers) === */}
+          {isApproved && (
+            <>
+              {/* Company Overview Card */}
+              {companyDetails && (
+                <View style={styles.companyOverviewCard}>
+                  <View style={styles.companyOverviewHeader}>
+                    <View style={styles.companyLogoContainer}>
+                      {companyDetails.company_profile_url ? (
+                        <Image
+                          source={{
+                            uri: getImageUri(
+                              companyDetails.company_profile_url
+                            )!,
+                          }}
+                          style={styles.companyLogo}
+                        />
+                      ) : (
+                        <View style={styles.companyLogoPlaceholder}>
+                          <Ionicons
+                            name="business"
+                            size={32}
+                            color="#0078D7"
+                          />
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.companyOverviewInfo}>
+                      <Text style={styles.companyOverviewName}>
+                        {companyDetails.company_name}
+                      </Text>
+                      <Text style={styles.companyOverviewEmail}>
+                        {companyDetails.company_email}
+                      </Text>
+                      <View style={styles.badgesRow}>
+                        {companyDetails.is_verified && (
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              styles.verifiedStatusBadge,
+                            ]}
+                          >
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={12}
+                              color="#28A745"
+                            />
+                            <Text style={styles.verifiedBadgeText}>
+                              Verified
+                            </Text>
+                          </View>
+                        )}
+                        {companyDetails.is_approved && (
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              styles.approvedBadge,
+                            ]}
+                          >
+                            <Ionicons
+                              name="shield-checkmark"
+                              size={12}
+                              color="#0078D7"
+                            />
+                            <Text style={styles.approvedBadgeText}>
+                              Approved
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Stats Row */}
+                  <View style={styles.statsRow}>
+                    <View style={styles.statItem}>
+                      <Text style={styles.statNumber}>{followerCount}</Text>
+                      <Text style={styles.statLabel}>Followers</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statItem}>
+                      <Text style={styles.statNumber}>
+                        {ratingInfo?.average_rating
+                          ? ratingInfo.average_rating.toFixed(1)
+                          : "N/A"}
+                      </Text>
+                      <Text style={styles.statLabel}>Rating</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statItem}>
+                      <Text style={styles.statNumber}>
+                        {ratingInfo?.total_ratings || 0}
+                      </Text>
+                      <Text style={styles.statLabel}>Reviews</Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Quick Actions for Seller */}
+              <View style={styles.quickActionsContainer}>
+                <TouchableOpacity
+                  style={styles.quickActionItem}
+                  onPress={() => router.push("/pages/addProduct" as any)}
+                >
+                  <View style={styles.quickActionIcon}>
+                    <Ionicons name="add-circle" size={28} color="#0078D7" />
+                  </View>
+                  <Text style={styles.quickActionLabel}>Add Product</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.quickActionItem}
+                  onPress={() => router.push("/pages/myProducts" as any)}
+                >
+                  <View style={styles.quickActionIcon}>
+                    <Ionicons name="cube" size={28} color="#0078D7" />
+                  </View>
+                  <Text style={styles.quickActionLabel}>My Products</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.quickActionItem}
+                  onPress={() => router.push("/pages/followers" as any)}
+                >
+                  <View style={styles.quickActionIcon}>
+                    <Ionicons name="people" size={28} color="#0078D7" />
+                  </View>
+                  <Text style={styles.quickActionLabel}>Followers</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.quickActionItem}
+                  onPress={() => router.push("/pages/bussinesLeads" as any)}
+                >
+                  <View style={styles.quickActionIcon}>
+                    <Ionicons name="trending-up" size={28} color="#0078D7" />
+                  </View>
+                  <Text style={styles.quickActionLabel}>Leads</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* My Products Section */}
+              <View style={styles.sellerSection}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>My Products</Text>
+                  {myProducts.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() =>
+                        router.push("/pages/myProducts" as any)
+                      }
+                    >
+                      <Text style={styles.seeAllText}>See All</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {myProducts.length > 0 ? (
+                  <FlatList
+                    data={myProducts.filter((p) => {
+                      if (!searchQuery) return true;
+                      return p.product_name
+                        ?.toLowerCase()
+                        .includes(searchQuery.toLowerCase());
+                    })}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.horizontalList}
+                    renderItem={({ item }) => {
+                      const imageUrl = getProductImageUrl(item);
+                      return (
+                        <TouchableOpacity
+                          style={styles.productCard}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/pages/productDetail" as any,
+                              params: { product_id: item.product_id },
+                            })
+                          }
+                        >
+                          {imageUrl ? (
+                            <Image
+                              source={{ uri: imageUrl }}
+                              style={styles.productImage}
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.productImage,
+                                styles.productImagePlaceholder,
+                              ]}
+                            >
+                              <Ionicons
+                                name="cube-outline"
+                                size={28}
+                                color="#CCC"
+                              />
+                            </View>
+                          )}
+                          <View style={styles.productInfo}>
+                            <Text
+                              style={styles.productName}
+                              numberOfLines={1}
+                            >
+                              {item.product_name}
+                            </Text>
+                            <Text
+                              style={styles.productPrice}
+                              numberOfLines={1}
+                            >
+                              {item.product_price}
+                            </Text>
+                            <View
+                              style={[
+                                styles.productStatusBadge,
+                                {
+                                  backgroundColor: item.is_product_active
+                                    ? "#E8F5E9"
+                                    : "#FFF3E0",
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.productStatusText,
+                                  {
+                                    color: item.is_product_active
+                                      ? "#28A745"
+                                      : "#FF9800",
+                                  },
+                                ]}
+                              >
+                                {item.is_product_active
+                                  ? "Active"
+                                  : "Inactive"}
+                              </Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    }}
+                    keyExtractor={(item) => item.product_id}
+                  />
+                ) : (
+                  <View style={styles.emptyProductsContainer}>
+                    <Ionicons name="cube-outline" size={40} color="#CCC" />
+                    <Text style={styles.emptyProductsText}>
+                      No products yet
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.addProductButton}
+                      onPress={() =>
+                        router.push("/pages/addProduct" as any)
+                      }
+                    >
+                      <Ionicons name="add" size={16} color="#FFFFFF" />
+                      <Text style={styles.addProductButtonText}>
+                        Add Product
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+
+          {/* === BUYER/BROWSE VIEW (Non-sellers or below seller content) === */}
+
           {/* Categories Row */}
           {categories.length > 0 && (
             <View style={styles.categoriesSection}>
@@ -289,12 +674,18 @@ const ListingsScreen: React.FC = () => {
             <Ionicons name="chevron-forward" size={20} color="#1E90FF" />
           </TouchableOpacity>
 
-          {/* Top Sellers */}
+          {/* All Companies / Top Sellers */}
           <View style={styles.sellersSection}>
-            <Text style={styles.sectionTitle}>Top Sellers</Text>
+            <Text style={styles.sectionTitle}>
+              {isApproved ? "All Sellers" : "Top Sellers"}
+            </Text>
             {filteredCompanies.length === 0 ? (
               <View style={styles.emptyState}>
-                <Ionicons name="storefront-outline" size={48} color="#CCC" />
+                <Ionicons
+                  name="storefront-outline"
+                  size={48}
+                  color="#CCC"
+                />
                 <Text style={styles.emptyTitle}>
                   {searchQuery ? "No sellers found" : "No sellers yet"}
                 </Text>
@@ -312,6 +703,28 @@ const ListingsScreen: React.FC = () => {
               </View>
             )}
           </View>
+
+          {/* Become Seller prompt for non-sellers */}
+          {!isApproved && (
+            <TouchableOpacity
+              style={styles.becomeSellerBanner}
+              onPress={() =>
+                router.push("/pages/becomeSellerForm" as any)
+              }
+              activeOpacity={0.7}
+            >
+              <View style={styles.becomeSellerIcon}>
+                <Ionicons name="storefront" size={24} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.becomeSellerTitle}>Become a Seller</Text>
+                <Text style={styles.becomeSellerSubtitle}>
+                  Register your business and start selling
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          )}
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -410,6 +823,238 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  // Company Overview (Seller)
+  companyOverviewCard: {
+    backgroundColor: "#FFFFFF",
+    margin: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  companyOverviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  companyLogoContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: "hidden",
+    marginRight: 12,
+  },
+  companyLogo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  companyLogoPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#F0F8FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  companyOverviewInfo: {
+    flex: 1,
+  },
+  companyOverviewName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
+  },
+  companyOverviewEmail: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 6,
+  },
+  badgesRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  verifiedStatusBadge: {
+    backgroundColor: "#E8F5E9",
+  },
+  verifiedBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#28A745",
+  },
+  approvedBadge: {
+    backgroundColor: "#E3F2FD",
+  },
+  approvedBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#0078D7",
+  },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
+    paddingTop: 12,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#0078D7",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: "#F0F0F0",
+  },
+  // Quick Actions
+  quickActionsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  quickActionItem: {
+    alignItems: "center",
+  },
+  quickActionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: "#F0F8FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  quickActionLabel: {
+    fontSize: 12,
+    color: "#333",
+    fontWeight: "500",
+  },
+  // Seller Section
+  sellerSection: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0078D7",
+  },
+  productCard: {
+    width: 150,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    marginRight: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    overflow: "hidden",
+  },
+  productImage: {
+    width: 150,
+    height: 100,
+    backgroundColor: "#F0F0F0",
+  },
+  productImagePlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  productInfo: {
+    padding: 10,
+  },
+  productName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    marginBottom: 4,
+  },
+  productPrice: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#28A745",
+    marginBottom: 6,
+  },
+  productStatusBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  productStatusText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  emptyProductsContainer: {
+    alignItems: "center",
+    paddingVertical: 30,
+    marginHorizontal: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+  },
+  emptyProductsText: {
+    fontSize: 15,
+    color: "#999",
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  addProductButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0078D7",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  addProductButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  horizontalList: {
+    paddingHorizontal: 16,
+  },
+  // Categories
   categoriesSection: {
     paddingTop: 16,
     paddingBottom: 8,
@@ -461,6 +1106,7 @@ const styles = StyleSheet.create({
     color: "#333",
     maxWidth: 100,
   },
+  // View All Banner
   viewAllBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -496,6 +1142,7 @@ const styles = StyleSheet.create({
     color: "#888",
     marginTop: 2,
   },
+  // Sellers Grid
   sellersSection: {
     paddingTop: 16,
   },
@@ -581,6 +1228,36 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: "center",
   },
+  // Become Seller Banner
+  becomeSellerBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0078D7",
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  becomeSellerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  becomeSellerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  becomeSellerSubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 2,
+  },
 });
 
-export default ListingsScreen;
+export default SellerTab;

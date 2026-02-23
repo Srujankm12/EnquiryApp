@@ -33,7 +33,7 @@ export default function RootLayout() {
         <Stack.Screen name='pages/splash' options={{ headerShown: false }} />
         <Stack.Screen name='pages/loginMail' options={{ headerShown: false }} />
         <Stack.Screen name='(tabs)' options={{ headerShown: false }} />
-        <Stack.Screen name='(seller)' options={{ headerShown: false }} />
+
         <Stack.Screen name='pages/login' options={{ headerShown: false }} /> 
         <Stack.Screen name='pages/otp' options={{ headerShown: false }} />
         <Stack.Screen name='pages/myProducts' options={{ headerShown: false }} />
