@@ -27,8 +27,9 @@ const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}/${url}`;
-  return `${S3_URL}/${url}`;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
 };
 
 const BusinessProfileScreen: React.FC = () => {

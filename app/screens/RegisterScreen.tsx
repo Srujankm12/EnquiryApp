@@ -17,8 +17,9 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Constants from "expo-constants";
 
-const API_URL = "http://192.168.1.4:8080";
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const PASSWORD_REGEX = /^[A-Za-z\d@$!%*?&]{8,}$/;
