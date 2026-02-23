@@ -85,6 +85,18 @@ const MenuScreen: React.FC = () => {
       const bId = storedCompanyId || decoded.business_id;
       setCompanyId(bId);
 
+      // Normalize stored status
+      const normalizeStatus = (s: string | null): string | null => {
+        if (!s) return null;
+        const lower = s.toLowerCase().trim();
+        if (lower === 'accepted' || lower === 'active') return 'approved';
+        if (lower === 'applied' || lower === 'under_review') return 'pending';
+        if (lower === 'declined') return 'rejected';
+        return lower;
+      };
+
+      status = normalizeStatus(status);
+
       // Sync seller status from API if we have a business_id
       if (bId) {
         try {
@@ -93,10 +105,10 @@ const MenuScreen: React.FC = () => {
           });
           if (appRes.ok) {
             const appData = await appRes.json();
-            const appStatus = appData.details?.status || appData.status;
+            const appStatus = appData.details?.status || appData.application?.status || appData.status;
             if (appStatus) {
-              status = appStatus.toLowerCase();
-              await AsyncStorage.setItem('sellerStatus', status);
+              status = normalizeStatus(appStatus);
+              await AsyncStorage.setItem('sellerStatus', status || '');
             }
           }
         } catch {
@@ -107,7 +119,24 @@ const MenuScreen: React.FC = () => {
             });
             if (bizRes.ok) {
               const bizData = await bizRes.json();
-              if (bizData.details?.is_business_approved) {
+              if (bizData.details?.is_business_approved || bizData.business?.is_business_approved) {
+                status = 'approved';
+                await AsyncStorage.setItem('sellerStatus', 'approved');
+              }
+            }
+          } catch {}
+        }
+
+        // Also check the simple status endpoint
+        if (status !== 'approved') {
+          try {
+            const statusRes = await fetch(`${API_URL}/business/status/${bId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData?.is_approved === true || statusData?.details?.is_approved === true ||
+                  statusData?.is_business_approved === true || statusData?.details?.is_business_approved === true) {
                 status = 'approved';
                 await AsyncStorage.setItem('sellerStatus', 'approved');
               }
@@ -167,14 +196,17 @@ const MenuScreen: React.FC = () => {
     { id: 'share', label: 'App Share', icon: 'share-social-outline' as keyof typeof Ionicons.glyphMap, color: '#9C27B0' },
   ];
 
+  const isApproved = sellerStatus === 'approved';
+  const isPending = sellerStatus === 'pending';
+  const isRejected = sellerStatus === 'rejected';
+
   const getVisibleGridItems = (): GridItem[] => {
-    const normalizedStatus = sellerStatus?.toLowerCase();
     return gridItems.filter((item) => {
       switch (item.condition) {
         case 'always': return true;
-        case 'seller': return normalizedStatus === 'approved';
-        case 'not-seller': return normalizedStatus !== 'approved' && normalizedStatus !== 'pending';
-        case 'has-application': return normalizedStatus === 'pending' || normalizedStatus === 'rejected';
+        case 'seller': return isApproved;
+        case 'not-seller': return !isApproved && !isPending;
+        case 'has-application': return isPending || isRejected;
         default: return true;
       }
     });
@@ -266,7 +298,7 @@ const MenuScreen: React.FC = () => {
         </TouchableOpacity>
 
         {/* Seller Dashboard Quick Access */}
-        {sellerStatus?.toLowerCase() === 'approved' && (
+        {isApproved && (
           <TouchableOpacity
             style={styles.sellerDashboardBanner}
             activeOpacity={0.7}
