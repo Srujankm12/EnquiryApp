@@ -104,8 +104,18 @@ const ProfileSettingsScreen: React.FC = () => {
         console.error('Error fetching user details:', e);
       }
 
+      // Normalize status helper
+      const normalizeStatus = (s: string | null): string | null => {
+        if (!s) return null;
+        const lower = s.toLowerCase().trim();
+        if (lower === 'accepted' || lower === 'active') return 'approved';
+        if (lower === 'applied' || lower === 'under_review') return 'pending';
+        if (lower === 'declined') return 'rejected';
+        return lower;
+      };
+
       // Sync seller status from API
-      let status = await AsyncStorage.getItem('sellerStatus');
+      let status = normalizeStatus(await AsyncStorage.getItem('sellerStatus'));
       const businessId = decoded.business_id || await AsyncStorage.getItem('companyId');
 
       if (businessId) {
@@ -115,10 +125,10 @@ const ProfileSettingsScreen: React.FC = () => {
           });
           if (appRes.ok) {
             const appData = await appRes.json();
-            const appStatus = appData.details?.status || appData.status;
+            const appStatus = appData.details?.status || appData.application?.status || appData.status;
             if (appStatus) {
-              status = appStatus.toLowerCase();
-              await AsyncStorage.setItem('sellerStatus', status);
+              status = normalizeStatus(appStatus);
+              await AsyncStorage.setItem('sellerStatus', status || '');
             }
           }
         } catch {
@@ -128,13 +138,31 @@ const ProfileSettingsScreen: React.FC = () => {
             });
             if (bizCheckRes.ok) {
               const bizCheck = await bizCheckRes.json();
-              if (bizCheck.details?.is_business_approved) {
+              if (bizCheck.details?.is_business_approved || bizCheck.business?.is_business_approved) {
                 status = 'approved';
                 await AsyncStorage.setItem('sellerStatus', 'approved');
               }
             }
           } catch {}
         }
+
+        // Also check simple status endpoint
+        if (status !== 'approved') {
+          try {
+            const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, {
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData?.is_approved === true || statusData?.details?.is_approved === true ||
+                  statusData?.is_business_approved === true || statusData?.details?.is_business_approved === true) {
+                status = 'approved';
+                await AsyncStorage.setItem('sellerStatus', 'approved');
+              }
+            }
+          } catch {}
+        }
+
         await AsyncStorage.setItem('companyId', businessId);
       }
       setSellerStatus(status);
@@ -459,27 +487,58 @@ const ProfileSettingsScreen: React.FC = () => {
           )}
 
           {/* Seller Status */}
-          {sellerStatus && sellerStatus?.toLowerCase() !== 'approved' && (
+          {sellerStatus === 'approved' ? (
+            <View style={[styles.approvedStatusCard]}>
+              <View style={styles.approvedStatusHeader}>
+                <View style={styles.approvedIconContainer}>
+                  <Ionicons name="shield-checkmark" size={28} color="#FFFFFF" />
+                </View>
+                <View style={styles.approvedStatusInfo}>
+                  <Text style={styles.approvedStatusTitle}>Seller Account Approved</Text>
+                  <Text style={styles.approvedStatusSubtitle}>Your seller application has been approved</Text>
+                </View>
+              </View>
+              <View style={styles.approvedBadgeRow}>
+                <View style={styles.approvedActiveBadge}>
+                  <Ionicons name="checkmark-circle" size={14} color="#28A745" />
+                  <Text style={styles.approvedActiveBadgeText}>Active</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.viewDetailsButton}
+                onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="eye-outline" size={18} color="#0078D7" />
+                <Text style={styles.viewDetailsButtonText}>View & Edit Details</Text>
+                <Ionicons name="chevron-forward" size={18} color="#0078D7" />
+              </TouchableOpacity>
+            </View>
+          ) : sellerStatus === 'pending' ? (
             <TouchableOpacity
-              style={styles.applicationStatusCard}
+              style={[styles.applicationStatusCard, { borderColor: '#FFE0B2' }]}
               onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
             >
-              <Ionicons
-                name={sellerStatus?.toLowerCase() === 'pending' ? 'time' : 'alert-circle'}
-                size={24}
-                color={sellerStatus?.toLowerCase() === 'pending' ? '#FFC107' : '#DC3545'}
-              />
+              <Ionicons name="time" size={24} color="#FFC107" />
               <View style={styles.applicationStatusInfo}>
-                <Text style={styles.applicationStatusTitle}>
-                  Seller Application: {sellerStatus.charAt(0).toUpperCase() + sellerStatus.slice(1).toLowerCase()}
-                </Text>
-                <Text style={styles.applicationStatusSubtitle}>
-                  {sellerStatus?.toLowerCase() === 'pending' ? 'Under review' : 'Tap to edit & resubmit'}
-                </Text>
+                <Text style={styles.applicationStatusTitle}>Application Under Review</Text>
+                <Text style={styles.applicationStatusSubtitle}>Tap to check status</Text>
               </View>
               <Ionicons name="chevron-forward" size={22} color="#666" />
             </TouchableOpacity>
-          )}
+          ) : sellerStatus === 'rejected' ? (
+            <TouchableOpacity
+              style={[styles.applicationStatusCard, { borderColor: '#F5C6CB' }]}
+              onPress={() => router.push('/pages/becomeSellerForm' as any)}
+            >
+              <Ionicons name="alert-circle" size={24} color="#DC3545" />
+              <View style={styles.applicationStatusInfo}>
+                <Text style={styles.applicationStatusTitle}>Application Rejected</Text>
+                <Text style={styles.applicationStatusSubtitle}>Tap to edit & resubmit</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#666" />
+            </TouchableOpacity>
+          ) : null}
 
           {/* Action Items */}
           <View style={styles.actionsContainer}>
@@ -505,13 +564,6 @@ const ProfileSettingsScreen: React.FC = () => {
               title="Update Password"
               onPress={() => router.push('/pages/upadetPasswordScreen' as any)}
             />
-            {sellerStatus?.toLowerCase() === 'approved' && (
-              <ActionItem
-                icon="storefront-outline"
-                title="Go to Seller Dashboard"
-                onPress={() => router.push('/(seller)' as any)}
-              />
-            )}
           </View>
 
           <View style={{ height: 40 }} />
@@ -621,6 +673,32 @@ const styles = StyleSheet.create({
   applicationStatusInfo: { flex: 1, marginLeft: 12 },
   applicationStatusTitle: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
   applicationStatusSubtitle: { fontSize: 12, color: '#888', marginTop: 2 },
+
+  // Approved Status Card
+  approvedStatusCard: {
+    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
+    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4,
+    borderWidth: 1.5, borderColor: '#C3E6CB',
+  },
+  approvedStatusHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  approvedIconContainer: {
+    width: 48, height: 48, borderRadius: 24, backgroundColor: '#28A745',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  approvedStatusInfo: { flex: 1, marginLeft: 12 },
+  approvedStatusTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
+  approvedStatusSubtitle: { fontSize: 13, color: '#666', marginTop: 3 },
+  approvedBadgeRow: { flexDirection: 'row', marginBottom: 14 },
+  approvedActiveBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10,
+  },
+  approvedActiveBadgeText: { fontSize: 12, fontWeight: '600', color: '#28A745' },
+  viewDetailsButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#E3F2FD', paddingVertical: 12, borderRadius: 10,
+  },
+  viewDetailsButtonText: { fontSize: 14, fontWeight: '600', color: '#0078D7' },
 
   // Actions
   actionsContainer: { paddingHorizontal: 16, marginTop: 4 },
