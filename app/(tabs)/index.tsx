@@ -600,7 +600,7 @@ const HomeScreen = () => {
                   <Text style={styles.companyLocation} numberOfLines={1}>
                     {item.company_city}, {item.company_state}
                   </Text>
-                  {item.is_verified && (
+                  {item.is_verified ? (
                     <View style={styles.verifiedBadge}>
                       <Ionicons
                         name="checkmark-circle"
@@ -608,6 +608,15 @@ const HomeScreen = () => {
                         color="#28A745"
                       />
                       <Text style={styles.verifiedText}>Verified</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.notVerifiedBadge}>
+                      <Ionicons
+                        name="alert-circle"
+                        size={12}
+                        color="#DC3545"
+                      />
+                      <Text style={styles.notVerifiedText}>Not Verified</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -849,6 +858,22 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
     color: "#28A745",
+  },
+  notVerifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFF5F5",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FFDDDD",
+  },
+  notVerifiedText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#DC3545",
   },
   productCard: {
     width: 150,
