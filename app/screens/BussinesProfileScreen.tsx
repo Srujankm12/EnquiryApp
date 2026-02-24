@@ -271,16 +271,26 @@ const BusinessProfileScreen: React.FC = () => {
         <View style={styles.profileHeaderSection}>
           {/* Top Badges */}
           <View style={styles.topBadgesRow}>
-            {businessDetails.is_business_trusted && (
+            {businessDetails.is_business_trusted ? (
               <View style={styles.trustedBadge}>
-                <Ionicons name="ribbon" size={14} color="#FF9500" />
+                <Ionicons name="ribbon" size={14} color="#28A745" />
                 <Text style={styles.trustedBadgeText}>Trusted</Text>
               </View>
+            ) : (
+              <View style={styles.notTrustedBadge}>
+                <Ionicons name="ribbon-outline" size={14} color="#DC3545" />
+                <Text style={styles.notTrustedBadgeText}>Not Trusted</Text>
+              </View>
             )}
-            {businessDetails.is_business_verified && (
+            {businessDetails.is_business_verified ? (
               <View style={styles.verifiedTopBadge}>
                 <Ionicons name="shield-checkmark" size={14} color="#28A745" />
                 <Text style={styles.verifiedTopBadgeText}>Verified</Text>
+              </View>
+            ) : (
+              <View style={styles.notVerifiedTopBadge}>
+                <Ionicons name="shield-outline" size={14} color="#DC3545" />
+                <Text style={styles.notVerifiedTopBadgeText}>Not Verified</Text>
               </View>
             )}
           </View>
@@ -569,15 +579,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row', paddingHorizontal: 16, paddingTop: 14, gap: 8,
   },
   trustedBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF3E0',
+    flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E8F5E9',
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
-  trustedBadgeText: { fontSize: 12, fontWeight: '600', color: '#FF9500' },
+  trustedBadgeText: { fontSize: 12, fontWeight: '600', color: '#28A745' },
+  notTrustedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF5F5',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#FFDDDD',
+  },
+  notTrustedBadgeText: { fontSize: 12, fontWeight: '600', color: '#DC3545' },
   verifiedTopBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E8F5E9',
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   verifiedTopBadgeText: { fontSize: 12, fontWeight: '600', color: '#28A745' },
+  notVerifiedTopBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF5F5',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#FFDDDD',
+  },
+  notVerifiedTopBadgeText: { fontSize: 12, fontWeight: '600', color: '#DC3545' },
 
   profileHeader: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 14 },
   logoContainer: {

@@ -83,8 +83,22 @@ const SellerDirectoryScreen: React.FC = () => {
         const res = await axios.get(`${API_URL}/company/get/all`, { headers });
         const data = res.data?.data?.companies || res.data?.data || [];
         allCompanies = (Array.isArray(data) ? data : []).filter(
-          (c: CompanyInfo) => c.is_approved
-        );
+          (c: any) => c.is_approved
+        ).map((c: any) => ({
+          company_id: c.company_id || c.id,
+          user_id: c.user_id || '',
+          company_name: c.company_name || c.name || '',
+          company_email: c.company_email || c.email || '',
+          company_phone: c.company_phone || c.phone || '',
+          company_profile_url: c.company_profile_url || c.profile_image || null,
+          company_address: c.company_address || c.address || '',
+          company_city: c.company_city || c.city || '',
+          company_state: c.company_state || c.state || '',
+          is_approved: true,
+          is_verified: c.is_verified || c.is_business_verified || false,
+          contact_person: c.contact_person || '',
+          rating: c.rating || 0,
+        }));
       } catch {
         allCompanies = [];
       }
@@ -265,7 +279,7 @@ const SellerDirectoryScreen: React.FC = () => {
           <TouchableOpacity onPress={() => handleProfile(company.company_id)}>
             {imageUri ? (
               <Image
-                source={{ uri: imageUri }}
+                source={{ uri: `${imageUri}?t=${Date.now()}` }}
                 style={styles.sellerImage}
                 resizeMode="cover"
               />
@@ -278,7 +292,7 @@ const SellerDirectoryScreen: React.FC = () => {
 
           <View style={styles.sellerInfo}>
             <Text style={styles.sellerName} numberOfLines={1}>
-              {company.company_name}
+              {company.company_name || 'Business'}
             </Text>
             {renderStars(company.rating || 4)}
             {company.contact_person && (
@@ -292,10 +306,15 @@ const SellerDirectoryScreen: React.FC = () => {
                 {company.company_city}, {company.company_state}
               </Text>
             </View>
-            {company.is_verified && (
+            {company.is_verified ? (
               <View style={styles.verifiedBadge}>
                 <Ionicons name="shield-checkmark" size={12} color="#28A745" />
                 <Text style={styles.verifiedText}>Verified</Text>
+              </View>
+            ) : (
+              <View style={styles.notVerifiedBadge}>
+                <Ionicons name="shield-outline" size={12} color="#DC3545" />
+                <Text style={styles.notVerifiedText}>Not Verified</Text>
               </View>
             )}
           </View>
@@ -598,6 +617,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#28A745',
+  },
+  notVerifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FFDDDD',
+  },
+  notVerifiedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#DC3545',
   },
   followButton: {
     backgroundColor: '#177DDF',
