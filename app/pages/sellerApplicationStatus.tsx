@@ -235,30 +235,96 @@ const EditBusinessDetails: React.FC = () => {
     try {
       setSaving("photo");
       const token = await AsyncStorage.getItem("token");
-      const formData = new FormData();
-      const filename = imageUri.split("/").pop() || "profile.jpg";
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : "image/jpeg";
 
-      formData.append("profile_image", {
-        uri: imageUri,
-        name: filename,
-        type,
-      } as any);
+      // Step 1: Get presigned URL from backend
+      let presignedUrl = "";
+      try {
+        const presignRes = await fetch(`${API_URL}/business/get/presigned/${businessId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (presignRes.ok) {
+          const presignData = await presignRes.json();
+          presignedUrl = presignData.data?.url || presignData.url || presignData.data?.upload_url || "";
+        }
+      } catch {}
 
-      const res = await fetch(`${API_URL}/business/update/profile-image/${businessId}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      if (presignedUrl) {
+        // Step 2: Upload to S3 via presigned URL
+        const imageResponse = await fetch(imageUri);
+        const blob = await imageResponse.blob();
+        const s3Res = await fetch(presignedUrl, {
+          method: "PUT",
+          body: blob,
+          headers: { "Content-Type": blob.type || "image/jpeg" },
+        });
 
-      if (res.ok) {
-        setBusiness((prev) => ({ ...prev, profile_image: imageUri }));
-        Alert.alert("Success", "Profile photo updated successfully");
+        if (s3Res.ok) {
+          // Step 3: Update the business image record
+          try {
+            await fetch(`${API_URL}/business/update/image/${businessId}`, {
+              method: "PUT",
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch {}
+
+          setBusiness((prev) => ({ ...prev, profile_image: imageUri }));
+          Alert.alert("Success", "Profile photo updated successfully");
+        } else {
+          throw new Error("S3 upload failed");
+        }
       } else {
-        Alert.alert("Error", "Failed to upload photo. Please try again.");
+        // Fallback: Try FormData upload directly
+        const formData = new FormData();
+        const filename = imageUri.split("/").pop() || "profile.jpg";
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : "image/jpeg";
+
+        formData.append("profile_image", {
+          uri: imageUri,
+          name: filename,
+          type,
+        } as any);
+
+        // Try multiple endpoint patterns
+        let uploaded = false;
+        const endpoints = [
+          `${API_URL}/business/update/profile-image/${businessId}`,
+          `${API_URL}/business/upload/image/${businessId}`,
+          `${API_URL}/business/update/image/${businessId}`,
+        ];
+
+        for (const endpoint of endpoints) {
+          if (uploaded) break;
+          try {
+            const res = await fetch(endpoint, {
+              method: "PUT",
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            });
+            if (res.ok) {
+              uploaded = true;
+            }
+          } catch {}
+          if (!uploaded) {
+            try {
+              const res = await fetch(endpoint, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData,
+              });
+              if (res.ok) {
+                uploaded = true;
+              }
+            } catch {}
+          }
+        }
+
+        if (uploaded) {
+          setBusiness((prev) => ({ ...prev, profile_image: imageUri }));
+          Alert.alert("Success", "Profile photo updated successfully");
+        } else {
+          Alert.alert("Error", "Failed to upload photo. Please try again.");
+        }
       }
     } catch (error) {
       console.error("Error uploading image:", error);

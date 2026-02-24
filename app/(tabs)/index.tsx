@@ -268,15 +268,31 @@ const HomeScreen = () => {
       const token = await AsyncStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
 
+      // Normalize company fields from any API response
+      const normalizeCompany = (c: any) => ({
+        company_id: c.company_id || c.id || c.business_id,
+        company_name: c.company_name || c.name || c.business_name || "",
+        company_profile_url: c.company_profile_url || c.profile_image || null,
+        company_city: c.company_city || c.city || "",
+        company_state: c.company_state || c.state || "",
+        company_phone: c.company_phone || c.phone || "",
+        company_email: c.company_email || c.email || "",
+        is_verified: c.is_verified || c.is_business_verified || false,
+        is_approved: c.is_approved !== undefined ? c.is_approved : (c.is_business_approved !== false),
+        name: c.company_name || c.name || c.business_name || "",
+      });
+
       // Try fetching approved companies
       let fetchedCompanies: any[] = [];
       try {
         const res = await axios.get(`${API_URL}/company/get/approved/all`, { headers });
+        let raw: any[] = [];
         if (res.data?.data?.companies) {
-          fetchedCompanies = res.data.data.companies;
+          raw = res.data.data.companies;
         } else if (res.data?.data && Array.isArray(res.data.data)) {
-          fetchedCompanies = res.data.data;
+          raw = res.data.data;
         }
+        fetchedCompanies = raw.map(normalizeCompany);
       } catch {}
 
       // Fallback: try all companies and filter approved
@@ -284,9 +300,9 @@ const HomeScreen = () => {
         try {
           const res = await axios.get(`${API_URL}/company/get/all`, { headers });
           const data = res.data?.data?.companies || res.data?.data || [];
-          fetchedCompanies = (Array.isArray(data) ? data : []).filter(
-            (c: any) => c.is_approved
-          );
+          fetchedCompanies = (Array.isArray(data) ? data : [])
+            .filter((c: any) => c.is_approved)
+            .map(normalizeCompany);
         } catch {}
       }
 
@@ -583,81 +599,91 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Approved Companies */}
-        {companies.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Top Sellers</Text>
-              <TouchableOpacity
-                onPress={() => router.push("/pages/sellerDirectory" as any)}
-              >
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            </View>
+        {/* All Sellers / Top Sellers */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Top Sellers</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/pages/sellerDirectory" as any)}
+            >
+              <Text style={styles.viewAllText}>View All</Text>
+            </TouchableOpacity>
+          </View>
+          {companies.length > 0 ? (
             <FlatList
               data={companies}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.horizontalList}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.companyCard}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/pages/sellerProfile" as any,
-                      params: { company_id: item.company_id },
-                    })
-                  }
-                >
-                  <View style={styles.companyImageContainer}>
-                    {item.company_profile_url ? (
-                      <Image
-                        source={{
-                          uri: getImageUri(item.company_profile_url)!,
-                        }}
-                        style={styles.companyImage}
-                      />
-                    ) : (
-                      <View style={styles.companyImagePlaceholder}>
-                        <Ionicons
-                          name="business"
-                          size={32}
-                          color="#0078D7"
+              renderItem={({ item }) => {
+                const logoUri = getImageUri(item.company_profile_url);
+                const displayName = item.company_name || item.name || "Business";
+                return (
+                  <TouchableOpacity
+                    style={styles.companyCard}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/pages/bussinesProfile" as any,
+                        params: { business_id: item.company_id },
+                      })
+                    }
+                  >
+                    <View style={styles.companyImageContainer}>
+                      {logoUri ? (
+                        <Image
+                          source={{ uri: `${logoUri}?t=${Date.now()}` }}
+                          style={styles.companyImage}
+                          resizeMode="cover"
                         />
+                      ) : (
+                        <View style={styles.companyImagePlaceholder}>
+                          <Ionicons
+                            name="business"
+                            size={32}
+                            color="#0078D7"
+                          />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.companyName} numberOfLines={2}>
+                      {displayName}
+                    </Text>
+                    <Text style={styles.companyLocation} numberOfLines={1}>
+                      {item.company_city}, {item.company_state}
+                    </Text>
+                    {item.is_verified ? (
+                      <View style={styles.verifiedBadge}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={12}
+                          color="#28A745"
+                        />
+                        <Text style={styles.verifiedText}>Verified</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.notVerifiedBadge}>
+                        <Ionicons
+                          name="alert-circle"
+                          size={12}
+                          color="#DC3545"
+                        />
+                        <Text style={styles.notVerifiedText}>Not Verified</Text>
                       </View>
                     )}
-                  </View>
-                  <Text style={styles.companyName} numberOfLines={2}>
-                    {item.company_name}
-                  </Text>
-                  <Text style={styles.companyLocation} numberOfLines={1}>
-                    {item.company_city}, {item.company_state}
-                  </Text>
-                  {item.is_verified ? (
-                    <View style={styles.verifiedBadge}>
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={12}
-                        color="#28A745"
-                      />
-                      <Text style={styles.verifiedText}>Verified</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.notVerifiedBadge}>
-                      <Ionicons
-                        name="alert-circle"
-                        size={12}
-                        color="#DC3545"
-                      />
-                      <Text style={styles.notVerifiedText}>Not Verified</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              )}
+                  </TouchableOpacity>
+                );
+              }}
               keyExtractor={(item) => item.company_id}
             />
-          </View>
-        )}
+          ) : (
+            <View style={{ paddingVertical: 30, alignItems: "center" }}>
+              <Ionicons name="people-outline" size={40} color="#CCC" />
+              <Text style={{ color: "#999", marginTop: 8, fontSize: 14 }}>
+                No sellers available
+              </Text>
+            </View>
+          )}
+        </View>
 
         {/* Bottom Spacing for tab bar */}
         <View style={{ height: 20 }} />
