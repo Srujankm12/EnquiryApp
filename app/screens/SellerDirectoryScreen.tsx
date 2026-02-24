@@ -12,6 +12,7 @@ import {
   RefreshControl,
   StatusBar,
   Alert,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -24,11 +25,13 @@ const { width } = Dimensions.get('window');
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
   return `${S3_URL}${path}`;
 };
 
@@ -44,6 +47,8 @@ interface CompanyInfo {
   company_state: string;
   is_approved: boolean;
   is_verified: boolean;
+  contact_person?: string;
+  rating?: number;
 }
 
 const SellerDirectoryScreen: React.FC = () => {
@@ -83,6 +88,39 @@ const SellerDirectoryScreen: React.FC = () => {
       } catch {
         allCompanies = [];
       }
+
+      // Fallback: try business endpoint
+      if (allCompanies.length === 0) {
+        try {
+          const res = await axios.get(`${API_URL}/business/get/all`, { headers });
+          const data = res.data?.data?.businesses || res.data?.businesses || res.data?.data || [];
+          allCompanies = (Array.isArray(data) ? data : []).map((b: any) => ({
+            company_id: b.id || b.business_id,
+            user_id: b.user_id || '',
+            company_name: b.name || b.business_name || '',
+            company_email: b.email || '',
+            company_phone: b.phone || '',
+            company_profile_url: b.profile_image,
+            company_address: b.address || '',
+            company_city: b.city || '',
+            company_state: b.state || '',
+            is_approved: b.is_business_approved !== false,
+            is_verified: b.is_business_verified || false,
+            contact_person: b.contact_person || '',
+            rating: b.rating || 0,
+          }));
+        } catch {}
+      }
+
+      // Also try approved companies endpoint as additional source
+      if (allCompanies.length === 0) {
+        try {
+          const res = await axios.get(`${API_URL}/company/get/approved/all`, { headers });
+          const data = res.data?.data?.companies || res.data?.data || [];
+          allCompanies = Array.isArray(data) ? data : [];
+        } catch {}
+      }
+
       setCompanies(allCompanies);
 
       // Fetch categories
@@ -131,7 +169,6 @@ const SellerDirectoryScreen: React.FC = () => {
       const headers = { Authorization: `Bearer ${token}` };
 
       if (followedCompanyIds.has(companyId)) {
-        // Unfollow
         await axios.delete(
           `${API_URL}/company/unfollow/${companyId}/${userId}`,
           { headers }
@@ -142,7 +179,6 @@ const SellerDirectoryScreen: React.FC = () => {
           return newSet;
         });
       } else {
-        // Follow
         await axios.post(
           `${API_URL}/company/follow/${companyId}/${userId}`,
           {},
@@ -165,8 +201,23 @@ const SellerDirectoryScreen: React.FC = () => {
   const handleProfile = (companyId: string) => {
     router.push({
       pathname: '/pages/bussinesProfile' as any,
-      params: { company_id: companyId },
+      params: { business_id: companyId },
     });
+  };
+
+  const handleContact = (phone: string) => {
+    if (phone) Linking.openURL(`tel:${phone}`);
+  };
+
+  const handleMessage = (email: string) => {
+    if (email) Linking.openURL(`mailto:${email}`);
+  };
+
+  const handleWhatsApp = (phone: string) => {
+    if (phone) {
+      const cleaned = phone.replace(/[^0-9]/g, '');
+      Linking.openURL(`https://wa.me/${cleaned}`);
+    }
   };
 
   const filteredCompanies = companies.filter((company) => {
@@ -181,33 +232,25 @@ const SellerDirectoryScreen: React.FC = () => {
 
   const renderStars = (rating: number) => {
     const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
+    const fullStars = Math.floor(rating || 0);
+    const hasHalfStar = (rating || 0) % 1 >= 0.5;
 
     for (let i = 0; i < fullStars; i++) {
       stars.push(
         <Ionicons key={`full-${i}`} name="star" size={14} color="#FFB800" />
       );
     }
-
     if (hasHalfStar) {
       stars.push(
         <Ionicons key="half" name="star-half" size={14} color="#FFB800" />
       );
     }
-
-    const remainingStars = 5 - Math.ceil(rating);
-    for (let i = 0; i < remainingStars; i++) {
+    const remaining = 5 - Math.ceil(rating || 0);
+    for (let i = 0; i < remaining; i++) {
       stars.push(
-        <Ionicons
-          key={`empty-${i}`}
-          name="star-outline"
-          size={14}
-          color="#FFB800"
-        />
+        <Ionicons key={`empty-${i}`} name="star-outline" size={14} color="#FFB800" />
       );
     }
-
     return <View style={styles.starsContainer}>{stars}</View>;
   };
 
@@ -219,29 +262,36 @@ const SellerDirectoryScreen: React.FC = () => {
     return (
       <View key={company.company_id} style={styles.sellerCard}>
         <View style={styles.sellerHeader}>
-          {imageUri ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.sellerImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={[styles.sellerImage, styles.imagePlaceholder]}>
-              <Ionicons name="business" size={24} color="#CCC" />
-            </View>
-          )}
+          <TouchableOpacity onPress={() => handleProfile(company.company_id)}>
+            {imageUri ? (
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.sellerImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.sellerImage, styles.imagePlaceholder]}>
+                <Ionicons name="business" size={28} color="#177DDF" />
+              </View>
+            )}
+          </TouchableOpacity>
+
           <View style={styles.sellerInfo}>
             <Text style={styles.sellerName} numberOfLines={1}>
               {company.company_name}
             </Text>
-            <Text style={styles.sellerLocation} numberOfLines={1}>
-              {company.company_city}, {company.company_state}
-            </Text>
-            {company.company_phone && (
-              <Text style={styles.sellerPhone} numberOfLines={1}>
-                {company.company_phone}
+            {renderStars(company.rating || 4)}
+            {company.contact_person && (
+              <Text style={styles.contactPerson} numberOfLines={1}>
+                {company.contact_person}
               </Text>
             )}
+            <View style={styles.locationRow}>
+              <Ionicons name="location-outline" size={13} color="#888" />
+              <Text style={styles.sellerLocation} numberOfLines={1}>
+                {company.company_city}, {company.company_state}
+              </Text>
+            </View>
             {company.is_verified && (
               <View style={styles.verifiedBadge}>
                 <Ionicons name="shield-checkmark" size={12} color="#28A745" />
@@ -249,6 +299,7 @@ const SellerDirectoryScreen: React.FC = () => {
               </View>
             )}
           </View>
+
           <TouchableOpacity
             style={[
               styles.followButton,
@@ -279,34 +330,32 @@ const SellerDirectoryScreen: React.FC = () => {
             style={styles.actionButton}
             onPress={() => handleProfile(company.company_id)}
           >
-            <Ionicons name="person-outline" size={18} color="#666" />
+            <Ionicons name="person-outline" size={18} color="#177DDF" />
             <Text style={styles.actionButtonText}>Profile</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => {
-              if (company.company_phone) {
-                const { Linking } = require('react-native');
-                Linking.openURL(`tel:${company.company_phone}`);
-              }
-            }}
+            onPress={() => handleContact(company.company_phone)}
           >
-            <Ionicons name="call-outline" size={18} color="#666" />
+            <Ionicons name="call-outline" size={18} color="#177DDF" />
             <Text style={styles.actionButtonText}>Contact</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => {
-              if (company.company_email) {
-                const { Linking } = require('react-native');
-                Linking.openURL(`mailto:${company.company_email}`);
-              }
-            }}
+            onPress={() => handleMessage(company.company_email)}
           >
-            <Ionicons name="mail-outline" size={18} color="#666" />
-            <Text style={styles.actionButtonText}>Email</Text>
+            <Ionicons name="mail-outline" size={18} color="#177DDF" />
+            <Text style={styles.actionButtonText}>Message</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => handleWhatsApp(company.company_phone)}
+          >
+            <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+            <Text style={[styles.actionButtonText, { color: '#25D366' }]}>WhatsApp</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -327,6 +376,7 @@ const SellerDirectoryScreen: React.FC = () => {
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Seller Directory</Text>
+        <View style={{ width: 24 }} />
       </View>
 
       {/* Search Bar */}
@@ -339,7 +389,7 @@ const SellerDirectoryScreen: React.FC = () => {
         />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search sellers..."
+          placeholder="Search sellers by name or location..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#999"
@@ -402,7 +452,7 @@ const SellerDirectoryScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F7FA',
   },
   header: {
     backgroundColor: '#177DDF',
@@ -411,13 +461,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
   backButton: {
-    marginRight: 16,
+    marginRight: 12,
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   searchContainer: {
@@ -425,7 +481,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
@@ -473,13 +529,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     marginHorizontal: 16,
     marginBottom: 12,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   sellerHeader: {
     flexDirection: 'row',
@@ -490,7 +546,9 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#E3F2FD',
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
   },
   imagePlaceholder: {
     justifyContent: 'center',
@@ -502,28 +560,39 @@ const styles = StyleSheet.create({
   },
   sellerName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '700',
+    color: '#1A1A1A',
     marginBottom: 4,
   },
   starsContainer: {
     flexDirection: 'row',
     marginBottom: 4,
+    gap: 1,
   },
-  sellerLocation: {
-    fontSize: 13,
+  contactPerson: {
+    fontSize: 12,
     color: '#666',
     marginBottom: 2,
   },
-  sellerPhone: {
-    fontSize: 12,
-    color: '#999',
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginBottom: 4,
+  },
+  sellerLocation: {
+    fontSize: 13,
+    color: '#888',
   },
   verifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
   verifiedText: {
     fontSize: 11,
@@ -534,7 +603,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#177DDF',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 8,
     minWidth: 85,
     alignItems: 'center',
     justifyContent: 'center',
@@ -542,7 +611,7 @@ const styles = StyleSheet.create({
   },
   followingButton: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#177DDF',
   },
   followButtonDisabled: {
@@ -568,13 +637,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
+    gap: 4,
   },
   actionButtonText: {
     fontSize: 12,
-    color: '#666',
-    marginLeft: 4,
-    fontWeight: '500',
+    color: '#177DDF',
+    fontWeight: '600',
   },
   emptyContainer: {
     flex: 1,

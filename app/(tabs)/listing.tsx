@@ -103,6 +103,32 @@ const SellerTab: React.FC = () => {
         companies = Array.isArray(compData) ? compData : [];
       }
 
+      // Fallback: try all companies and filter approved
+      if (companies.length === 0) {
+        try {
+          const allRes = await axios.get(`${API_URL}/company/get/all`, { headers });
+          const allData = allRes.data?.data?.companies || allRes.data?.data || [];
+          companies = (Array.isArray(allData) ? allData : []).filter((c: any) => c.is_approved);
+        } catch {}
+      }
+
+      // Fallback: try business endpoint
+      if (companies.length === 0) {
+        try {
+          const bizRes = await axios.get(`${API_URL}/business/get/all`, { headers });
+          const bizData = bizRes.data?.data?.businesses || bizRes.data?.businesses || bizRes.data?.data || [];
+          companies = (Array.isArray(bizData) ? bizData : []).map((b: any) => ({
+            company_id: b.id || b.business_id,
+            company_name: b.name || b.business_name,
+            company_profile_url: b.profile_image,
+            company_city: b.city,
+            company_state: b.state,
+            is_verified: b.is_business_verified,
+            is_approved: b.is_business_approved,
+          }));
+        } catch {}
+      }
+
       // Fetch products from all companies
       let productsFromAll: any[] = [];
       await Promise.all(
