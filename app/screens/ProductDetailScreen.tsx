@@ -48,6 +48,10 @@ const ProductDetailScreen = () => {
   const [companyRatingInfo, setCompanyRatingInfo] = useState<any>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
+  // Follow state
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+
   // Product rating state
   const [showRatingForm, setShowRatingForm] = useState(false);
   const [userRating, setUserRating] = useState(0);
@@ -138,6 +142,24 @@ const ProductDetailScreen = () => {
               setCompanyRatingInfo(compRatingRes.data.data?.rating_info || compRatingRes.data.data);
             } catch {
               setCompanyRatingInfo(null);
+            }
+          }
+
+          // Check if user is following this company
+          if (token) {
+            try {
+              const decoded: any = jwtDecode(token);
+              const followRes = await axios.get(
+                `${API_URL}/company/followers/get/user/${decoded.user_id}`,
+                { headers }
+              );
+              const followedCompanies = followRes.data?.data?.companies || followRes.data?.data || [];
+              const followedIds = (Array.isArray(followedCompanies) ? followedCompanies : []).map(
+                (c: any) => c.company_id
+              );
+              setIsFollowing(followedIds.includes(productCompanyId));
+            } catch {
+              setIsFollowing(false);
             }
           }
         }
@@ -275,6 +297,47 @@ const ProductDetailScreen = () => {
         },
       },
     ]);
+  };
+
+  const handleFollowCompany = async () => {
+    if (!companyInfo?.company_id || followLoading) return;
+    try {
+      setFollowLoading(true);
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return;
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+      const decoded: any = jwtDecode(token);
+
+      if (isFollowing) {
+        await axios.delete(
+          `${API_URL}/company/followers/remove/${companyInfo.company_id}`,
+          {
+            headers,
+            data: { user_id: decoded.user_id },
+          }
+        );
+        setIsFollowing(false);
+        Alert.alert('Unfollowed', `You unfollowed ${companyInfo.company_name}`);
+      } else {
+        await axios.post(
+          `${API_URL}/company/followers/add`,
+          {
+            company_id: companyInfo.company_id,
+            user_id: decoded.user_id,
+          },
+          { headers }
+        );
+        setIsFollowing(true);
+        Alert.alert('Following', `You are now following ${companyInfo.company_name}`);
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to update follow status');
+    } finally {
+      setFollowLoading(false);
+    }
   };
 
   const renderStars = (rating: number, size: number = 16) => {
@@ -532,10 +595,20 @@ const ProductDetailScreen = () => {
                 <View style={styles.sellerInfo}>
                   <View style={styles.sellerNameRow}>
                     <Text style={styles.sellerName}>{companyInfo.company_name}</Text>
-                    {companyInfo.is_verified && (
+                    {companyInfo.is_verified ? (
                       <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+                    ) : (
+                      <View style={styles.notVerifiedInlineBadge}>
+                        <Ionicons name="alert-circle" size={14} color="#DC3545" />
+                      </View>
                     )}
                   </View>
+                  {!companyInfo.is_verified && (
+                    <View style={styles.notVerifiedWarning}>
+                      <Ionicons name="warning" size={12} color="#DC3545" />
+                      <Text style={styles.notVerifiedWarningText}>Not Verified Seller</Text>
+                    </View>
+                  )}
                   <Text style={styles.sellerLocation}>
                     <Ionicons name="location-outline" size={12} color="#888" />
                     {' '}{companyInfo.company_city}, {companyInfo.company_state}
@@ -600,6 +673,37 @@ const ProductDetailScreen = () => {
                 <Text style={styles.contactButtonText}>Profile</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Follow Company Button */}
+            <TouchableOpacity
+              style={[
+                styles.followCompanyButton,
+                isFollowing && styles.followingCompanyButton,
+              ]}
+              onPress={handleFollowCompany}
+              disabled={followLoading}
+              activeOpacity={0.7}
+            >
+              {followLoading ? (
+                <ActivityIndicator size="small" color={isFollowing ? '#0078D7' : '#FFFFFF'} />
+              ) : (
+                <>
+                  <Ionicons
+                    name={isFollowing ? 'checkmark-circle' : 'add-circle-outline'}
+                    size={18}
+                    color={isFollowing ? '#0078D7' : '#FFFFFF'}
+                  />
+                  <Text
+                    style={[
+                      styles.followCompanyText,
+                      isFollowing && styles.followingCompanyText,
+                    ]}
+                  >
+                    {isFollowing ? 'Following' : 'Follow Company'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
 
             {/* Company Address */}
             {companyInfo.company_address && (
@@ -1062,6 +1166,50 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginLeft: 2,
+  },
+  notVerifiedInlineBadge: {
+    marginLeft: 2,
+  },
+  notVerifiedWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#FFDDDD',
+    marginBottom: 2,
+  },
+  notVerifiedWarningText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#DC3545',
+  },
+  followCompanyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0078D7',
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 14,
+    gap: 6,
+  },
+  followingCompanyButton: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: '#0078D7',
+  },
+  followCompanyText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  followingCompanyText: {
+    color: '#0078D7',
   },
   companyContactRow: {
     flexDirection: 'row',

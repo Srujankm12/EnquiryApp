@@ -187,16 +187,9 @@ const MenuScreen: React.FC = () => {
     { id: 'interested', title: 'Interested\nIn', icon: 'heart-outline', color: '#E91E63', bgColor: '#FCE4EC', condition: 'always' },
     { id: 'saved', title: 'Saved', icon: 'bookmark-outline', color: '#9C27B0', bgColor: '#F3E5F5', condition: 'always' },
     { id: 'product-interest', title: 'Product\nInterested', icon: 'cube-outline', color: '#FF5722', bgColor: '#FBE9E7', condition: 'always' },
-    { id: 'blog', title: 'Blog', icon: 'newspaper-outline', color: '#607D8B', bgColor: '#ECEFF1', condition: 'always' },
-    { id: 'news', title: 'News', icon: 'globe-outline', color: '#00BCD4', bgColor: '#E0F7FA', condition: 'always' },
-    { id: 'videos', title: 'Videos', icon: 'videocam-outline', color: '#FF0000', bgColor: '#FFEBEE', condition: 'always' },
-    { id: 'tutorial', title: 'Tutorial\nVideo', icon: 'play-circle-outline', color: '#FF9800', bgColor: '#FFF3E0', condition: 'always' },
   ];
 
   const tagItems = [
-    { id: 'exhibitor', label: 'Exhibitor', icon: 'ribbon-outline' as keyof typeof Ionicons.glyphMap, color: '#0078D7' },
-    { id: 'premium', label: 'Premium Member', icon: 'star-outline' as keyof typeof Ionicons.glyphMap, color: '#FF9500' },
-    { id: 'directory', label: 'Directory', icon: 'book-outline' as keyof typeof Ionicons.glyphMap, color: '#34C759' },
     { id: 'share', label: 'App Share', icon: 'share-social-outline' as keyof typeof Ionicons.glyphMap, color: '#9C27B0' },
   ];
 
