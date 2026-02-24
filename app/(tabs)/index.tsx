@@ -266,17 +266,50 @@ const HomeScreen = () => {
   const fetchCompanies = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
-      const res = await axios.get(`${API_URL}/company/get/approved/all`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.data?.data?.companies) {
-        setCompanies(res.data.data.companies);
-      } else if (res.data?.data) {
-        const data = res.data.data;
-        if (Array.isArray(data)) {
-          setCompanies(data);
+      const headers = { Authorization: `Bearer ${token}` };
+
+      // Try fetching approved companies
+      let fetchedCompanies: any[] = [];
+      try {
+        const res = await axios.get(`${API_URL}/company/get/approved/all`, { headers });
+        if (res.data?.data?.companies) {
+          fetchedCompanies = res.data.data.companies;
+        } else if (res.data?.data && Array.isArray(res.data.data)) {
+          fetchedCompanies = res.data.data;
         }
+      } catch {}
+
+      // Fallback: try all companies and filter approved
+      if (fetchedCompanies.length === 0) {
+        try {
+          const res = await axios.get(`${API_URL}/company/get/all`, { headers });
+          const data = res.data?.data?.companies || res.data?.data || [];
+          fetchedCompanies = (Array.isArray(data) ? data : []).filter(
+            (c: any) => c.is_approved
+          );
+        } catch {}
       }
+
+      // Fallback: try business endpoint
+      if (fetchedCompanies.length === 0) {
+        try {
+          const res = await axios.get(`${API_URL}/business/get/all`, { headers });
+          const data = res.data?.data?.businesses || res.data?.businesses || res.data?.data || [];
+          fetchedCompanies = (Array.isArray(data) ? data : []).map((b: any) => ({
+            company_id: b.id || b.business_id,
+            company_name: b.name || b.business_name,
+            company_profile_url: b.profile_image,
+            company_city: b.city,
+            company_state: b.state,
+            company_phone: b.phone,
+            company_email: b.email,
+            is_verified: b.is_business_verified,
+            is_approved: b.is_business_approved,
+          }));
+        } catch {}
+      }
+
+      setCompanies(fetchedCompanies);
     } catch (error) {
       console.error("Error fetching companies:", error);
     }

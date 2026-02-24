@@ -181,7 +181,8 @@ const MenuScreen: React.FC = () => {
     { id: 'manage-post', title: 'Manage\nPost', icon: 'create-outline', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/myProducts', condition: 'seller' },
     // Non-seller items
     { id: 'become-seller', title: 'Become\nSeller', icon: 'storefront', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/becomeSellerForm', condition: 'not-seller' },
-    { id: 'app-status', title: 'Application\nStatus', icon: 'document-text', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'has-application' },
+    { id: 'edit-details', title: 'Edit\nDetails', icon: 'create', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'seller' },
+    { id: 'edit-details-pending', title: 'Edit\nDetails', icon: 'create', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'has-application' },
     // Common items
     { id: 'followers', title: 'Followers &\nFollowing', icon: 'people-outline', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/followers', condition: 'always' },
     { id: 'interested', title: 'Interested\nIn', icon: 'heart-outline', color: '#E91E63', bgColor: '#FCE4EC', condition: 'always' },
