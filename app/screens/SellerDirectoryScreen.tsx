@@ -59,6 +59,7 @@ const SellerDirectoryScreen: React.FC = () => {
   const [followedCompanyIds, setFollowedCompanyIds] = useState<Set<string>>(new Set());
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
+  const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -75,6 +76,8 @@ const SellerDirectoryScreen: React.FC = () => {
       const decoded: any = jwtDecode(token);
       const currentUserId = decoded.user_id;
       setUserId(currentUserId);
+      const storedCompanyId = await AsyncStorage.getItem('companyId');
+      setUserCompanyId(storedCompanyId);
       const headers = { Authorization: `Bearer ${token}` };
 
       // Fetch all approved companies
@@ -108,21 +111,24 @@ const SellerDirectoryScreen: React.FC = () => {
         try {
           const res = await axios.get(`${API_URL}/business/get/all`, { headers });
           const data = res.data?.data?.businesses || res.data?.businesses || res.data?.data || [];
-          allCompanies = (Array.isArray(data) ? data : []).map((b: any) => ({
-            company_id: b.id || b.business_id,
-            user_id: b.user_id || '',
-            company_name: b.name || b.business_name || '',
-            company_email: b.email || '',
-            company_phone: b.phone || '',
-            company_profile_url: b.profile_image,
-            company_address: b.address || '',
-            company_city: b.city || '',
-            company_state: b.state || '',
-            is_approved: b.is_business_approved !== false,
-            is_verified: b.is_business_verified || false,
-            contact_person: b.contact_person || '',
-            rating: b.rating || 0,
-          }));
+          allCompanies = (Array.isArray(data) ? data : []).map((b: any) => {
+            const biz = b.business_details || b;
+            return {
+              company_id: biz.id || b.id || '',
+              user_id: biz.user_id || b.user_id || '',
+              company_name: biz.name || b.name || '',
+              company_email: biz.email || b.email || '',
+              company_phone: biz.phone || b.phone || '',
+              company_profile_url: biz.profile_image || b.profile_image || null,
+              company_address: biz.address || b.address || '',
+              company_city: biz.city || b.city || '',
+              company_state: biz.state || b.state || '',
+              is_approved: biz.is_business_approved !== false,
+              is_verified: biz.is_business_verified || b.is_business_verified || false,
+              contact_person: biz.contact_person || b.contact_person || '',
+              rating: biz.rating || b.rating || 0,
+            };
+          }).filter((c: any) => c.is_approved);
         } catch {}
       }
 
@@ -177,6 +183,10 @@ const SellerDirectoryScreen: React.FC = () => {
   };
 
   const handleFollow = async (companyId: string) => {
+    if (!companyId) {
+      Alert.alert('Error', 'Unable to follow this seller. Please try again later.');
+      return;
+    }
     setProcessingId(companyId);
     try {
       const token = await AsyncStorage.getItem('token');
@@ -236,6 +246,10 @@ const SellerDirectoryScreen: React.FC = () => {
   };
 
   const filteredCompanies = companies.filter((company) => {
+    // Hide the user's own company
+    if (company.user_id && company.user_id === userId) return false;
+    if (userCompanyId && company.company_id === userCompanyId) return false;
+
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -269,13 +283,13 @@ const SellerDirectoryScreen: React.FC = () => {
     return <View style={styles.starsContainer}>{stars}</View>;
   };
 
-  const renderSellerCard = (company: CompanyInfo) => {
+  const renderSellerCard = (company: CompanyInfo, index: number) => {
     const isFollowing = followedCompanyIds.has(company.company_id);
     const isProcessing = processingId === company.company_id;
     const imageUri = getImageUri(company.company_profile_url);
 
     return (
-      <View key={company.company_id} style={styles.sellerCard}>
+      <View key={`${company.company_id || 'seller'}-${index}`} style={styles.sellerCard}>
         <View style={styles.sellerHeader}>
           <TouchableOpacity onPress={() => handleProfile(company.company_id)}>
             {imageUri ? (
@@ -450,7 +464,7 @@ const SellerDirectoryScreen: React.FC = () => {
           {/* Sellers List */}
           <View style={styles.sellersContainer}>
             {filteredCompanies.length > 0 ? (
-              filteredCompanies.map((company) => renderSellerCard(company))
+              filteredCompanies.map((company, index) => renderSellerCard(company, index))
             ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={64} color="#CCC" />
