@@ -1,6 +1,6 @@
 
     import FollowersScreen from '../screens/FollowersScreen';
     
-    export default function Login() {
+    export default function FollowersPage() {
       return <FollowersScreen />;
     }

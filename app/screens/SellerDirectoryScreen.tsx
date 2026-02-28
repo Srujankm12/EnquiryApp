@@ -148,12 +148,12 @@ const SellerDirectoryScreen: React.FC = () => {
       // Fetch user's followed companies
       try {
         const followingRes = await axios.get(
-          `${API_URL}/company/followers/get/user/${currentUserId}`,
+          `${API_URL}/follower/get/followings/${currentUserId}`,
           { headers }
         );
-        const followedData = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        const followedData = followingRes.data?.data?.followings || followingRes.data?.followings || [];
         const ids = new Set(
-          (Array.isArray(followedData) ? followedData : []).map((c: any) => c.company_id)
+          (Array.isArray(followedData) ? followedData : []).map((c: any) => c.following_id)
         );
         setFollowedCompanyIds(ids);
       } catch {
@@ -183,8 +183,9 @@ const SellerDirectoryScreen: React.FC = () => {
       const headers = { Authorization: `Bearer ${token}` };
 
       if (followedCompanyIds.has(companyId)) {
-        await axios.delete(
-          `${API_URL}/company/unfollow/${companyId}/${userId}`,
+        await axios.post(
+          `${API_URL}/follower/unfollow`,
+          { user_id: userId, business_id: companyId },
           { headers }
         );
         setFollowedCompanyIds((prev) => {
@@ -194,8 +195,8 @@ const SellerDirectoryScreen: React.FC = () => {
         });
       } else {
         await axios.post(
-          `${API_URL}/company/follow/${companyId}/${userId}`,
-          {},
+          `${API_URL}/follower/follow`,
+          { user_id: userId, business_id: companyId },
           { headers }
         );
         setFollowedCompanyIds((prev) => {
