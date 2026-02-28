@@ -21,11 +21,13 @@ import Constants from 'expo-constants';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
   return `${S3_URL}${path}`;
 };
 

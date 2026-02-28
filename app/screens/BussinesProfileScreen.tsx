@@ -46,6 +46,10 @@ const BusinessProfileScreen: React.FC = () => {
   const [productsLoading, setProductsLoading] = useState<boolean>(false);
   const [followersCount, setFollowersCount] = useState<number>(0);
   const [followingCount, setFollowingCount] = useState<number>(0);
+  const [isFollowing, setIsFollowing] = useState<boolean>(false);
+  const [followLoading, setFollowLoading] = useState<boolean>(false);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [isOwnProfile, setIsOwnProfile] = useState<boolean>(false);
 
   useEffect(() => {
     fetchBusinessProfile();
@@ -58,6 +62,8 @@ const BusinessProfileScreen: React.FC = () => {
       if (!token) return;
 
       const decoded: any = jwtDecode(token);
+      const userId = decoded.user_id;
+      setCurrentUserId(userId);
       const headers = { Authorization: `Bearer ${token}` };
 
       let businessId = business_id as string;
@@ -122,6 +128,10 @@ const BusinessProfileScreen: React.FC = () => {
       // Fetch products for this business
       fetchProducts(businessId, headers);
 
+      // Check if this is user's own profile
+      const storedCompanyId = await AsyncStorage.getItem('companyId');
+      setIsOwnProfile(businessId === storedCompanyId || businessId === decoded.business_id);
+
       // Fetch followers count
       try {
         const followersRes = await axios.get(`${API_URL}/follower/get/followers/${businessId}`, { headers });
@@ -129,6 +139,16 @@ const BusinessProfileScreen: React.FC = () => {
         setFollowersCount(Array.isArray(fData) ? fData.length : 0);
       } catch {
         setFollowersCount(0);
+      }
+
+      // Check if user follows this business
+      try {
+        const followingRes = await axios.get(`${API_URL}/follower/get/followings/${userId}`, { headers });
+        const followings = followingRes.data?.data?.followings || followingRes.data?.followings || [];
+        const followedIds = (Array.isArray(followings) ? followings : []).map((f: any) => f.following_id);
+        setIsFollowing(followedIds.includes(businessId));
+      } catch {
+        setIsFollowing(false);
       }
     } catch (error) {
       console.error('Error fetching business profile:', error);
@@ -191,6 +211,29 @@ const BusinessProfileScreen: React.FC = () => {
 
   const handleSocialMedia = (url?: string | null) => {
     if (url) Linking.openURL(url);
+  };
+
+  const handleFollowToggle = async () => {
+    const businessId = businessDetails?.id;
+    if (!businessId || !currentUserId) return;
+    setFollowLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      if (isFollowing) {
+        await axios.post(`${API_URL}/follower/unfollow`, { user_id: currentUserId, business_id: businessId }, { headers });
+        setIsFollowing(false);
+        setFollowersCount((prev) => Math.max(0, prev - 1));
+      } else {
+        await axios.post(`${API_URL}/follower/follow`, { user_id: currentUserId, business_id: businessId }, { headers });
+        setIsFollowing(true);
+        setFollowersCount((prev) => prev + 1);
+      }
+    } catch (error: any) {
+      console.error('Follow error:', error?.response?.data || error);
+    } finally {
+      setFollowLoading(false);
+    }
   };
 
   const getProductImageUrl = (product: any): string | null => {
@@ -367,6 +410,36 @@ const BusinessProfileScreen: React.FC = () => {
               <Text style={styles.statLabel}>Products</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Follow Button */}
+          {!isOwnProfile && (
+            <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
+              <TouchableOpacity
+                style={[
+                  styles.followBtn,
+                  isFollowing && styles.followingBtn,
+                ]}
+                onPress={handleFollowToggle}
+                disabled={followLoading}
+                activeOpacity={0.7}
+              >
+                {followLoading ? (
+                  <ActivityIndicator size="small" color={isFollowing ? '#177DDF' : '#FFFFFF'} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={isFollowing ? 'checkmark-circle' : 'add-circle-outline'}
+                      size={18}
+                      color={isFollowing ? '#177DDF' : '#FFFFFF'}
+                    />
+                    <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>
+                      {isFollowing ? 'Following' : 'Follow'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
@@ -633,6 +706,17 @@ const styles = StyleSheet.create({
   statNumber: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
   statLabel: { fontSize: 12, color: '#888', marginTop: 2 },
   statDivider: { width: 1, height: 30, backgroundColor: '#E0E0E0' },
+
+  // Follow Button
+  followBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#177DDF', paddingVertical: 12, borderRadius: 10,
+  },
+  followingBtn: {
+    backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#177DDF',
+  },
+  followBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  followingBtnText: { color: '#177DDF' },
 
   // Action Buttons
   actionButtons: {

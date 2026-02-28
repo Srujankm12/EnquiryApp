@@ -12,24 +12,34 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import Constants from "expo-constants";
 
-interface TradeLead {
+const API_URL = Constants.expoConfig?.extra?.API_URL;
+
+interface RFQ {
   id: string;
-  businessName: string;
-  location: string;
-  productCategory: string;
-  productSubCategory: string;
-  quantity: string;
+  business_id: string;
+  business_name: string;
+  business_phone: string;
+  business_email: string;
+  address: string;
+  city: string;
+  state: string;
+  product_name: string;
+  quantity: number;
   unit: string;
-  requirement: string;
-  rfqDate: string;
-  phoneNumber?: string;
+  price: number;
+  is_rfq_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 const BuyTradeLeadsScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [tradeLeads, setTradeLeads] = useState<TradeLead[]>([]);
+  const [tradeLeads, setTradeLeads] = useState<RFQ[]>([]);
 
   useEffect(() => {
     fetchTradeLeads();
@@ -37,75 +47,18 @@ const BuyTradeLeadsScreen: React.FC = () => {
 
   const fetchTradeLeads = async () => {
     setLoading(true);
-
-    // Simulate API call
-    setTimeout(() => {
-      const dummyLeads: TradeLead[] = [
-        {
-          id: "1",
-          businessName: "South Canara Agro Mart",
-          location: "Mangalore",
-          productCategory: "Cashew",
-          productSubCategory: "2-Pices",
-          quantity: "200kg",
-          unit: "300rs",
-          requirement: "XYZ",
-          rfqDate: "1234567",
-          phoneNumber: "+911234567890",
-        },
-        {
-          id: "2",
-          businessName: "Kaibavi",
-          location: "Mangalore",
-          productCategory: "Cashew",
-          productSubCategory: "2-Pices",
-          quantity: "200kg",
-          unit: "300rs",
-          requirement: "XYZ",
-          rfqDate: "1234567",
-          phoneNumber: "+911234567890",
-        },
-        {
-          id: "3",
-          businessName: "Cashew Coast.",
-          location: "Mangalore",
-          productCategory: "Cashew",
-          productSubCategory: "2-Pices",
-          quantity: "200kg",
-          unit: "300rs",
-          requirement: "XYZ",
-          rfqDate: "1234567",
-          phoneNumber: "+911234567890",
-        },
-        {
-          id: "4",
-          businessName: "Premium Nuts Trading",
-          location: "Bangalore",
-          productCategory: "Almond",
-          productSubCategory: "California",
-          quantity: "500kg",
-          unit: "800rs",
-          requirement: "A1 Grade",
-          rfqDate: "1234568",
-          phoneNumber: "+919876543210",
-        },
-        {
-          id: "5",
-          businessName: "Golden Harvest",
-          location: "Mumbai",
-          productCategory: "Dates",
-          productSubCategory: "Medjool",
-          quantity: "1000kg",
-          unit: "150rs",
-          requirement: "Fresh Stock",
-          rfqDate: "1234569",
-          phoneNumber: "+919988776655",
-        },
-      ];
-
-      setTradeLeads(dummyLeads);
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await axios.get(`${API_URL}/rfq/get/all`, { headers });
+      const rfqs = res.data?.rfqs || res.data?.data?.rfqs || [];
+      setTradeLeads(Array.isArray(rfqs) ? rfqs : []);
+    } catch (error) {
+      console.error("Error fetching RFQs:", error);
+      setTradeLeads([]);
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   const onRefresh = async () => {
@@ -118,38 +71,57 @@ const BuyTradeLeadsScreen: React.FC = () => {
     router.back();
   };
 
-  const handleProfile = (leadId: string, businessName: string) => {
-    console.log(`View profile: ${businessName}`);
-    // router.push(`/pages/businessProfile/${leadId}`);
-  };
-
-  const handleContact = (phoneNumber?: string) => {
-    if (phoneNumber) {
-      Linking.openURL(`tel:${phoneNumber}`);
+  const handleProfile = (businessId: string) => {
+    if (businessId) {
+      router.push({
+        pathname: "/pages/bussinesProfile" as any,
+        params: { business_id: businessId },
+      });
     }
   };
 
-  const handleMessage = (leadId: string) => {
-    console.log(`Send message to lead: ${leadId}`);
+  const handleContact = (phone?: string) => {
+    if (phone) Linking.openURL(`tel:${phone}`);
   };
 
-  const handleWhatsApp = (phoneNumber?: string) => {
-    if (phoneNumber) {
-      Linking.openURL(`whatsapp://send?phone=${phoneNumber}`);
+  const handleMessage = (email?: string) => {
+    if (email) Linking.openURL(`mailto:${email}`);
+  };
+
+  const handleWhatsApp = (phone?: string) => {
+    if (phone) {
+      const cleaned = phone.replace(/[^0-9]/g, "");
+      Linking.openURL(`https://wa.me/${cleaned}`);
     }
   };
 
-  const renderLeadCard = (lead: TradeLead) => (
-    <View key={lead.id} style={styles.leadCard}>
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const renderLeadCard = (lead: RFQ, index: number) => (
+    <View key={`${lead.id}-${index}`} style={styles.leadCard}>
       {/* Card Header */}
       <View style={styles.cardHeader}>
         <View style={styles.headerLeft}>
           <Text style={styles.businessName} numberOfLines={1}>
-            {lead.businessName}
+            {lead.business_name}
           </Text>
           <View style={styles.locationContainer}>
             <Ionicons name="location" size={14} color="#666" />
-            <Text style={styles.locationText}>{lead.location}</Text>
+            <Text style={styles.locationText}>
+              {lead.city}
+              {lead.state ? `, ${lead.state}` : ""}
+            </Text>
           </View>
         </View>
         <View style={styles.rfqBadge}>
@@ -163,33 +135,27 @@ const BuyTradeLeadsScreen: React.FC = () => {
       {/* Lead Details */}
       <View style={styles.detailsContainer}>
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Product Category :</Text>
-          <Text style={styles.detailValue}>{lead.productCategory}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Product Sub Category :</Text>
-          <Text style={styles.detailValue}>{lead.productSubCategory}</Text>
+          <Text style={styles.detailLabel}>Product :</Text>
+          <Text style={styles.detailValue}>{lead.product_name}</Text>
         </View>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Quantity :</Text>
-          <Text style={styles.detailValue}>{lead.quantity}</Text>
+          <Text style={styles.detailValue}>
+            {lead.quantity} {lead.unit}
+          </Text>
         </View>
 
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Unit :</Text>
-          <Text style={styles.detailValue}>{lead.unit}</Text>
+          <Text style={styles.detailLabel}>Price :</Text>
+          <Text style={styles.detailValue}>
+            {lead.price > 0 ? `₹${lead.price}` : "On Request"}
+          </Text>
         </View>
 
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Requirement :</Text>
-          <Text style={styles.detailValue}>{lead.requirement}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>RFQ Date :</Text>
-          <Text style={styles.detailValue}>{lead.rfqDate}</Text>
+          <Text style={styles.detailLabel}>Posted :</Text>
+          <Text style={styles.detailValue}>{formatDate(lead.created_at)}</Text>
         </View>
       </View>
 
@@ -197,7 +163,7 @@ const BuyTradeLeadsScreen: React.FC = () => {
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={styles.actionButton}
-          onPress={() => handleProfile(lead.id, lead.businessName)}
+          onPress={() => handleProfile(lead.business_id)}
         >
           <Ionicons name="person-outline" size={18} color="#177DDF" />
           <Text style={styles.actionButtonText}>Profile</Text>
@@ -207,7 +173,7 @@ const BuyTradeLeadsScreen: React.FC = () => {
 
         <TouchableOpacity
           style={styles.actionButton}
-          onPress={() => handleContact(lead.phoneNumber)}
+          onPress={() => handleContact(lead.business_phone)}
         >
           <Ionicons name="call-outline" size={18} color="#177DDF" />
           <Text style={styles.actionButtonText}>Contact</Text>
@@ -217,7 +183,7 @@ const BuyTradeLeadsScreen: React.FC = () => {
 
         <TouchableOpacity
           style={styles.actionButton}
-          onPress={() => handleMessage(lead.id)}
+          onPress={() => handleMessage(lead.business_email)}
         >
           <Ionicons name="mail-outline" size={18} color="#177DDF" />
           <Text style={styles.actionButtonText}>Message</Text>
@@ -227,7 +193,7 @@ const BuyTradeLeadsScreen: React.FC = () => {
 
         <TouchableOpacity
           style={styles.actionButton}
-          onPress={() => handleWhatsApp(lead.phoneNumber)}
+          onPress={() => handleWhatsApp(lead.business_phone)}
         >
           <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
           <Text style={styles.actionButtonText}>WhatsApp</Text>
@@ -250,9 +216,7 @@ const BuyTradeLeadsScreen: React.FC = () => {
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Buy Trade Leads</Text>
-        <TouchableOpacity style={styles.filterButton}>
-          <Ionicons name="filter" size={22} color="#FFFFFF" />
-        </TouchableOpacity>
+        <View style={{ width: 32 }} />
       </View>
 
       {/* Loading Indicator */}
@@ -278,14 +242,15 @@ const BuyTradeLeadsScreen: React.FC = () => {
           <View style={styles.infoBanner}>
             <Ionicons name="information-circle" size={20} color="#177DDF" />
             <Text style={styles.infoBannerText}>
-              {tradeLeads.length} active trade leads available
+              {tradeLeads.length} active trade lead
+              {tradeLeads.length !== 1 ? "s" : ""} available
             </Text>
           </View>
 
           {/* Trade Leads List */}
           <View style={styles.leadsContainer}>
             {tradeLeads.length > 0 ? (
-              tradeLeads.map((lead) => renderLeadCard(lead))
+              tradeLeads.map((lead, index) => renderLeadCard(lead, index))
             ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="briefcase-outline" size={64} color="#CCC" />
@@ -305,10 +270,7 @@ const BuyTradeLeadsScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-  },
+  container: { flex: 1, backgroundColor: "#F5F5F5" },
   header: {
     backgroundColor: "#177DDF",
     paddingTop: 50,
@@ -323,32 +285,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  backButton: {
-    padding: 4,
-  },
+  backButton: { padding: 4 },
   headerTitle: {
     fontSize: 20,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#FFFFFF",
-    flex: 1,
-    marginLeft: 12,
-  },
-  filterButton: {
-    padding: 4,
   },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666",
-  },
-  scrollView: {
-    flex: 1,
-  },
+  loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
+  scrollView: { flex: 1 },
   infoBanner: {
     backgroundColor: "#E3F2FD",
     flexDirection: "row",
@@ -366,10 +315,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     flex: 1,
   },
-  leadsContainer: {
-    padding: 16,
-    paddingTop: 12,
-  },
+  leadsContainer: { padding: 16, paddingTop: 12 },
   leadCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
@@ -388,24 +334,15 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 12,
   },
-  headerLeft: {
-    flex: 1,
-  },
+  headerLeft: { flex: 1 },
   businessName: {
     fontSize: 18,
     fontWeight: "700",
     color: "#000",
     marginBottom: 6,
   },
-  locationContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  locationText: {
-    fontSize: 13,
-    color: "#666",
-  },
+  locationContainer: { flexDirection: "row", alignItems: "center", gap: 4 },
+  locationText: { fontSize: 13, color: "#666" },
   rfqBadge: {
     backgroundColor: "#177DDF",
     paddingHorizontal: 12,
@@ -418,24 +355,14 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     letterSpacing: 0.5,
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#F0F0F0",
-    marginHorizontal: 16,
-  },
-  detailsContainer: {
-    padding: 16,
-    paddingTop: 12,
-  },
-  detailRow: {
-    flexDirection: "row",
-    marginBottom: 8,
-  },
+  divider: { height: 1, backgroundColor: "#F0F0F0", marginHorizontal: 16 },
+  detailsContainer: { padding: 16, paddingTop: 12 },
+  detailRow: { flexDirection: "row", marginBottom: 8 },
   detailLabel: {
     fontSize: 14,
     color: "#666",
     fontWeight: "500",
-    width: 165,
+    width: 120,
   },
   detailValue: {
     fontSize: 14,
@@ -448,7 +375,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
     backgroundColor: "#FAFAFA",
-    fontSize: 14,             
   },
   actionButton: {
     flex: 1,
@@ -458,15 +384,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 6,
   },
-  actionDivider: {
-    width: 1,
-    backgroundColor: "#E0E0E0",
-  },
-  actionButtonText: {
-    fontSize: 13,
-    color: "#177DDF",
-    fontWeight: "600",
-  },
+  actionDivider: { width: 1, backgroundColor: "#E0E0E0" },
+  actionButtonText: { fontSize: 13, color: "#177DDF", fontWeight: "600" },
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
@@ -485,9 +404,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: "center",
   },
-  bottomPadding: {
-    height: 80,
-  },
+  bottomPadding: { height: 80 },
 });
 
 export default BuyTradeLeadsScreen;
