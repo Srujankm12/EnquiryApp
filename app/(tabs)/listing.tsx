@@ -117,15 +117,18 @@ const SellerTab: React.FC = () => {
         try {
           const bizRes = await axios.get(`${API_URL}/business/get/all`, { headers });
           const bizData = bizRes.data?.data?.businesses || bizRes.data?.businesses || bizRes.data?.data || [];
-          companies = (Array.isArray(bizData) ? bizData : []).map((b: any) => ({
-            company_id: b.id || b.business_id,
-            company_name: b.name || b.business_name,
-            company_profile_url: b.profile_image,
-            company_city: b.city,
-            company_state: b.state,
-            is_verified: b.is_business_verified,
-            is_approved: b.is_business_approved,
-          }));
+          companies = (Array.isArray(bizData) ? bizData : []).map((b: any) => {
+            const biz = b.business_details || b;
+            return {
+              company_id: biz.id || b.id || '',
+              company_name: biz.name || b.name || '',
+              company_profile_url: biz.profile_image || b.profile_image || null,
+              company_city: biz.city || b.city || '',
+              company_state: biz.state || b.state || '',
+              is_verified: biz.is_business_verified || b.is_business_verified || false,
+              is_approved: biz.is_business_approved !== false,
+            };
+          }).filter((c: any) => c.is_approved);
         } catch {}
       }
 

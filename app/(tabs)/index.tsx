@@ -311,17 +311,21 @@ const HomeScreen = () => {
         try {
           const res = await axios.get(`${API_URL}/business/get/all`, { headers });
           const data = res.data?.data?.businesses || res.data?.businesses || res.data?.data || [];
-          fetchedCompanies = (Array.isArray(data) ? data : []).map((b: any) => ({
-            company_id: b.id || b.business_id,
-            company_name: b.name || b.business_name,
-            company_profile_url: b.profile_image,
-            company_city: b.city,
-            company_state: b.state,
-            company_phone: b.phone,
-            company_email: b.email,
-            is_verified: b.is_business_verified,
-            is_approved: b.is_business_approved,
-          }));
+          fetchedCompanies = (Array.isArray(data) ? data : []).map((b: any) => {
+            const biz = b.business_details || b;
+            return {
+              company_id: biz.id || b.id,
+              company_name: biz.name || b.name || "",
+              company_profile_url: biz.profile_image || b.profile_image || null,
+              company_city: biz.city || b.city || "",
+              company_state: biz.state || b.state || "",
+              company_phone: biz.phone || b.phone || "",
+              company_email: biz.email || b.email || "",
+              is_verified: biz.is_business_verified || b.is_business_verified || false,
+              is_approved: biz.is_business_approved !== false,
+              user_id: biz.user_id || b.user_id || "",
+            };
+          }).filter((c: any) => c.is_approved);
         } catch {}
       }
 
@@ -673,7 +677,7 @@ const HomeScreen = () => {
                   </TouchableOpacity>
                 );
               }}
-              keyExtractor={(item) => item.company_id}
+              keyExtractor={(item, index) => item.company_id || `company-${index}`}
             />
           ) : (
             <View style={{ paddingVertical: 30, alignItems: "center" }}>
