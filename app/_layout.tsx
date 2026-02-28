@@ -53,6 +53,7 @@ export default function RootLayout() {
         <Stack.Screen name='pages/editSellerApplication' options={{ headerShown: false }} />
         <Stack.Screen name='pages/upadetPasswordScreen' options={{ headerShown: false }} />
         <Stack.Screen name='pages/updateUserProfileScreen' options={{ headerShown: false }} />
+        <Stack.Screen name='pages/myRfqs' options={{ headerShown: false }} />
       </Stack>  
       <StatusBar style="auto" />
     </ThemeProvider>

@@ -179,6 +179,7 @@ const MenuScreen: React.FC = () => {
     { id: 'my-products', title: 'My\nProducts', icon: 'cube', color: '#177DDF', bgColor: '#E3F2FD', route: 'pages/myProducts', condition: 'seller' },
     { id: 'add-product', title: 'Add\nProduct', icon: 'add-circle', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/addProduct', condition: 'seller' },
     { id: 'manage-post', title: 'Manage\nPost', icon: 'create-outline', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/myProducts', condition: 'seller' },
+    { id: 'my-rfqs', title: 'My\nRFQs', icon: 'document-text', color: '#FF5722', bgColor: '#FBE9E7', route: 'pages/myRfqs', condition: 'seller' },
     // Non-seller items
     { id: 'become-seller', title: 'Become\nSeller', icon: 'storefront', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/becomeSellerForm', condition: 'not-seller' },
     { id: 'edit-details', title: 'Edit\nDetails', icon: 'create', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'seller' },

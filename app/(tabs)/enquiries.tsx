@@ -6,280 +6,187 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
-  Dimensions,
   RefreshControl,
   StatusBar,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import Constants from 'expo-constants';
 
-const { width } = Dimensions.get('window');
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
-interface Enquiry {
+interface RFQ {
   id: string;
-  companyName: string;
-  companyLogo: string;
-  rating: number;
-  contactPerson: string;
-  location: string;
-  isNew: boolean;
-  date?: string;
-  productName?: string;
+  business_id: string;
+  business_name: string;
+  business_phone: string;
+  business_email: string;
+  address: string;
+  city: string;
+  state: string;
+  product_name: string;
+  quantity: number;
+  unit: string;
+  price: number;
+  is_rfq_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 const EnquiriesScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
-  const [newEnquiries, setNewEnquiries] = useState<Enquiry[]>([]);
-  const [oldEnquiries, setOldEnquiries] = useState<Enquiry[]>([]);
+  const [rfqs, setRfqs] = useState<RFQ[]>([]);
 
   useEffect(() => {
-    fetchEnquiries();
+    fetchRFQs();
   }, []);
 
-  const fetchEnquiries = async () => {
+  const fetchRFQs = async () => {
     setLoading(true);
-    setTimeout(() => {
-      const dummyNewEnquiries: Enquiry[] = [
-        {
-          id: '1',
-          companyName: 'Bolas',
-          companyLogo: 'https://via.placeholder.com/60/FF6347/FFFFFF?text=B',
-          rating: 4,
-          contactPerson: 'Yogeswaran KK',
-          location: 'Vellala',
-          isNew: true,
-          date: 'Today',
-          productName: 'Raw Cashew Nuts',
-        },
-        {
-          id: '2',
-          companyName: 'Thirumala Cashew',
-          companyLogo: 'https://via.placeholder.com/60/FFA500/FFFFFF?text=T',
-          rating: 3,
-          contactPerson: 'Jeevanantham KL',
-          location: 'Mangare',
-          isNew: true,
-          date: 'Today',
-          productName: 'Processed Cashew',
-        },
-        {
-          id: '3',
-          companyName: 'Kade Cashew',
-          companyLogo: 'https://via.placeholder.com/60/32CD32/FFFFFF?text=K',
-          rating: 5,
-          contactPerson: 'Ragival S',
-          location: 'Mlangare',
-          isNew: true,
-          date: 'Yesterday',
-          productName: 'Cashew Butter',
-        },
-        {
-          id: '4',
-          companyName: 'Sri Saraswathi Cashews',
-          companyLogo: 'https://via.placeholder.com/60/4169E1/FFFFFF?text=S',
-          rating: 4,
-          contactPerson: 'Ravi KD',
-          location: 'Mangalire',
-          isNew: true,
-          date: 'Yesterday',
-          productName: 'Roasted Cashew',
-        },
-      ];
-
-      const dummyOldEnquiries: Enquiry[] = [
-        {
-          id: '5',
-          companyName: 'Crunchy Cashews',
-          companyLogo: 'https://via.placeholder.com/60/9370DB/FFFFFF?text=C',
-          rating: 4,
-          contactPerson: 'Chethan Poojary',
-          location: 'Kuvali',
-          isNew: false,
-          date: '2 days ago',
-          productName: 'Premium Cashews',
-        },
-        {
-          id: '6',
-          companyName: 'Kaibavi',
-          companyLogo: 'https://via.placeholder.com/60/20B2AA/FFFFFF?text=K',
-          rating: 3,
-          contactPerson: 'Guruprasth L',
-          location: 'Manguru',
-          isNew: false,
-          date: '3 days ago',
-          productName: 'Cashew Oil',
-        },
-        {
-          id: '7',
-          companyName: 'Cashew Coast.',
-          companyLogo: 'https://via.placeholder.com/60/FF69B4/FFFFFF?text=CC',
-          rating: 4,
-          contactPerson: 'Pavan HL',
-          location: 'Bangare',
-          isNew: false,
-          date: '1 week ago',
-          productName: 'Organic Cashew',
-        },
-        {
-          id: '8',
-          companyName: 'South Canara Agro Mart',
-          companyLogo: 'https://via.placeholder.com/60/FFD700/FFFFFF?text=SC',
-          rating: 5,
-          contactPerson: 'Melkathith Kulal',
-          location: 'Mangore',
-          isNew: false,
-          date: '2 weeks ago',
-          productName: 'Cashew Mix',
-        },
-        {
-          id: '9',
-          companyName: 'DVK Cashews',
-          companyLogo: 'https://via.placeholder.com/60/DC143C/FFFFFF?text=D',
-          rating: 4,
-          contactPerson: 'Dinesh KR',
-          location: 'Mangore',
-          isNew: false,
-          date: '1 month ago',
-          productName: 'Whole Cashews',
-        },
-      ];
-
-      setNewEnquiries(dummyNewEnquiries);
-      setOldEnquiries(dummyOldEnquiries);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await axios.get(`${API_URL}/rfq/get/all`, { headers });
+      const data = res.data?.rfqs || res.data?.data?.rfqs || [];
+      setRfqs(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching RFQs:', error);
+      setRfqs([]);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchEnquiries();
+    await fetchRFQs();
     setRefreshing(false);
   }, []);
 
-  const handleRead = (enquiryId: string, companyName: string) => {
-    console.log(`Read enquiry from ${companyName}`);
-  };
-
-  const handleView = (enquiryId: string, companyName: string) => {
-    console.log(`View enquiry from ${companyName}`);
-  };
-
-  const renderStars = (rating: number) => {
-    const stars = [];
-    for (let i = 1; i <= 5; i++) {
-      stars.push(
-        <Ionicons
-          key={i}
-          name={i <= rating ? 'star' : 'star-outline'}
-          size={12}
-          color="#FFD700"
-          style={{ marginRight: 1 }}
-        />
-      );
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diff = now.getTime() - date.getTime();
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      if (days === 0) return 'Today';
+      if (days === 1) return 'Yesterday';
+      if (days < 7) return `${days} days ago`;
+      return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch {
+      return dateStr;
     }
-    return <View style={styles.starsContainer}>{stars}</View>;
   };
 
-  const renderEnquiryCard = (enquiry: Enquiry) => (
-    <TouchableOpacity
-      key={enquiry.id}
-      style={styles.enquiryCard}
-      activeOpacity={0.7}
-      onPress={() =>
-        enquiry.isNew
-          ? handleRead(enquiry.id, enquiry.companyName)
-          : handleView(enquiry.id, enquiry.companyName)
-      }
-    >
-      <View style={styles.cardContent}>
-        {/* Company Logo */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={{ uri: enquiry.companyLogo }}
-            style={styles.companyLogo}
-            resizeMode="cover"
-          />
-          {enquiry.isNew && <View style={styles.newDot} />}
-        </View>
+  const handleProfile = (businessId: string) => {
+    if (businessId) {
+      router.push({
+        pathname: '/pages/bussinesProfile' as any,
+        params: { business_id: businessId },
+      });
+    }
+  };
 
-        {/* Company Info */}
-        <View style={styles.companyInfo}>
-          <View style={styles.companyNameRow}>
-            <Text style={styles.companyName} numberOfLines={1}>{enquiry.companyName}</Text>
-            <Text style={styles.dateText}>{enquiry.date}</Text>
-          </View>
-          {renderStars(enquiry.rating)}
-          {enquiry.productName && (
-            <Text style={styles.productNameText} numberOfLines={1}>
-              {enquiry.productName}
-            </Text>
-          )}
-          <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Ionicons name="person-outline" size={12} color="#888" />
-              <Text style={styles.contactPerson}>{enquiry.contactPerson}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <Ionicons name="location-outline" size={12} color="#888" />
-              <Text style={styles.location}>{enquiry.location}</Text>
-            </View>
-          </View>
-        </View>
+  const handleContact = (phone?: string) => {
+    if (phone) Linking.openURL(`tel:${phone}`);
+  };
 
-        {/* Action Button */}
-        <TouchableOpacity
-          style={[
-            styles.actionButton,
-            enquiry.isNew ? styles.readButton : styles.viewButton,
-          ]}
-          onPress={() =>
-            enquiry.isNew
-              ? handleRead(enquiry.id, enquiry.companyName)
-              : handleView(enquiry.id, enquiry.companyName)
-          }
-        >
-          <Ionicons
-            name={enquiry.isNew ? 'mail-unread-outline' : 'eye-outline'}
-            size={16}
-            color={enquiry.isNew ? '#FFFFFF' : '#1E90FF'}
-          />
-          <Text style={enquiry.isNew ? styles.readButtonText : styles.viewButtonText}>
-            {enquiry.isNew ? 'Read' : 'View'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+  const handleWhatsApp = (phone?: string) => {
+    if (phone) {
+      const cleaned = phone.replace(/[^0-9]/g, '');
+      Linking.openURL(`https://wa.me/${cleaned}`);
+    }
+  };
 
-  const currentEnquiries = activeTab === 'new' ? newEnquiries : oldEnquiries;
-
-  const filteredEnquiries = currentEnquiries.filter((enquiry) => {
+  const filteredRFQs = rfqs.filter((rfq) => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
-      enquiry.companyName.toLowerCase().includes(query) ||
-      enquiry.contactPerson.toLowerCase().includes(query) ||
-      enquiry.location.toLowerCase().includes(query) ||
-      (enquiry.productName?.toLowerCase().includes(query) ?? false)
+      rfq.product_name?.toLowerCase().includes(query) ||
+      rfq.business_name?.toLowerCase().includes(query) ||
+      rfq.city?.toLowerCase().includes(query)
     );
   });
 
+  const renderRFQCard = (rfq: RFQ, index: number) => (
+    <View key={`${rfq.id}-${index}`} style={styles.rfqCard}>
+      {/* Header */}
+      <View style={styles.cardHeader}>
+        <View style={styles.cardHeaderLeft}>
+          <View style={styles.productIconContainer}>
+            <Ionicons name="cube" size={20} color="#177DDF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.productName} numberOfLines={1}>{rfq.product_name}</Text>
+            <Text style={styles.businessNameText} numberOfLines={1}>{rfq.business_name}</Text>
+          </View>
+        </View>
+        <View style={styles.rfqBadge}>
+          <Text style={styles.rfqBadgeText}>RFQ</Text>
+        </View>
+      </View>
+
+      {/* Details */}
+      <View style={styles.detailsRow}>
+        <View style={styles.detailItem}>
+          <Ionicons name="layers-outline" size={14} color="#888" />
+          <Text style={styles.detailText}>{rfq.quantity} {rfq.unit}</Text>
+        </View>
+        <View style={styles.detailItem}>
+          <Ionicons name="pricetag-outline" size={14} color="#888" />
+          <Text style={styles.detailText}>
+            {rfq.price > 0 ? `₹${rfq.price}` : 'On Request'}
+          </Text>
+        </View>
+        <View style={styles.detailItem}>
+          <Ionicons name="location-outline" size={14} color="#888" />
+          <Text style={styles.detailText} numberOfLines={1}>{rfq.city}</Text>
+        </View>
+      </View>
+
+      {/* Footer */}
+      <View style={styles.cardFooter}>
+        <Text style={styles.dateText}>{formatDate(rfq.created_at)}</Text>
+        <View style={styles.footerActions}>
+          <TouchableOpacity
+            style={styles.footerBtn}
+            onPress={() => handleProfile(rfq.business_id)}
+          >
+            <Ionicons name="person-outline" size={16} color="#177DDF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.footerBtn}
+            onPress={() => handleContact(rfq.business_phone)}
+          >
+            <Ionicons name="call-outline" size={16} color="#177DDF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.footerBtn}
+            onPress={() => handleWhatsApp(rfq.business_phone)}
+          >
+            <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
+      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Enquiries</Text>
-        {newEnquiries.length > 0 && (
-          <View style={styles.headerBadge}>
-            <Text style={styles.headerBadgeText}>{newEnquiries.length} new</Text>
-          </View>
-        )}
+        <Text style={styles.headerTitle}>Buyer Requests</Text>
+        <TouchableOpacity onPress={() => router.push('/pages/requestQutation' as any)}>
+          <Ionicons name="add-circle" size={28} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
@@ -288,7 +195,7 @@ const EnquiriesScreen: React.FC = () => {
           <Ionicons name="search" size={20} color="#999" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search enquiries..."
+            placeholder="Search by product, business, city..."
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholderTextColor="#999"
@@ -301,31 +208,19 @@ const EnquiriesScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* Tab Selector */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'new' && styles.tabActive]}
-          onPress={() => setActiveTab('new')}
-        >
-          <Text style={[styles.tabText, activeTab === 'new' && styles.tabTextActive]}>
-            New ({newEnquiries.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'history' && styles.tabActive]}
-          onPress={() => setActiveTab('history')}
-        >
-          <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>
-            History ({oldEnquiries.length})
-          </Text>
-        </TouchableOpacity>
+      {/* Count Banner */}
+      <View style={styles.countBanner}>
+        <Ionicons name="document-text-outline" size={16} color="#177DDF" />
+        <Text style={styles.countText}>
+          {filteredRFQs.length} active request{filteredRFQs.length !== 1 ? 's' : ''}
+        </Text>
       </View>
 
-      {/* Loading Indicator */}
+      {/* Loading */}
       {loading ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#1E90FF" />
-          <Text style={styles.loadingText}>Loading enquiries...</Text>
+          <ActivityIndicator size="large" color="#177DDF" />
+          <Text style={styles.loadingText}>Loading requests...</Text>
         </View>
       ) : (
         <ScrollView
@@ -336,30 +231,33 @@ const EnquiriesScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#1E90FF']}
+              colors={['#177DDF']}
             />
           }
         >
-          {filteredEnquiries.length === 0 ? (
+          {filteredRFQs.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons
-                name={activeTab === 'new' ? 'mail-outline' : 'time-outline'}
-                size={64}
-                color="#CCC"
-              />
+              <Ionicons name="document-text-outline" size={64} color="#CCC" />
               <Text style={styles.emptyTitle}>
-                {searchQuery ? 'No Results' : activeTab === 'new' ? 'No New Enquiries' : 'No History'}
+                {searchQuery ? 'No Results' : 'No Requests Yet'}
               </Text>
               <Text style={styles.emptySubtext}>
                 {searchQuery
-                  ? 'Try adjusting your search term'
-                  : activeTab === 'new'
-                  ? 'New enquiries will appear here'
-                  : 'Your past enquiries will appear here'}
+                  ? 'Try adjusting your search'
+                  : 'Active buyer requests will appear here'}
               </Text>
+              {!searchQuery && (
+                <TouchableOpacity
+                  style={styles.createBtn}
+                  onPress={() => router.push('/pages/requestQutation' as any)}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.createBtnText}>Create RFQ</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
-            filteredEnquiries.map((enquiry) => renderEnquiryCard(enquiry))
+            filteredRFQs.map((rfq, index) => renderRFQCard(rfq, index))
           )}
 
           <View style={styles.bottomPadding} />
@@ -370,229 +268,76 @@ const EnquiriesScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
   header: {
-    backgroundColor: '#1E90FF',
-    paddingTop: 50,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    backgroundColor: '#177DDF', paddingTop: 50, paddingBottom: 12, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  headerBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  headerBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  searchWrapper: {
-    backgroundColor: '#1E90FF',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
+  headerTitle: { fontSize: 22, fontWeight: '700', color: '#FFFFFF' },
+  searchWrapper: { backgroundColor: '#177DDF', paddingHorizontal: 16, paddingBottom: 12 },
   searchContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    height: 44,
+    backgroundColor: '#FFFFFF', borderRadius: 10, flexDirection: 'row',
+    alignItems: 'center', paddingHorizontal: 12, height: 44,
   },
-  searchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 15,
-    color: '#333',
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 15, color: '#333' },
+  countBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#E3F2FD',
   },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+  countText: { fontSize: 13, fontWeight: '600', color: '#177DDF' },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, fontSize: 15, color: '#666' },
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 16, paddingTop: 12 },
+  rfqCard: {
+    backgroundColor: '#FFFFFF', borderRadius: 12, marginBottom: 12,
+    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06, shadowRadius: 3, overflow: 'hidden',
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+  cardHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 14, paddingBottom: 10,
   },
-  tabActive: {
-    borderBottomColor: '#1E90FF',
+  cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
+  productIconContainer: {
+    width: 40, height: 40, borderRadius: 10, backgroundColor: '#E3F2FD',
+    justifyContent: 'center', alignItems: 'center',
   },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#999',
+  productName: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
+  businessNameText: { fontSize: 12, color: '#888', marginTop: 2 },
+  rfqBadge: {
+    backgroundColor: '#177DDF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
-  tabTextActive: {
-    color: '#1E90FF',
+  rfqBadgeText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
+  detailsRow: {
+    flexDirection: 'row', paddingHorizontal: 14, paddingBottom: 10, gap: 16,
   },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  detailItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  detailText: { fontSize: 12, color: '#666' },
+  cardFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderTopWidth: 1, borderTopColor: '#F0F0F0', backgroundColor: '#FAFAFA',
   },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 15,
-    color: '#666',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingTop: 12,
-    paddingBottom: 20,
-  },
-  enquiryCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginBottom: 10,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-  },
-  cardContent: {
-    flexDirection: 'row',
-    padding: 14,
-    alignItems: 'center',
-  },
-  logoContainer: {
-    position: 'relative',
-  },
-  companyLogo: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: '#E0E0E0',
-  },
-  newDot: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#FF3B30',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  companyInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  companyNameRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 3,
-  },
-  companyName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A1A1A',
-    flex: 1,
-    marginRight: 8,
-  },
-  dateText: {
-    fontSize: 11,
-    color: '#AAA',
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
-  productNameText: {
-    fontSize: 12,
-    color: '#1E90FF',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  contactPerson: {
-    fontSize: 12,
-    color: '#888',
-  },
-  location: {
-    fontSize: 12,
-    color: '#888',
-  },
-  actionButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-    marginLeft: 8,
-  },
-  readButton: {
-    backgroundColor: '#1E90FF',
-  },
-  viewButton: {
-    backgroundColor: '#F0F7FF',
-    borderWidth: 1,
-    borderColor: '#D0E3F7',
-  },
-  readButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  viewButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1E90FF',
+  dateText: { fontSize: 11, color: '#AAA' },
+  footerActions: { flexDirection: 'row', gap: 8 },
+  footerBtn: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: '#F0F7FF',
+    justifyContent: 'center', alignItems: 'center',
   },
   emptyContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 40,
+    justifyContent: 'center', alignItems: 'center',
+    paddingVertical: 80, paddingHorizontal: 40,
   },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
+  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#333', marginTop: 16 },
+  emptySubtext: { fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center', lineHeight: 20 },
+  createBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#177DDF', paddingHorizontal: 20, paddingVertical: 12,
+    borderRadius: 8, marginTop: 20,
   },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  bottomPadding: {
-    height: 80,
-  },
+  createBtnText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  bottomPadding: { height: 80 },
 });
 
 export default EnquiriesScreen;
