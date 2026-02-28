@@ -124,8 +124,8 @@ const BusinessProfileScreen: React.FC = () => {
 
       // Fetch followers count
       try {
-        const followersRes = await axios.get(`${API_URL}/company/followers/get/${businessId}`, { headers });
-        const fData = followersRes.data?.data?.followers || followersRes.data?.data || [];
+        const followersRes = await axios.get(`${API_URL}/follower/get/followers/${businessId}`, { headers });
+        const fData = followersRes.data?.data?.followers || followersRes.data?.followers || [];
         setFollowersCount(Array.isArray(fData) ? fData.length : 0);
       } catch {
         setFollowersCount(0);

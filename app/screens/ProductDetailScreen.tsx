@@ -150,12 +150,12 @@ const ProductDetailScreen = () => {
             try {
               const decoded: any = jwtDecode(token);
               const followRes = await axios.get(
-                `${API_URL}/company/followers/get/user/${decoded.user_id}`,
+                `${API_URL}/follower/get/followings/${decoded.user_id}`,
                 { headers }
               );
-              const followedCompanies = followRes.data?.data?.companies || followRes.data?.data || [];
+              const followedCompanies = followRes.data?.data?.followings || followRes.data?.followings || [];
               const followedIds = (Array.isArray(followedCompanies) ? followedCompanies : []).map(
-                (c: any) => c.company_id
+                (c: any) => c.following_id
               );
               setIsFollowing(followedIds.includes(productCompanyId));
             } catch {
@@ -312,22 +312,17 @@ const ProductDetailScreen = () => {
       const decoded: any = jwtDecode(token);
 
       if (isFollowing) {
-        await axios.delete(
-          `${API_URL}/company/followers/remove/${companyInfo.company_id}`,
-          {
-            headers,
-            data: { user_id: decoded.user_id },
-          }
+        await axios.post(
+          `${API_URL}/follower/unfollow`,
+          { user_id: decoded.user_id, business_id: companyInfo.company_id },
+          { headers }
         );
         setIsFollowing(false);
         Alert.alert('Unfollowed', `You unfollowed ${companyInfo.company_name}`);
       } else {
         await axios.post(
-          `${API_URL}/company/followers/add`,
-          {
-            company_id: companyInfo.company_id,
-            user_id: decoded.user_id,
-          },
+          `${API_URL}/follower/follow`,
+          { user_id: decoded.user_id, business_id: companyInfo.company_id },
           { headers }
         );
         setIsFollowing(true);

@@ -29,23 +29,24 @@ const getImageUri = (url: string | null | undefined): string | null => {
   return `${S3_URL}${path}`;
 };
 
-interface CompanyFollower {
-  company_id: string;
-  user_id: string;
+interface FollowerDetail {
+  follower_id: string;
+  follower_profile_image: string;
+  follower_name: string;
+  follower_email: string;
+  follower_phone: string;
   created_at: string;
 }
 
-interface CompanyInfo {
-  company_id: string;
-  user_id: string;
-  company_name: string;
-  company_email: string;
-  company_phone: string;
-  company_profile_url: string | null;
-  company_address: string;
-  company_city: string;
-  company_state: string;
-  is_approved: boolean;
+interface FollowingDetail {
+  following_id: string;
+  following_profile_image: string;
+  following_name: string;
+  following_phone: string;
+  following_address: string;
+  following_city: string;
+  following_state: string;
+  following_telegram: string | null;
 }
 
 type TabType = 'followers' | 'following';
@@ -55,8 +56,8 @@ const FollowersScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [followers, setFollowers] = useState<any[]>([]);
-  const [followedCompanies, setFollowedCompanies] = useState<CompanyInfo[]>([]);
+  const [followers, setFollowers] = useState<FollowerDetail[]>([]);
+  const [followedCompanies, setFollowedCompanies] = useState<FollowingDetail[]>([]);
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -88,10 +89,10 @@ const FollowersScreen: React.FC = () => {
       // Fetch followed companies (companies this user follows)
       try {
         const followingRes = await axios.get(
-          `${API_URL}/company/followers/get/user/${currentUserId}`,
+          `${API_URL}/follower/get/followings/${currentUserId}`,
           { headers }
         );
-        const companies = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        const companies = followingRes.data?.data?.followings || followingRes.data?.followings || [];
         setFollowedCompanies(Array.isArray(companies) ? companies : []);
         setFollowingCount(Array.isArray(companies) ? companies.length : 0);
       } catch {
@@ -103,17 +104,17 @@ const FollowersScreen: React.FC = () => {
       if (isApprovedSeller && storedCompanyId) {
         try {
           const followersRes = await axios.get(
-            `${API_URL}/company/followers/get/${storedCompanyId}`,
+            `${API_URL}/follower/get/followers/${storedCompanyId}`,
             { headers }
           );
-          const followersList = followersRes.data?.data?.followers || followersRes.data?.data || [];
+          const followersList = followersRes.data?.data?.followers || followersRes.data?.followers || [];
           setFollowers(Array.isArray(followersList) ? followersList : []);
 
           const countRes = await axios.get(
-            `${API_URL}/company/followers/count/${storedCompanyId}`,
+            `${API_URL}/follower/get/followers/count/${storedCompanyId}`,
             { headers }
           );
-          const count = countRes.data?.data?.count || countRes.data?.data?.follower_count || 0;
+          const count = countRes.data?.data?.followers_count || countRes.data?.followers_count || 0;
           setFollowerCount(typeof count === 'number' ? count : 0);
         } catch {
           setFollowers([]);
@@ -137,26 +138,27 @@ const FollowersScreen: React.FC = () => {
     router.back();
   };
 
-  const handleUnfollow = async (company: CompanyInfo) => {
+  const handleUnfollow = async (company: FollowingDetail) => {
     Alert.alert(
       'Unfollow',
-      `Are you sure you want to unfollow ${company.company_name}?`,
+      `Are you sure you want to unfollow ${company.following_name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Unfollow',
           style: 'destructive',
           onPress: async () => {
-            setProcessingId(company.company_id);
+            setProcessingId(company.following_id);
             try {
               const token = await AsyncStorage.getItem('token');
               const headers = { Authorization: `Bearer ${token}` };
-              await axios.delete(
-                `${API_URL}/company/unfollow/${company.company_id}/${userId}`,
+              await axios.post(
+                `${API_URL}/follower/unfollow`,
+                { user_id: userId, business_id: company.following_id },
                 { headers }
               );
               setFollowedCompanies((prev) =>
-                prev.filter((c) => c.company_id !== company.company_id)
+                prev.filter((c) => c.following_id !== company.following_id)
               );
               setFollowingCount((prev) => Math.max(0, prev - 1));
             } catch (error: any) {
@@ -171,20 +173,20 @@ const FollowersScreen: React.FC = () => {
     );
   };
 
-  const handleCompanyPress = (companyItem: CompanyInfo) => {
+  const handleCompanyPress = (companyItem: FollowingDetail) => {
     router.push({
       pathname: '/pages/sellerProfile' as any,
-      params: { company_id: companyItem.company_id },
+      params: { company_id: companyItem.following_id },
     });
   };
 
-  const renderCompanyCard = (company: CompanyInfo) => {
-    const isProcessing = processingId === company.company_id;
-    const imageUri = getImageUri(company.company_profile_url);
+  const renderCompanyCard = (company: FollowingDetail) => {
+    const isProcessing = processingId === company.following_id;
+    const imageUri = getImageUri(company.following_profile_image);
 
     return (
       <TouchableOpacity
-        key={company.company_id}
+        key={company.following_id}
         style={styles.userCard}
         activeOpacity={0.7}
         onPress={() => handleCompanyPress(company)}
@@ -204,16 +206,16 @@ const FollowersScreen: React.FC = () => {
 
           <View style={styles.userInfo}>
             <Text style={styles.companyName} numberOfLines={1}>
-              {company.company_name}
+              {company.following_name}
             </Text>
-            {company.company_city && (
+            {company.following_city && (
               <Text style={styles.location} numberOfLines={1}>
-                {company.company_city}, {company.company_state}
+                {company.following_city}, {company.following_state}
               </Text>
             )}
-            {company.company_phone && (
+            {company.following_phone && (
               <Text style={styles.contactPerson} numberOfLines={1}>
-                {company.company_phone}
+                {company.following_phone}
               </Text>
             )}
           </View>
@@ -238,20 +240,37 @@ const FollowersScreen: React.FC = () => {
     );
   };
 
-  const renderFollowerCard = (follower: CompanyFollower) => {
+  const renderFollowerCard = (follower: FollowerDetail) => {
+    const imageUri = getImageUri(follower.follower_profile_image);
+
     return (
-      <View key={follower.user_id} style={styles.userCard}>
+      <View key={follower.follower_id} style={styles.userCard}>
         <View style={styles.cardContent}>
-          <View style={[styles.companyLogo, styles.logoPlaceholder]}>
-            <Ionicons name="person" size={24} color="#CCC" />
-          </View>
+          {imageUri ? (
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.companyLogo}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.companyLogo, styles.logoPlaceholder]}>
+              <Ionicons name="person" size={24} color="#CCC" />
+            </View>
+          )}
           <View style={styles.userInfo}>
             <Text style={styles.companyName} numberOfLines={1}>
-              User
+              {follower.follower_name}
             </Text>
-            <Text style={styles.location} numberOfLines={1}>
-              Followed on {new Date(follower.created_at).toLocaleDateString()}
-            </Text>
+            {follower.follower_email && (
+              <Text style={styles.contactPerson} numberOfLines={1}>
+                {follower.follower_email}
+              </Text>
+            )}
+            {follower.follower_phone && (
+              <Text style={styles.location} numberOfLines={1}>
+                {follower.follower_phone}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -260,8 +279,14 @@ const FollowersScreen: React.FC = () => {
 
   const filteredFollowing = followedCompanies.filter(
     (company) =>
-      company.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      company.company_city?.toLowerCase().includes(searchQuery.toLowerCase())
+      company.following_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      company.following_city?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredFollowers = followers.filter(
+    (follower) =>
+      follower.follower_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      follower.follower_email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -355,14 +380,18 @@ const FollowersScreen: React.FC = () => {
                 </Text>
               </View>
             )
-          ) : followers.length > 0 ? (
-            followers.map((follower) => renderFollowerCard(follower))
+          ) : filteredFollowers.length > 0 ? (
+            filteredFollowers.map((follower) => renderFollowerCard(follower))
           ) : (
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={64} color="#CCC" />
-              <Text style={styles.emptyText}>No followers yet</Text>
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'No results found' : 'No followers yet'}
+              </Text>
               <Text style={styles.emptySubtext}>
-                People who follow your company will appear here
+                {searchQuery
+                  ? 'Try adjusting your search'
+                  : 'People who follow your company will appear here'}
               </Text>
             </View>
           )}

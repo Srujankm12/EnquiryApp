@@ -343,12 +343,12 @@ const HomeScreen = () => {
       let followedCompanyIds: string[] = [];
       try {
         const followingRes = await axios.get(
-          `${API_URL}/company/followers/get/user/${userId}`,
+          `${API_URL}/follower/get/followings/${userId}`,
           { headers }
         );
-        const companies = followingRes.data?.data?.companies || followingRes.data?.data || [];
+        const companies = followingRes.data?.data?.followings || followingRes.data?.followings || [];
         followedCompanyIds = (Array.isArray(companies) ? companies : []).map(
-          (c: any) => c.company_id
+          (c: any) => c.following_id
         );
       } catch {
         followedCompanyIds = [];
