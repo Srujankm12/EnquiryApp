@@ -144,7 +144,33 @@ const CompanyLegalInfoStep: React.FC<CompanyLegalInfoStepProps> = ({
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    if (!businessId) {
+      onComplete(2);
+      return;
+    }
+
+    // If rows already exist, just move to next step
+    if (isExisting) {
+      onComplete(2);
+      return;
+    }
+
+    // Create empty legal table entry so future updates don't fail with "no rows in result set"
+    try {
+      const response = await fetch(`${API_URL}/business/legal/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: businessId }),
+      });
+
+      if (!response.ok) {
+        console.warn("Failed to create empty legal entry on skip, proceeding anyway");
+      }
+    } catch (error) {
+      console.warn("Error creating empty legal entry on skip:", error);
+    }
+
     onComplete(2);
   };
 
