@@ -2,11 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Constants from "expo-constants";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { jwtDecode } from "jwt-decode";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Linking,
@@ -25,12 +27,14 @@ const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
+// ✅ Fixed: guards against double-URL when API already returns full https:// URLs
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   const path = url.startsWith("/") ? url : `/${url}`;
   if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
-  return `${S3_URL}${path}`;
+  if (S3_URL) return `${S3_URL}${path}`;
+  return url;
 };
 
 const BusinessProfileScreen: React.FC = () => {
@@ -49,6 +53,7 @@ const BusinessProfileScreen: React.FC = () => {
   const [followLoading, setFollowLoading] = useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [isOwnProfile, setIsOwnProfile] = useState<boolean>(false);
+  const [imageUploading, setImageUploading] = useState<boolean>(false);
 
   useEffect(() => {
     fetchBusinessProfile();
@@ -64,7 +69,6 @@ const BusinessProfileScreen: React.FC = () => {
       const userId = decoded.user_id;
       setCurrentUserId(userId);
 
-      // ✅ FIX: Auth headers passed to ALL fetch calls
       const authHeaders = {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -97,7 +101,6 @@ const BusinessProfileScreen: React.FC = () => {
         return;
       }
 
-      // ✅ FIX: Auth headers on complete endpoint — this is why it was always falling back
       try {
         const completeRes = await fetch(
           `${API_URL}/business/get/complete/${businessId}`,
@@ -111,7 +114,6 @@ const BusinessProfileScreen: React.FC = () => {
           setSocialDetails(details.social_details);
           setLegalDetails(details.legal_details);
         } else {
-          // Fallback with auth headers too
           const [bizRes, socialRes, legalRes] = await Promise.allSettled([
             fetch(`${API_URL}/business/get/${businessId}`, { headers: authHeaders }),
             fetch(`${API_URL}/business/social/get/${businessId}`, { headers: authHeaders }),
@@ -215,6 +217,96 @@ const BusinessProfileScreen: React.FC = () => {
     }
   };
 
+  // ✅ NEW: Upload profile image to S3 via presigned URL
+  const handleProfileImageUpload = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission required", "Please allow photo library access to upload an image.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const imageAsset = result.assets[0];
+      const token = await AsyncStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const businessId = businessDetails?.id;
+
+      if (!businessId) {
+        Alert.alert("Error", "Business ID not found.");
+        return;
+      }
+
+      setImageUploading(true);
+
+      // Step 1: Get presigned URL from backend
+      const presignRes = await axios.get(
+        `${API_URL}/blob/businesses/${businessId}/profile-image`,
+        { headers }
+      );
+
+      const presignedUrl: string = presignRes.data?.url;
+      if (!presignedUrl) {
+        Alert.alert("Error", "Failed to get upload URL from server.");
+        return;
+      }
+
+      // Step 2: Fetch image as blob from local URI
+      const imageBlob = await fetch(imageAsset.uri).then((r) => r.blob());
+
+      // Step 3: Upload directly to S3 using the presigned URL
+      const uploadRes = await fetch(presignedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "image/png" },
+        body: imageBlob,
+      });
+
+      if (!uploadRes.ok) {
+        Alert.alert("Error", `Failed to upload image. Status: ${uploadRes.status}`);
+        return;
+      }
+
+      // Step 4: Save image path back to business record
+      const imagePath = `profile/business/${businessId}.png`;
+      try {
+        await axios.put(
+          `${API_URL}/business/update/${businessId}`,
+          { profile_image: imagePath },
+          { headers }
+        );
+      } catch (saveErr) {
+        console.warn("Could not save image path to business record:", saveErr);
+        // Non-fatal: image is uploaded, path just may not persist on next load
+      }
+
+      // Step 5: Update local state with cache-busted URL so image refreshes instantly
+      const cacheBust = `?t=${Date.now()}`;
+      const newImageUri = CLOUDFRONT_URL
+        ? `${CLOUDFRONT_URL}/${imagePath}${cacheBust}`
+        : `${S3_URL}/${imagePath}${cacheBust}`;
+
+      setBusinessDetails((prev: any) => ({
+        ...prev,
+        profile_image: newImageUri,
+      }));
+
+      Alert.alert("Success", "Profile image updated successfully!");
+    } catch (error: any) {
+      console.error("Upload error:", error?.response?.data || error);
+      Alert.alert("Error", "Something went wrong during upload. Please try again.");
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchBusinessProfile();
@@ -222,8 +314,6 @@ const BusinessProfileScreen: React.FC = () => {
 
   const handleBack = () => router.back();
 
-  // ✅ API returns: name, email, phone, profile_image (not business_name etc.)
-  // These helpers handle both the complete endpoint (business_details nested) and fallback (flat)
   const getBizField = (field: string, fallback: string = "") =>
     businessDetails?.[field] || businessDetails?.[`business_${field}`] || fallback;
 
@@ -332,14 +422,15 @@ const BusinessProfileScreen: React.FC = () => {
     );
   }
 
-  // ✅ API returns flat fields: name, email, phone, profile_image
   const businessName = getBizField("name");
   const businessPhone = getBizField("phone");
   const businessEmail = getBizField("email");
   const businessCity = businessDetails.city || "";
   const businessState = businessDetails.state || "";
-  // ✅ API returns "profile_image" not "business_profile_image"
-  const profileImageUrl = businessDetails.profile_image || businessDetails.business_profile_image || null;
+  const profileImageUrl =
+    businessDetails.profile_image ||
+    businessDetails.business_profile_image ||
+    null;
   const imageUri = getImageUri(profileImageUrl);
 
   return (
@@ -360,7 +451,12 @@ const BusinessProfileScreen: React.FC = () => {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#177DDF"]} tintColor="#177DDF" />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#177DDF"]}
+            tintColor="#177DDF"
+          />
         }
       >
         {/* Profile Header */}
@@ -391,26 +487,52 @@ const BusinessProfileScreen: React.FC = () => {
           </View>
 
           <View style={styles.profileHeader}>
-            <View style={styles.logoContainer}>
-              {imageUri ? (
-                <Image
-                  source={{ uri: imageUri }}
-                  style={styles.logo}
-                  resizeMode="cover"
-                  onError={(e) => console.log("❌ Image load error:", e.nativeEvent.error, "URL:", imageUri)}
-                  onLoad={() => console.log("✅ Image loaded:", imageUri)}
-                />
-              ) : (
-                <View style={[styles.logo, styles.logoPlaceholder]}>
-                  <Ionicons name="business" size={40} color="#177DDF" />
-                </View>
-              )}
-              {businessDetails.is_business_verified && (
-                <View style={styles.verifiedOverlay}>
-                  <Ionicons name="checkmark-circle" size={22} color="#28A745" />
-                </View>
-              )}
-            </View>
+            {/* ✅ Logo is tappable only for own profile */}
+            <TouchableOpacity
+              onPress={isOwnProfile ? handleProfileImageUpload : undefined}
+              activeOpacity={isOwnProfile ? 0.7 : 1}
+              disabled={imageUploading}
+            >
+              <View style={styles.logoContainer}>
+                {imageUploading ? (
+                  <View style={[styles.logo, styles.logoPlaceholder]}>
+                    <ActivityIndicator size="small" color="#177DDF" />
+                  </View>
+                ) : imageUri ? (
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={styles.logo}
+                    resizeMode="cover"
+                    onError={(e) =>
+                      console.log(
+                        "❌ Image load error:",
+                        e.nativeEvent.error,
+                        "URL:",
+                        imageUri
+                      )
+                    }
+                    onLoad={() => console.log("✅ Image loaded:", imageUri)}
+                  />
+                ) : (
+                  <View style={[styles.logo, styles.logoPlaceholder]}>
+                    <Ionicons name="business" size={40} color="#177DDF" />
+                  </View>
+                )}
+
+                {/* Camera icon overlay — only on own profile */}
+                {isOwnProfile && !imageUploading && (
+                  <View style={styles.editImageOverlay}>
+                    <Ionicons name="camera" size={14} color="#FFFFFF" />
+                  </View>
+                )}
+
+                {businessDetails.is_business_verified && (
+                  <View style={styles.verifiedOverlay}>
+                    <Ionicons name="checkmark-circle" size={22} color="#28A745" />
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
 
             <View style={styles.basicInfo}>
               <Text style={styles.businessName}>{businessName}</Text>
@@ -427,13 +549,16 @@ const BusinessProfileScreen: React.FC = () => {
               <View style={styles.infoRow}>
                 <Ionicons name="location-outline" size={14} color="#666" />
                 <Text style={styles.infoText}>
-                  {businessCity}{businessState ? `, ${businessState}` : ""}
+                  {businessCity}
+                  {businessState ? `, ${businessState}` : ""}
                 </Text>
               </View>
               {businessEmail ? (
                 <View style={styles.infoRow}>
                   <Ionicons name="mail-outline" size={14} color="#666" />
-                  <Text style={styles.infoText} numberOfLines={1}>{businessEmail}</Text>
+                  <Text style={styles.infoText} numberOfLines={1}>
+                    {businessEmail}
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -442,7 +567,12 @@ const BusinessProfileScreen: React.FC = () => {
           {/* Star Rating */}
           <View style={styles.ratingRow}>
             {[1, 2, 3, 4, 5].map((star) => (
-              <Ionicons key={star} name="star" size={18} color={star <= 4 ? "#FFB800" : "#E0E0E0"} />
+              <Ionicons
+                key={star}
+                name="star"
+                size={18}
+                color={star <= 4 ? "#FFB800" : "#E0E0E0"}
+              />
             ))}
             <Text style={styles.ratingText}>4.0</Text>
           </View>
@@ -475,15 +605,25 @@ const BusinessProfileScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 {followLoading ? (
-                  <ActivityIndicator size="small" color={isFollowing ? "#177DDF" : "#FFFFFF"} />
+                  <ActivityIndicator
+                    size="small"
+                    color={isFollowing ? "#177DDF" : "#FFFFFF"}
+                  />
                 ) : (
                   <>
                     <Ionicons
-                      name={isFollowing ? "checkmark-circle" : "add-circle-outline"}
+                      name={
+                        isFollowing ? "checkmark-circle" : "add-circle-outline"
+                      }
                       size={18}
                       color={isFollowing ? "#177DDF" : "#FFFFFF"}
                     />
-                    <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>
+                    <Text
+                      style={[
+                        styles.followBtnText,
+                        isFollowing && styles.followingBtnText,
+                      ]}
+                    >
                       {isFollowing ? "Following" : "Follow"}
                     </Text>
                   </>
@@ -518,48 +658,80 @@ const BusinessProfileScreen: React.FC = () => {
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={handleWhatsApp}>
               <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-              <Text style={[styles.actionButtonText, { color: "#25D366" }]}>WhatsApp</Text>
+              <Text style={[styles.actionButtonText, { color: "#25D366" }]}>
+                WhatsApp
+              </Text>
             </TouchableOpacity>
           </View>
 
           {/* Social Media */}
           {socialDetails &&
-            (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook ||
-              socialDetails.website || socialDetails.youtube || socialDetails.telegram || socialDetails.x) && (
+            (socialDetails.linkedin ||
+              socialDetails.instagram ||
+              socialDetails.facebook ||
+              socialDetails.website ||
+              socialDetails.youtube ||
+              socialDetails.telegram ||
+              socialDetails.x) && (
               <View style={styles.socialMediaSection}>
                 <View style={styles.socialMediaIcons}>
                   {socialDetails.instagram && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.instagram)}>
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.instagram)}
+                    >
                       <Ionicons name="logo-instagram" size={22} color="#E4405F" />
                     </TouchableOpacity>
                   )}
                   {socialDetails.youtube && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.youtube)}>
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.youtube)}
+                    >
                       <Ionicons name="logo-youtube" size={22} color="#FF0000" />
                     </TouchableOpacity>
                   )}
                   {socialDetails.facebook && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.facebook)}>
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.facebook)}
+                    >
                       <Ionicons name="logo-facebook" size={22} color="#1877F2" />
                     </TouchableOpacity>
                   )}
                   {socialDetails.linkedin && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.linkedin)}>
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.linkedin)}
+                    >
                       <Ionicons name="logo-linkedin" size={22} color="#0A66C2" />
                     </TouchableOpacity>
                   )}
                   {socialDetails.telegram && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.telegram)}>
-                      <Ionicons name="paper-plane-outline" size={22} color="#0088CC" />
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.telegram)}
+                    >
+                      <Ionicons
+                        name="paper-plane-outline"
+                        size={22}
+                        color="#0088CC"
+                      />
                     </TouchableOpacity>
                   )}
                   {socialDetails.x && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.x)}>
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.x)}
+                    >
                       <Ionicons name="logo-twitter" size={22} color="#000" />
                     </TouchableOpacity>
                   )}
                   {socialDetails.website && (
-                    <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.website)}>
+                    <TouchableOpacity
+                      style={styles.socialIcon}
+                      onPress={() => handleSocialMedia(socialDetails.website)}
+                    >
                       <Ionicons name="globe-outline" size={22} color="#666" />
                     </TouchableOpacity>
                   )}
@@ -574,15 +746,37 @@ const BusinessProfileScreen: React.FC = () => {
             style={[styles.tab, activeTab === "products" && styles.activeTab]}
             onPress={() => setActiveTab("products")}
           >
-            <Ionicons name="cube-outline" size={18} color={activeTab === "products" ? "#177DDF" : "#999"} />
-            <Text style={[styles.tabText, activeTab === "products" && styles.activeTabText]}>Products</Text>
+            <Ionicons
+              name="cube-outline"
+              size={18}
+              color={activeTab === "products" ? "#177DDF" : "#999"}
+            />
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === "products" && styles.activeTabText,
+              ]}
+            >
+              Products
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === "statutory" && styles.activeTab]}
             onPress={() => setActiveTab("statutory")}
           >
-            <Ionicons name="document-text-outline" size={18} color={activeTab === "statutory" ? "#177DDF" : "#999"} />
-            <Text style={[styles.tabText, activeTab === "statutory" && styles.activeTabText]}>Statutory Details</Text>
+            <Ionicons
+              name="document-text-outline"
+              size={18}
+              color={activeTab === "statutory" ? "#177DDF" : "#999"}
+            />
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === "statutory" && styles.activeTabText,
+              ]}
+            >
+              Statutory Details
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -602,23 +796,52 @@ const BusinessProfileScreen: React.FC = () => {
                     <TouchableOpacity
                       key={product.product_id}
                       style={styles.productCard}
-                      onPress={() => router.push({ pathname: "/pages/productDetail" as any, params: { product_id: product.product_id } })}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/pages/productDetail" as any,
+                          params: { product_id: product.product_id },
+                        })
+                      }
                       activeOpacity={0.7}
                     >
                       {imageUrl ? (
-                        <Image source={{ uri: imageUrl }} style={styles.productImage} resizeMode="cover" />
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.productImage}
+                          resizeMode="cover"
+                        />
                       ) : (
-                        <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                        <View
+                          style={[
+                            styles.productImage,
+                            styles.productImagePlaceholder,
+                          ]}
+                        >
                           <Ionicons name="cube-outline" size={32} color="#CCC" />
                         </View>
                       )}
                       <View style={styles.productInfo}>
-                        <Text style={styles.productName} numberOfLines={2}>{product.product_name}</Text>
-                        {product.product_quantity && <Text style={styles.productQuantity}>Qty: {product.product_quantity}</Text>}
-                        {product.product_price && <Text style={styles.productPrice}>{product.product_price}</Text>}
+                        <Text style={styles.productName} numberOfLines={2}>
+                          {product.product_name}
+                        </Text>
+                        {product.product_quantity && (
+                          <Text style={styles.productQuantity}>
+                            Qty: {product.product_quantity}
+                          </Text>
+                        )}
+                        {product.product_price && (
+                          <Text style={styles.productPrice}>
+                            {product.product_price}
+                          </Text>
+                        )}
                         <TouchableOpacity
                           style={styles.enquireButton}
-                          onPress={() => router.push({ pathname: "/pages/productDetail" as any, params: { product_id: product.product_id } })}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/pages/productDetail" as any,
+                              params: { product_id: product.product_id },
+                            })
+                          }
                         >
                           <Text style={styles.enquireButtonText}>Enquire</Text>
                         </TouchableOpacity>
@@ -636,23 +859,73 @@ const BusinessProfileScreen: React.FC = () => {
           </View>
         ) : (
           <View style={styles.tabContent}>
-            {legalDetails && (legalDetails.pan || legalDetails.gst || legalDetails.msme || legalDetails.aadhaar || legalDetails.fassi || legalDetails.export_import) ? (
+            {legalDetails &&
+            (legalDetails.pan ||
+              legalDetails.gst ||
+              legalDetails.msme ||
+              legalDetails.aadhaar ||
+              legalDetails.fassi ||
+              legalDetails.export_import) ? (
               <View style={styles.infoCard}>
                 <View style={styles.infoCardHeader}>
                   <Ionicons name="document-text" size={18} color="#177DDF" />
-                  <Text style={styles.infoCardTitle}>Legal / Statutory Information</Text>
+                  <Text style={styles.infoCardTitle}>
+                    Legal / Statutory Information
+                  </Text>
                 </View>
-                {legalDetails.gst && <InfoRow label="GST Number" value={legalDetails.gst} icon="receipt-outline" />}
-                {legalDetails.pan && <InfoRow label="PAN Number" value={legalDetails.pan} icon="document-outline" />}
-                {legalDetails.aadhaar && <InfoRow label="Aadhaar" value={legalDetails.aadhaar} icon="card-outline" />}
-                {legalDetails.msme && <InfoRow label="MSME" value={legalDetails.msme} icon="business-outline" />}
-                {legalDetails.fassi && <InfoRow label="FSSAI" value={legalDetails.fassi} icon="nutrition-outline" />}
-                {legalDetails.export_import && <InfoRow label="Export/Import Code" value={legalDetails.export_import} icon="globe-outline" />}
+                {legalDetails.gst && (
+                  <InfoRow
+                    label="GST Number"
+                    value={legalDetails.gst}
+                    icon="receipt-outline"
+                  />
+                )}
+                {legalDetails.pan && (
+                  <InfoRow
+                    label="PAN Number"
+                    value={legalDetails.pan}
+                    icon="document-outline"
+                  />
+                )}
+                {legalDetails.aadhaar && (
+                  <InfoRow
+                    label="Aadhaar"
+                    value={legalDetails.aadhaar}
+                    icon="card-outline"
+                  />
+                )}
+                {legalDetails.msme && (
+                  <InfoRow
+                    label="MSME"
+                    value={legalDetails.msme}
+                    icon="business-outline"
+                  />
+                )}
+                {legalDetails.fassi && (
+                  <InfoRow
+                    label="FSSAI"
+                    value={legalDetails.fassi}
+                    icon="nutrition-outline"
+                  />
+                )}
+                {legalDetails.export_import && (
+                  <InfoRow
+                    label="Export/Import Code"
+                    value={legalDetails.export_import}
+                    icon="globe-outline"
+                  />
+                )}
               </View>
             ) : (
               <View style={styles.emptyContainer}>
-                <Ionicons name="document-text-outline" size={64} color="#CCC" />
-                <Text style={styles.emptyText}>No statutory details available</Text>
+                <Ionicons
+                  name="document-text-outline"
+                  size={64}
+                  color="#CCC"
+                />
+                <Text style={styles.emptyText}>
+                  No statutory details available
+                </Text>
               </View>
             )}
           </View>
@@ -664,7 +937,15 @@ const BusinessProfileScreen: React.FC = () => {
   );
 };
 
-const InfoRow = ({ label, value, icon }: { label: string; value: string; icon?: keyof typeof Ionicons.glyphMap }) => (
+const InfoRow = ({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+}) => (
   <View style={styles.infoCardRow}>
     {icon && <Ionicons name={icon} size={16} color="#888" />}
     <View style={{ flex: 1, marginLeft: icon ? 10 : 0 }}>
@@ -677,80 +958,338 @@ const InfoRow = ({ label, value, icon }: { label: string; value: string; icon?: 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F7FA" },
   header: {
-    backgroundColor: "#177DDF", paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4,
+    backgroundColor: "#177DDF",
+    paddingTop: 50,
+    paddingBottom: 15,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
   backButton: { padding: 4 },
   headerTitle: { fontSize: 20, fontWeight: "700", color: "#FFFFFF" },
   loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
-  retryBtn: { marginTop: 16, backgroundColor: "#177DDF", paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
+  retryBtn: {
+    marginTop: 16,
+    backgroundColor: "#177DDF",
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
   retryBtnText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
   scrollView: { flex: 1 },
   profileHeaderSection: {
-    backgroundColor: "#FFFFFF", paddingBottom: 16, elevation: 2,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3,
+    backgroundColor: "#FFFFFF",
+    paddingBottom: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
-  topBadgesRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 14, gap: 8 },
-  trustedBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#E8F5E9", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  topBadgesRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 8,
+  },
+  trustedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   trustedBadgeText: { fontSize: 12, fontWeight: "600", color: "#28A745" },
-  notTrustedBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#FFF5F5", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: "#FFDDDD" },
+  notTrustedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFF5F5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FFDDDD",
+  },
   notTrustedBadgeText: { fontSize: 12, fontWeight: "600", color: "#DC3545" },
-  verifiedTopBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#E8F5E9", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  verifiedTopBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   verifiedTopBadgeText: { fontSize: 12, fontWeight: "600", color: "#28A745" },
-  notVerifiedTopBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#FFF5F5", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: "#FFDDDD" },
-  notVerifiedTopBadgeText: { fontSize: 12, fontWeight: "600", color: "#DC3545" },
-  profileHeader: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 14 },
-  logoContainer: { position: "relative", width: 80, height: 80, borderRadius: 40, overflow: "visible" },
-  logo: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#E0E0E0", borderWidth: 2, borderColor: "#FFFFFF" },
-  logoPlaceholder: { justifyContent: "center", alignItems: "center", backgroundColor: "#E3F2FD" },
-  verifiedOverlay: { position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 1 },
+  notVerifiedTopBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFF5F5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FFDDDD",
+  },
+  notVerifiedTopBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#DC3545",
+  },
+  profileHeader: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  logoContainer: {
+    position: "relative",
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: "visible",
+  },
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#E0E0E0",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  logoPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#E3F2FD",
+  },
+  // ✅ NEW: Camera overlay for own profile
+  editImageOverlay: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    backgroundColor: "#177DDF",
+    borderRadius: 12,
+    padding: 5,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  verifiedOverlay: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 1,
+  },
   basicInfo: { flex: 1, marginLeft: 16, justifyContent: "center" },
-  businessName: { fontSize: 20, fontWeight: "700", color: "#000", marginBottom: 6 },
-  infoRow: { flexDirection: "row", alignItems: "center", marginBottom: 3, gap: 6 },
+  businessName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 6,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 3,
+    gap: 6,
+  },
   infoText: { fontSize: 13, color: "#666", flex: 1 },
-  ratingRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, gap: 3 },
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 3,
+  },
   ratingText: { fontSize: 14, fontWeight: "600", color: "#333", marginLeft: 6 },
-  statsRow: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", marginHorizontal: 16, marginTop: 14, paddingVertical: 14, backgroundColor: "#F8F9FA", borderRadius: 12 },
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 14,
+    paddingVertical: 14,
+    backgroundColor: "#F8F9FA",
+    borderRadius: 12,
+  },
   statItem: { alignItems: "center", flex: 1 },
   statNumber: { fontSize: 18, fontWeight: "700", color: "#1A1A1A" },
   statLabel: { fontSize: 12, color: "#888", marginTop: 2 },
   statDivider: { width: 1, height: 30, backgroundColor: "#E0E0E0" },
-  followBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#177DDF", paddingVertical: 12, borderRadius: 10 },
-  followingBtn: { backgroundColor: "#FFFFFF", borderWidth: 1.5, borderColor: "#177DDF" },
+  followBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#177DDF",
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  followingBtn: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#177DDF",
+  },
   followBtnText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
   followingBtnText: { color: "#177DDF" },
-  actionButtons: { flexDirection: "row", justifyContent: "space-around", paddingHorizontal: 12, paddingVertical: 14, marginTop: 12 },
+  actionButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    marginTop: 12,
+  },
   actionButton: { alignItems: "center", gap: 4, flex: 1 },
   actionButtonText: { fontSize: 11, color: "#177DDF", fontWeight: "600" },
-  socialMediaSection: { paddingHorizontal: 16, marginTop: 10, paddingBottom: 4 },
-  socialMediaIcons: { flexDirection: "row", gap: 10, justifyContent: "center" },
-  socialIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#F5F7FA", justifyContent: "center", alignItems: "center", elevation: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 2 },
-  tabsContainer: { flexDirection: "row", backgroundColor: "#FFFFFF", marginTop: 8, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3 },
-  tab: { flex: 1, paddingVertical: 14, alignItems: "center", borderBottomWidth: 2.5, borderBottomColor: "transparent", flexDirection: "row", justifyContent: "center", gap: 6 },
+  socialMediaSection: {
+    paddingHorizontal: 16,
+    marginTop: 10,
+    paddingBottom: 4,
+  },
+  socialMediaIcons: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+  },
+  socialIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F5F7FA",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    marginTop: 8,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderBottomWidth: 2.5,
+    borderBottomColor: "transparent",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
   activeTab: { borderBottomColor: "#177DDF" },
   tabText: { fontSize: 14, fontWeight: "500", color: "#999" },
   activeTabText: { color: "#177DDF", fontWeight: "600" },
   tabContent: { flex: 1, padding: 12 },
-  productsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-  productCard: { width: (width - 36) / 2, backgroundColor: "#FFFFFF", borderRadius: 12, marginBottom: 12, overflow: "hidden", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4 },
-  productImage: { width: "100%", height: 120, backgroundColor: "#F0F0F0" },
+  productsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  productCard: {
+    width: (width - 36) / 2,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  productImage: {
+    width: "100%",
+    height: 120,
+    backgroundColor: "#F0F0F0",
+  },
   productImagePlaceholder: { justifyContent: "center", alignItems: "center" },
   productInfo: { padding: 10 },
-  productName: { fontSize: 13, fontWeight: "600", color: "#1A1A1A", marginBottom: 4 },
+  productName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    marginBottom: 4,
+  },
   productQuantity: { fontSize: 12, color: "#888", marginBottom: 2 },
-  productPrice: { fontSize: 14, fontWeight: "700", color: "#28A745", marginBottom: 8 },
-  enquireButton: { backgroundColor: "#177DDF", paddingVertical: 8, borderRadius: 6, alignItems: "center" },
+  productPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#28A745",
+    marginBottom: 8,
+  },
+  enquireButton: {
+    backgroundColor: "#177DDF",
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: "center",
+  },
   enquireButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
-  infoCard: { backgroundColor: "#FFFFFF", borderRadius: 14, padding: 16, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4 },
-  infoCardHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "#F0F0F0" },
+  infoCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  infoCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
   infoCardTitle: { fontSize: 16, fontWeight: "700", color: "#1A1A1A" },
-  infoCardRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F8F8F8" },
+  infoCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F8F8F8",
+  },
   infoCardLabel: { fontSize: 12, color: "#888" },
-  infoCardValue: { fontSize: 14, fontWeight: "600", color: "#1A1A1A", marginTop: 2 },
-  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
-  emptyText: { fontSize: 16, fontWeight: "600", color: "#999", marginTop: 16 },
+  infoCardValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    marginTop: 2,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#999",
+    marginTop: 16,
+  },
   bottomPadding: { height: 20 },
 });
 
