@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,10 @@ import {
   RefreshControl,
   StatusBar,
   Linking,
+  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
@@ -42,13 +43,41 @@ const EnquiriesScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [rfqs, setRfqs] = useState<RFQ[]>([]);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     fetchRFQs();
   }, []);
 
-  const fetchRFQs = async () => {
-    setLoading(true);
+  // Auto-refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchRFQs(false);
+    }, [])
+  );
+
+  // Auto-refresh every 30 seconds + on app foreground
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      fetchRFQs(false);
+    }, 30000);
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        fetchRFQs(false);
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      subscription.remove();
+    };
+  }, []);
+
+  const fetchRFQs = async (showLoader = true) => {
+    if (showLoader) setLoading(true);
     try {
       const token = await AsyncStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -57,15 +86,15 @@ const EnquiriesScreen: React.FC = () => {
       setRfqs(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching RFQs:', error);
-      setRfqs([]);
+      if (showLoader) setRfqs([]);
     } finally {
-      setLoading(false);
+      if (showLoader) setLoading(false);
     }
   };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchRFQs();
+    await fetchRFQs(false);
     setRefreshing(false);
   }, []);
 
@@ -114,8 +143,20 @@ const EnquiriesScreen: React.FC = () => {
     );
   });
 
+  const handleRfqPress = (rfqId: string) => {
+    router.push({
+      pathname: '/pages/rfqDetail' as any,
+      params: { rfq_id: rfqId },
+    });
+  };
+
   const renderRFQCard = (rfq: RFQ, index: number) => (
-    <View key={`${rfq.id}-${index}`} style={styles.rfqCard}>
+    <TouchableOpacity
+      key={`${rfq.id}-${index}`}
+      style={styles.rfqCard}
+      activeOpacity={0.7}
+      onPress={() => handleRfqPress(rfq.id)}
+    >
       {/* Header */}
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
@@ -156,25 +197,25 @@ const EnquiriesScreen: React.FC = () => {
         <View style={styles.footerActions}>
           <TouchableOpacity
             style={styles.footerBtn}
-            onPress={() => handleProfile(rfq.business_id)}
+            onPress={(e) => { e.stopPropagation(); handleProfile(rfq.business_id); }}
           >
             <Ionicons name="person-outline" size={16} color="#177DDF" />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.footerBtn}
-            onPress={() => handleContact(rfq.business_phone)}
+            onPress={(e) => { e.stopPropagation(); handleContact(rfq.business_phone); }}
           >
             <Ionicons name="call-outline" size={16} color="#177DDF" />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.footerBtn}
-            onPress={() => handleWhatsApp(rfq.business_phone)}
+            onPress={(e) => { e.stopPropagation(); handleWhatsApp(rfq.business_phone); }}
           >
             <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (

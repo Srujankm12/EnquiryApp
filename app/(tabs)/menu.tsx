@@ -175,20 +175,14 @@ const MenuScreen: React.FC = () => {
 
   const gridItems: GridItem[] = [
     // Seller-specific items
-    { id: 'business-profile', title: 'Business\nProfile', icon: 'business', color: '#0078D7', bgColor: '#E3F2FD', route: 'business-profile', condition: 'seller' },
+    { id: 'business-mgmt', title: 'Business', icon: 'business', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/businessManagement', condition: 'seller' },
     { id: 'my-products', title: 'My\nProducts', icon: 'cube', color: '#177DDF', bgColor: '#E3F2FD', route: 'pages/myProducts', condition: 'seller' },
-    { id: 'add-product', title: 'Add\nProduct', icon: 'add-circle', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/addProduct', condition: 'seller' },
-    { id: 'manage-post', title: 'Manage\nPost', icon: 'create-outline', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/myProducts', condition: 'seller' },
     { id: 'my-rfqs', title: 'My\nRFQs', icon: 'document-text', color: '#FF5722', bgColor: '#FBE9E7', route: 'pages/myRfqs', condition: 'seller' },
     // Non-seller items
     { id: 'become-seller', title: 'Become\nSeller', icon: 'storefront', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/becomeSellerForm', condition: 'not-seller' },
-    { id: 'edit-details', title: 'Edit\nDetails', icon: 'create', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'seller' },
     { id: 'edit-details-pending', title: 'Edit\nDetails', icon: 'create', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'has-application' },
     // Common items
     { id: 'followers', title: 'Followers &\nFollowing', icon: 'people-outline', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/followers', condition: 'always' },
-    { id: 'interested', title: 'Interested\nIn', icon: 'heart-outline', color: '#E91E63', bgColor: '#FCE4EC', condition: 'always' },
-    { id: 'saved', title: 'Saved', icon: 'bookmark-outline', color: '#9C27B0', bgColor: '#F3E5F5', condition: 'always' },
-    { id: 'product-interest', title: 'Product\nInterested', icon: 'cube-outline', color: '#FF5722', bgColor: '#FBE9E7', condition: 'always' },
   ];
 
   const tagItems = [
@@ -212,16 +206,6 @@ const MenuScreen: React.FC = () => {
   };
 
   const handleGridItemPress = (item: GridItem) => {
-    if (item.id === 'business-profile') {
-      const bId = companyId || businessId;
-      if (bId) {
-        router.push({
-          pathname: '/pages/bussinesProfile' as any,
-          params: { business_id: bId },
-        });
-      }
-      return;
-    }
     if (item.route) {
       //@ts-expect-error
       router.push(`/${item.route}`);
