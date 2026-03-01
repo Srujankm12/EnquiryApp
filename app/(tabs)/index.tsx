@@ -350,10 +350,17 @@ const HomeScreen = () => {
           `${API_URL}/follower/get/followings/${userId}`,
           { headers }
         );
-        const companies = followingRes.data?.data?.followings || followingRes.data?.followings || [];
-        followedCompanyIds = (Array.isArray(companies) ? companies : []).map(
-          (c: any) => c.following_id
-        );
+        const fResData = followingRes.data;
+        const companies = Array.isArray(fResData?.followings)
+          ? fResData.followings
+          : Array.isArray(fResData?.data?.followings)
+            ? fResData.data.followings
+            : Array.isArray(fResData?.data)
+              ? fResData.data
+              : [];
+        followedCompanyIds = companies
+          .map((c: any) => String(c.following_id ?? c.business_id ?? c.id ?? ''))
+          .filter((id: string) => id !== '' && id !== 'undefined' && id !== 'null');
       } catch {
         followedCompanyIds = [];
       }
