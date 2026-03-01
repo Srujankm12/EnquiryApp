@@ -6,6 +6,44 @@ const API_URL = Constants.expoConfig?.extra?.API_URL;
 const FOLLOW_CACHE_KEY = 'followed_company_ids';
 
 /**
+ * Safely extract an array from various response formats.
+ * Backend sends: {"message": "...", "followings": [...]}
+ * Handles null, undefined, and nested data wrappers.
+ */
+const extractFollowings = (responseData: any): any[] => {
+  if (!responseData) return [];
+
+  // Direct format: {"followings": [...]}
+  const fromDirect = responseData.followings;
+  if (Array.isArray(fromDirect)) return fromDirect;
+
+  // Nested format: {"data": {"followings": [...]}}
+  const fromNested = responseData.data?.followings;
+  if (Array.isArray(fromNested)) return fromNested;
+
+  // Fallback: {"data": [...]}
+  const fromData = responseData.data;
+  if (Array.isArray(fromData)) return fromData;
+
+  return [];
+};
+
+/**
+ * Extract business IDs from a followings array.
+ * Handles different field names the backend might use.
+ */
+const extractIds = (followings: any[]): Set<string> => {
+  return new Set<string>(
+    followings
+      .map((f: any) => {
+        const id = f.following_id ?? f.business_id ?? f.id ?? '';
+        return String(id);
+      })
+      .filter((id: string) => id !== '' && id !== 'undefined' && id !== 'null')
+  );
+};
+
+/**
  * Get cached followed company IDs from local storage.
  */
 export const getCachedFollowedIds = async (): Promise<Set<string>> => {
@@ -13,7 +51,7 @@ export const getCachedFollowedIds = async (): Promise<Set<string>> => {
     const cached = await AsyncStorage.getItem(FOLLOW_CACHE_KEY);
     if (cached) {
       const ids: string[] = JSON.parse(cached);
-      return new Set(ids);
+      return new Set(ids.filter((id) => id !== '' && id !== 'undefined' && id !== 'null'));
     }
   } catch (e) {
     console.warn('[FollowState] Error reading cache:', e);
@@ -34,8 +72,8 @@ export const saveCachedFollowedIds = async (ids: Set<string>): Promise<void> => 
 
 /**
  * Fetch followed company IDs from the backend for a given user.
- * Merges with local cache: uses backend as source of truth when available,
- * falls back to cache when backend fails.
+ * Uses backend as source of truth when it returns valid data,
+ * falls back to cache when backend fails or returns empty.
  */
 export const fetchFollowedCompanyIds = async (
   userId: string,
@@ -50,28 +88,26 @@ export const fetchFollowedCompanyIds = async (
       { headers }
     );
 
-    // Try all possible response formats
-    const responseData = res.data;
-    const followings =
-      responseData?.data?.followings ||
-      responseData?.followings ||
-      responseData?.data ||
-      [];
+    const followings = extractFollowings(res.data);
+    const backendIds = extractIds(followings);
 
-    if (!Array.isArray(followings)) {
-      console.warn('[FollowState] Unexpected followings format:', typeof followings, JSON.stringify(responseData).substring(0, 200));
-      return cachedIds;
+    if (backendIds.size > 0) {
+      // Backend returned valid data - use it as source of truth
+      await saveCachedFollowedIds(backendIds);
+      return backendIds;
     }
 
-    const ids = new Set<string>(
-      followings.map(
-        (f: any) => String(f.following_id || f.business_id || f.id || '')
-      ).filter((id: string) => id !== '')
-    );
+    // Backend returned empty - could be genuinely empty or a backend issue.
+    // If cache also has nothing, save empty and return empty.
+    if (cachedIds.size === 0) {
+      await saveCachedFollowedIds(new Set());
+      return new Set();
+    }
 
-    // Save the fresh data to cache
-    await saveCachedFollowedIds(ids);
-    return ids;
+    // Cache has data but backend returned empty.
+    // Trust the backend (user may have unfollowed elsewhere).
+    await saveCachedFollowedIds(new Set());
+    return new Set();
   } catch (error: any) {
     console.warn(
       '[FollowState] Failed to fetch followings from backend, using cache. Error:',

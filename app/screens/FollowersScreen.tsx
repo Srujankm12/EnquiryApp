@@ -95,9 +95,16 @@ const FollowersScreen: React.FC = () => {
           `${API_URL}/follower/get/followings/${currentUserId}`,
           { headers }
         );
-        const companies = followingRes.data?.data?.followings || followingRes.data?.followings || [];
-        setFollowedCompanies(Array.isArray(companies) ? companies : []);
-        setFollowingCount(Array.isArray(companies) ? companies.length : 0);
+        const resData = followingRes.data;
+        const companies = Array.isArray(resData?.followings)
+          ? resData.followings
+          : Array.isArray(resData?.data?.followings)
+            ? resData.data.followings
+            : Array.isArray(resData?.data)
+              ? resData.data
+              : [];
+        setFollowedCompanies(companies);
+        setFollowingCount(companies.length);
       } catch {
         setFollowedCompanies([]);
         setFollowingCount(0);
@@ -110,14 +117,22 @@ const FollowersScreen: React.FC = () => {
             `${API_URL}/follower/get/followers/${storedCompanyId}`,
             { headers }
           );
-          const followersList = followersRes.data?.data?.followers || followersRes.data?.followers || [];
-          setFollowers(Array.isArray(followersList) ? followersList : []);
+          const fResData = followersRes.data;
+          const followersList = Array.isArray(fResData?.followers)
+            ? fResData.followers
+            : Array.isArray(fResData?.data?.followers)
+              ? fResData.data.followers
+              : Array.isArray(fResData?.data)
+                ? fResData.data
+                : [];
+          setFollowers(followersList);
 
           const countRes = await axios.get(
             `${API_URL}/follower/get/followers/count/${storedCompanyId}`,
             { headers }
           );
-          const count = countRes.data?.data?.followers_count || countRes.data?.followers_count || 0;
+          const cResData = countRes.data;
+          const count = cResData?.followers_count ?? cResData?.data?.followers_count ?? 0;
           setFollowerCount(typeof count === 'number' ? count : 0);
         } catch {
           setFollowers([]);
