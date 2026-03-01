@@ -3,9 +3,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Linking,
   RefreshControl,
   ScrollView,
@@ -40,13 +41,34 @@ const BuyTradeLeadsScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tradeLeads, setTradeLeads] = useState<RFQ[]>([]);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     fetchTradeLeads();
   }, []);
 
-  const fetchTradeLeads = async () => {
-    setLoading(true);
+  // Auto-refresh every 30 seconds + on app foreground
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      fetchTradeLeads(false);
+    }, 30000);
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === "active") {
+        fetchTradeLeads(false);
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      subscription.remove();
+    };
+  }, []);
+
+  const fetchTradeLeads = async (showLoader = true) => {
+    if (showLoader) setLoading(true);
     try {
       const token = await AsyncStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
@@ -56,15 +78,15 @@ const BuyTradeLeadsScreen: React.FC = () => {
       setTradeLeads(Array.isArray(rfqs) ? rfqs : []);
     } catch (error) {
       console.error("Error fetching trade leads:", error);
-      setTradeLeads([]);
+      if (showLoader) setTradeLeads([]);
     } finally {
-      setLoading(false);
+      if (showLoader) setLoading(false);
     }
   };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchTradeLeads();
+    await fetchTradeLeads(false);
     setRefreshing(false);
   }, []);
 
@@ -101,8 +123,20 @@ const BuyTradeLeadsScreen: React.FC = () => {
     }
   };
 
+  const handleRfqPress = (rfqId: string) => {
+    router.push({
+      pathname: "/pages/rfqDetail" as any,
+      params: { rfq_id: rfqId },
+    });
+  };
+
   const renderLeadCard = (lead: RFQ, index: number) => (
-    <View key={`${lead.id}-${index}`} style={styles.card}>
+    <TouchableOpacity
+      key={`${lead.id}-${index}`}
+      style={styles.card}
+      activeOpacity={0.7}
+      onPress={() => handleRfqPress(lead.id)}
+    >
       {/* Header */}
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
@@ -155,27 +189,27 @@ const BuyTradeLeadsScreen: React.FC = () => {
         <View style={styles.footerActions}>
           <TouchableOpacity
             style={styles.footerBtn}
-            onPress={() => handleProfile(lead.business_id)}
+            onPress={(e) => { e.stopPropagation(); handleProfile(lead.business_id); }}
           >
             <Ionicons name="person-outline" size={16} color="#177DDF" />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.footerBtn}
-            onPress={() => handleContact(lead.business_phone)}
+            onPress={(e) => { e.stopPropagation(); handleContact(lead.business_phone); }}
           >
             <Ionicons name="call-outline" size={16} color="#177DDF" />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.footerBtn}
-            onPress={() => handleWhatsApp(lead.business_phone)}
+            onPress={(e) => { e.stopPropagation(); handleWhatsApp(lead.business_phone); }}
           >
             <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (

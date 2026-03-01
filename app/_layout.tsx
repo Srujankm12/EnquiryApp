@@ -56,6 +56,9 @@ export default function RootLayout() {
         <Stack.Screen name='pages/myRfqs' options={{ headerShown: false }} />
         <Stack.Screen name='pages/rfqDetail' options={{ headerShown: false }} />
         <Stack.Screen name='pages/businessManagement' options={{ headerShown: false }} />
+        <Stack.Screen name='pages/editBusinessDetails' options={{ headerShown: false }} />
+        <Stack.Screen name='pages/editLegalDetails' options={{ headerShown: false }} />
+        <Stack.Screen name='pages/editSocialMedia' options={{ headerShown: false }} />
       </Stack>  
       <StatusBar style="auto" />
     </ThemeProvider>
