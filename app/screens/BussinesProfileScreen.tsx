@@ -142,7 +142,7 @@ const BusinessProfileScreen: React.FC = () => {
 
       const storedCompanyId = await AsyncStorage.getItem("companyId");
       setIsOwnProfile(
-        businessId === storedCompanyId || businessId === decoded.business_id
+        String(businessId) === String(storedCompanyId) || String(businessId) === String(decoded.business_id)
       );
 
       try {
@@ -169,9 +169,9 @@ const BusinessProfileScreen: React.FC = () => {
           followingRes.data?.followings ||
           [];
         const followedIds = (Array.isArray(followings) ? followings : []).map(
-          (f: any) => f.following_id
+          (f: any) => String(f.following_id || f.business_id || "")
         );
-        setIsFollowing(followedIds.includes(businessId));
+        setIsFollowing(followedIds.includes(String(businessId)));
       } catch {
         setIsFollowing(false);
       }
@@ -217,7 +217,30 @@ const BusinessProfileScreen: React.FC = () => {
     }
   };
 
-  // ✅ NEW: Upload profile image to S3 via presigned URL
+  // Upload image to S3 using XMLHttpRequest for reliable React Native support
+  const uploadToS3WithXHR = (presignedUrl: string, fileUri: string): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const response = await fetch(fileUri);
+        const blob = await response.blob();
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", presignedUrl);
+        xhr.setRequestHeader("Content-Type", "image/png");
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`S3 upload failed with status ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error during S3 upload"));
+        xhr.send(blob);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
   const handleProfileImageUpload = async () => {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -259,35 +282,31 @@ const BusinessProfileScreen: React.FC = () => {
         return;
       }
 
-      // Step 2: Fetch image as blob from local URI
-      const imageBlob = await fetch(imageAsset.uri).then((r) => r.blob());
+      // Step 2: Upload to S3 using XMLHttpRequest (more reliable in React Native)
+      await uploadToS3WithXHR(presignedUrl, imageAsset.uri);
 
-      // Step 3: Upload directly to S3 using the presigned URL
-      const uploadRes = await fetch(presignedUrl, {
-        method: "PUT",
-        headers: { "Content-Type": "image/png" },
-        body: imageBlob,
-      });
-
-      if (!uploadRes.ok) {
-        Alert.alert("Error", `Failed to upload image. Status: ${uploadRes.status}`);
-        return;
-      }
-
-      // Step 4: Save image path back to business record
+      // Step 3: Save image path to business record using dedicated image endpoint
       const imagePath = `profile/business/${businessId}.png`;
       try {
         await axios.put(
-          `${API_URL}/business/update/${businessId}`,
+          `${API_URL}/business/update/image/${businessId}`,
           { profile_image: imagePath },
           { headers }
         );
       } catch (saveErr) {
-        console.warn("Could not save image path to business record:", saveErr);
-        // Non-fatal: image is uploaded, path just may not persist on next load
+        // Fallback to general update endpoint
+        try {
+          await axios.put(
+            `${API_URL}/business/update/${businessId}`,
+            { profile_image: imagePath },
+            { headers }
+          );
+        } catch (fallbackErr) {
+          console.warn("Could not save image path to business record:", fallbackErr);
+        }
       }
 
-      // Step 5: Update local state with cache-busted URL so image refreshes instantly
+      // Step 4: Update local state with cache-busted URL so image refreshes instantly
       const cacheBust = `?t=${Date.now()}`;
       const newImageUri = CLOUDFRONT_URL
         ? `${CLOUDFRONT_URL}/${imagePath}${cacheBust}`

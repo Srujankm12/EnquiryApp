@@ -88,8 +88,8 @@ const SellerDirectoryScreen: React.FC = () => {
         allCompanies = (Array.isArray(data) ? data : []).filter(
           (c: any) => c.is_approved
         ).map((c: any) => ({
-          company_id: c.company_id || c.id,
-          user_id: c.user_id || '',
+          company_id: String(c.company_id || c.id || ''),
+          user_id: String(c.user_id || ''),
           company_name: c.company_name || c.name || '',
           company_email: c.company_email || c.email || '',
           company_phone: c.company_phone || c.phone || '',
@@ -114,8 +114,8 @@ const SellerDirectoryScreen: React.FC = () => {
           allCompanies = (Array.isArray(data) ? data : []).map((b: any) => {
             const biz = b.business_details || b;
             return {
-              company_id: biz.id || b.id || '',
-              user_id: biz.user_id || b.user_id || '',
+              company_id: String(biz.id || b.id || ''),
+              user_id: String(biz.user_id || b.user_id || ''),
               company_name: biz.name || b.name || '',
               company_email: biz.email || b.email || '',
               company_phone: biz.phone || b.phone || '',
@@ -158,8 +158,10 @@ const SellerDirectoryScreen: React.FC = () => {
           { headers }
         );
         const followedData = followingRes.data?.data?.followings || followingRes.data?.followings || [];
-        const ids = new Set(
-          (Array.isArray(followedData) ? followedData : []).map((c: any) => c.following_id)
+        const ids = new Set<string>(
+          (Array.isArray(followedData) ? followedData : []).map(
+            (c: any) => String(c.following_id || c.business_id || "")
+          )
         );
         setFollowedCompanyIds(ids);
       } catch {
@@ -187,31 +189,32 @@ const SellerDirectoryScreen: React.FC = () => {
       Alert.alert('Error', 'Unable to follow this seller. Please try again later.');
       return;
     }
-    setProcessingId(companyId);
+    const companyIdStr = String(companyId);
+    setProcessingId(companyIdStr);
     try {
       const token = await AsyncStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      if (followedCompanyIds.has(companyId)) {
+      if (followedCompanyIds.has(companyIdStr)) {
         await axios.post(
           `${API_URL}/follower/unfollow`,
-          { user_id: userId, business_id: companyId },
+          { user_id: userId, business_id: companyIdStr },
           { headers }
         );
         setFollowedCompanyIds((prev) => {
           const newSet = new Set(prev);
-          newSet.delete(companyId);
+          newSet.delete(companyIdStr);
           return newSet;
         });
       } else {
         await axios.post(
           `${API_URL}/follower/follow`,
-          { user_id: userId, business_id: companyId },
+          { user_id: userId, business_id: companyIdStr },
           { headers }
         );
         setFollowedCompanyIds((prev) => {
           const newSet = new Set(prev);
-          newSet.add(companyId);
+          newSet.add(companyIdStr);
           return newSet;
         });
       }
@@ -247,8 +250,8 @@ const SellerDirectoryScreen: React.FC = () => {
 
   const filteredCompanies = companies.filter((company) => {
     // Hide the user's own company
-    if (company.user_id && company.user_id === userId) return false;
-    if (userCompanyId && company.company_id === userCompanyId) return false;
+    if (company.user_id && String(company.user_id) === String(userId)) return false;
+    if (userCompanyId && String(company.company_id) === String(userCompanyId)) return false;
 
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
@@ -284,8 +287,9 @@ const SellerDirectoryScreen: React.FC = () => {
   };
 
   const renderSellerCard = (company: CompanyInfo, index: number) => {
-    const isFollowing = followedCompanyIds.has(company.company_id);
-    const isProcessing = processingId === company.company_id;
+    const companyIdStr = String(company.company_id);
+    const isFollowing = followedCompanyIds.has(companyIdStr);
+    const isProcessing = processingId === companyIdStr;
     const imageUri = getImageUri(company.company_profile_url);
 
     return (
