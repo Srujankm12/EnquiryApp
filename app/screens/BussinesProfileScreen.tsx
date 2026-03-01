@@ -27,7 +27,6 @@ const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
-// ✅ Fixed: guards against double-URL when API already returns full https:// URLs
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -77,18 +76,12 @@ const BusinessProfileScreen: React.FC = () => {
       let businessId = business_id as string;
 
       if (!businessId) {
-        businessId =
-          decoded.business_id ||
-          (await AsyncStorage.getItem("companyId")) ||
-          "";
+        businessId = decoded.business_id || (await AsyncStorage.getItem("companyId")) || "";
       }
 
       if (!businessId) {
         try {
-          const bizIdRes = await fetch(
-            `${API_URL}/business/get/user/${decoded.user_id}`,
-            { headers: authHeaders }
-          );
+          const bizIdRes = await fetch(`${API_URL}/business/get/user/${decoded.user_id}`, { headers: authHeaders });
           if (bizIdRes.ok) {
             const result = await bizIdRes.json();
             businessId = result.business_id;
@@ -102,10 +95,7 @@ const BusinessProfileScreen: React.FC = () => {
       }
 
       try {
-        const completeRes = await fetch(
-          `${API_URL}/business/get/complete/${businessId}`,
-          { headers: authHeaders }
-        );
+        const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, { headers: authHeaders });
 
         if (completeRes.ok) {
           const result = await completeRes.json();
@@ -142,32 +132,25 @@ const BusinessProfileScreen: React.FC = () => {
 
       const storedCompanyId = await AsyncStorage.getItem("companyId");
       setIsOwnProfile(
-        String(businessId) === String(storedCompanyId) || String(businessId) === String(decoded.business_id)
+        String(businessId) === String(storedCompanyId) ||
+        String(businessId) === String(decoded.business_id)
       );
 
       try {
-        const followersRes = await axios.get(
-          `${API_URL}/follower/get/followers/${businessId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const fData =
-          followersRes.data?.data?.followers ||
-          followersRes.data?.followers ||
-          [];
+        const followersRes = await axios.get(`${API_URL}/follower/get/followers/${businessId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const fData = followersRes.data?.data?.followers || followersRes.data?.followers || [];
         setFollowersCount(Array.isArray(fData) ? fData.length : 0);
       } catch {
         setFollowersCount(0);
       }
 
       try {
-        const followingRes = await axios.get(
-          `${API_URL}/follower/get/followings/${userId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const followings =
-          followingRes.data?.data?.followings ||
-          followingRes.data?.followings ||
-          [];
+        const followingRes = await axios.get(`${API_URL}/follower/get/followings/${userId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const followings = followingRes.data?.data?.followings || followingRes.data?.followings || [];
         const followedIds = (Array.isArray(followings) ? followings : []).map(
           (f: any) => String(f.following_id || f.business_id || "")
         );
@@ -186,10 +169,7 @@ const BusinessProfileScreen: React.FC = () => {
   const fetchProducts = async (businessId: string, headers: any) => {
     try {
       setProductsLoading(true);
-      const res = await axios.get(
-        `${API_URL}/product/get/company/${businessId}`,
-        { headers }
-      );
+      const res = await axios.get(`${API_URL}/product/get/company/${businessId}`, { headers });
       const productsData = res.data?.data?.products || res.data?.data || [];
       const productsList = Array.isArray(productsData) ? productsData : [];
       const activeProducts = productsList.filter((p: any) => p.is_product_active);
@@ -197,10 +177,7 @@ const BusinessProfileScreen: React.FC = () => {
       const productsWithImages = await Promise.all(
         activeProducts.slice(0, 20).map(async (product: any) => {
           try {
-            const imgRes = await axios.get(
-              `${API_URL}/product/image/get/${product.product_id}`,
-              { headers }
-            );
+            const imgRes = await axios.get(`${API_URL}/product/image/get/${product.product_id}`, { headers });
             return { ...product, images: imgRes.data.data?.images || [] };
           } catch {
             return { ...product, images: [] };
@@ -217,112 +194,203 @@ const BusinessProfileScreen: React.FC = () => {
     }
   };
 
-  // Upload image to S3 using XMLHttpRequest for reliable React Native support
-  const uploadToS3WithXHR = (presignedUrl: string, fileUri: string): Promise<void> => {
+  // ─── S3 Upload via XHR ────────────────────────────────────────────────────
+  const uploadToS3WithXHR = (
+    presignedUrl: string,
+    fileUri: string,
+    mimeType: string = "image/jpeg"
+  ): Promise<void> => {
     return new Promise(async (resolve, reject) => {
       try {
+        console.log("☁️ [S3-XHR] Fetching blob from local URI:", fileUri);
         const response = await fetch(fileUri);
         const blob = await response.blob();
+        console.log("☁️ [S3-XHR] Blob — size:", blob.size, "| type:", blob.type);
+
+        if (blob.size === 0) {
+          reject(new Error("Blob is empty — file could not be read"));
+          return;
+        }
+
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", presignedUrl);
-        xhr.setRequestHeader("Content-Type", "image/png");
+        xhr.setRequestHeader("Content-Type", mimeType);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            console.log(`☁️ [S3-XHR] Progress: ${pct}% (${e.loaded}/${e.total} bytes)`);
+          }
+        };
+
         xhr.onload = () => {
+          console.log("☁️ [S3-XHR] onload — HTTP status:", xhr.status, "| response:", xhr.responseText?.substring(0, 300));
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve();
           } else {
-            reject(new Error(`S3 upload failed with status ${xhr.status}`));
+            reject(new Error(`S3 upload failed: HTTP ${xhr.status} — ${xhr.responseText}`));
           }
         };
-        xhr.onerror = () => reject(new Error("Network error during S3 upload"));
+
+        xhr.onerror = () => {
+          console.error("☁️ [S3-XHR] ❌ Network error during XHR.");
+          reject(new Error("Network error during S3 upload"));
+        };
+
+        xhr.ontimeout = () => {
+          console.error("☁️ [S3-XHR] ❌ XHR timed out.");
+          reject(new Error("S3 upload timed out"));
+        };
+
+        console.log("☁️ [S3-XHR] Sending PUT with Content-Type:", mimeType);
         xhr.send(blob);
       } catch (err) {
+        console.error("☁️ [S3-XHR] ❌ Exception before send:", err);
         reject(err);
       }
     });
   };
 
+  // ─── Profile Image Upload ─────────────────────────────────────────────────
   const handleProfileImageUpload = async () => {
+    console.log("📸 [BizImageUpload] ─── Starting business profile image upload ───");
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log("📸 [BizImageUpload] Permission granted:", permission.granted);
       if (!permission.granted) {
         Alert.alert("Permission required", "Please allow photo library access to upload an image.");
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],   // ✅ no deprecation warning
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
       });
 
-      if (result.canceled || !result.assets?.[0]) return;
+      console.log("📸 [BizImageUpload] Picker — canceled:", result.canceled, "| assets:", result.assets?.length ?? 0);
+      if (result.canceled || !result.assets?.[0]) {
+        console.log("📸 [BizImageUpload] User canceled picker.");
+        return;
+      }
 
       const imageAsset = result.assets[0];
+      console.log("📸 [BizImageUpload] Selected asset:", {
+        uri: imageAsset.uri,
+        width: imageAsset.width,
+        height: imageAsset.height,
+        fileSize: imageAsset.fileSize,
+        mimeType: imageAsset.mimeType,
+      });
+
       const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        console.error("📸 [BizImageUpload] ❌ No token found.");
+        Alert.alert("Error", "Authentication token not found.");
+        return;
+      }
+
       const headers = { Authorization: `Bearer ${token}` };
       const businessId = businessDetails?.id;
+      console.log("📸 [BizImageUpload] Business ID:", businessId);
 
       if (!businessId) {
+        console.error("📸 [BizImageUpload] ❌ businessDetails.id is missing. businessDetails:", businessDetails);
         Alert.alert("Error", "Business ID not found.");
         return;
       }
 
       setImageUploading(true);
 
-      // Step 1: Get presigned URL from backend
-      const presignRes = await axios.get(
-        `${API_URL}/blob/businesses/${businessId}/profile-image`,
-        { headers }
-      );
+      // ── STEP 1: Get presigned URL ──────────────────────────────────────────
+      // ✅ IMPORTANT: Backend route must be: r.Get("/get/presigned/{id}", ...)
+      // in routes.go businessRoutes — handler uses utils.ReadParamID(r) to read {id}
+      const presignEndpoint = `${API_URL}/business/get/presigned/${businessId}`;
+      console.log("📸 [BizImageUpload] STEP 1 — GET presign URL:", presignEndpoint);
 
-      const presignedUrl: string = presignRes.data?.url;
-      if (!presignedUrl) {
-        Alert.alert("Error", "Failed to get upload URL from server.");
+      let presignedUrl: string = "";
+      try {
+        const presignRes = await axios.get(presignEndpoint, { headers });
+        console.log("📸 [BizImageUpload] Presign response status:", presignRes.status);
+        console.log("📸 [BizImageUpload] Presign response data:", JSON.stringify(presignRes.data, null, 2));
+
+        presignedUrl = presignRes.data?.url || presignRes.data?.data?.url || "";
+        if (!presignedUrl) {
+          console.error("📸 [BizImageUpload] ❌ No URL field in presign response. Full data:", presignRes.data);
+          Alert.alert("Error", "Failed to get upload URL from server.");
+          return;
+        }
+        console.log("📸 [BizImageUpload] ✅ Presigned URL (first 120 chars):", presignedUrl.substring(0, 120) + "...");
+      } catch (presignErr: any) {
+        console.error("📸 [BizImageUpload] ❌ Presign request failed:");
+        console.error("  status:", presignErr?.response?.status);
+        console.error("  data:", JSON.stringify(presignErr?.response?.data, null, 2));
+        console.error("  message:", presignErr?.message);
+        // ─── Common fix reminder ───────────────────────────────────────────
+        if (presignErr?.response?.status === 404) {
+          console.error("📸 [BizImageUpload] 💡 FIX: In routes.go, change:");
+          console.error('   r.Get("/get/presigned", ...) → r.Get("/get/presigned/{id}", ...)');
+        }
+        if (presignErr?.response?.status === 400) {
+          console.error("📸 [BizImageUpload] 💡 FIX: Route has no {id} param — handler utils.ReadParamID(r) fails.");
+        }
+        Alert.alert("Error", `Failed to get upload URL (${presignErr?.response?.status ?? "network error"})`);
         return;
       }
 
-      // Step 2: Upload to S3 using XMLHttpRequest (more reliable in React Native)
-      await uploadToS3WithXHR(presignedUrl, imageAsset.uri);
-
-      // Step 3: Save image path to business record using dedicated image endpoint
-      const imagePath = `profile/business/${businessId}.png`;
+      // ── STEP 2: Upload to S3 via XHR ──────────────────────────────────────
+      console.log("📸 [BizImageUpload] STEP 2 — Uploading to S3...");
       try {
-        await axios.put(
+        await uploadToS3WithXHR(presignedUrl, imageAsset.uri, imageAsset.mimeType ?? "image/jpeg");
+        console.log("📸 [BizImageUpload] ✅ S3 upload successful.");
+      } catch (s3Err: any) {
+        console.error("📸 [BizImageUpload] ❌ S3 upload failed:", s3Err?.message);
+        Alert.alert("Error", "Failed to upload image to storage. Please try again.");
+        return;
+      }
+
+      // ── STEP 3: Save image path to backend ────────────────────────────────
+      const imagePath = `profile/business/${businessId}.png`;
+      console.log("📸 [BizImageUpload] STEP 3 — Saving image path to backend:", imagePath);
+
+      try {
+        const saveRes = await axios.put(
           `${API_URL}/business/update/image/${businessId}`,
           { profile_image: imagePath },
           { headers }
         );
-      } catch (saveErr) {
-        // Fallback to general update endpoint
-        try {
-          await axios.put(
-            `${API_URL}/business/update/${businessId}`,
-            { profile_image: imagePath },
-            { headers }
-          );
-        } catch (fallbackErr) {
-          console.warn("Could not save image path to business record:", fallbackErr);
-        }
+        console.log("📸 [BizImageUpload] ✅ Save response status:", saveRes.status);
+        console.log("📸 [BizImageUpload] Save response data:", JSON.stringify(saveRes.data, null, 2));
+      } catch (saveErr: any) {
+        console.error("📸 [BizImageUpload] ❌ Backend save failed:");
+        console.error("  status:", saveErr?.response?.status);
+        console.error("  data:", JSON.stringify(saveErr?.response?.data, null, 2));
+        // Don't return — image is already on S3, just warn
+        console.warn("📸 [BizImageUpload] ⚠️ Image uploaded to S3 but path not saved to DB.");
       }
 
-      // Step 4: Update local state with cache-busted URL so image refreshes instantly
+      // ── STEP 4: Update local state with cache-busted URL ──────────────────
       const cacheBust = `?t=${Date.now()}`;
       const newImageUri = CLOUDFRONT_URL
         ? `${CLOUDFRONT_URL}/${imagePath}${cacheBust}`
         : `${S3_URL}/${imagePath}${cacheBust}`;
 
-      setBusinessDetails((prev: any) => ({
-        ...prev,
-        profile_image: newImageUri,
-      }));
+      console.log("📸 [BizImageUpload] STEP 4 — Updating UI with new image URI:", newImageUri);
+      setBusinessDetails((prev: any) => ({ ...prev, profile_image: newImageUri }));
 
+      console.log("📸 [BizImageUpload] ✅ ─── Upload flow complete ───");
       Alert.alert("Success", "Profile image updated successfully!");
     } catch (error: any) {
-      console.error("Upload error:", error?.response?.data || error);
+      console.error("📸 [BizImageUpload] ❌ Unhandled top-level error:");
+      console.error("  message:", error?.message);
+      console.error("  response status:", error?.response?.status);
+      console.error("  response data:", JSON.stringify(error?.response?.data, null, 2));
+      console.error("  stack:", error?.stack);
       Alert.alert("Error", "Something went wrong during upload. Please try again.");
     } finally {
       setImageUploading(false);
+      console.log("📸 [BizImageUpload] imageUploading → false");
     }
   };
 
@@ -366,19 +434,11 @@ const BusinessProfileScreen: React.FC = () => {
       const token = await AsyncStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
       if (isFollowing) {
-        await axios.post(
-          `${API_URL}/follower/unfollow`,
-          { user_id: currentUserId, business_id: businessId },
-          { headers }
-        );
+        await axios.post(`${API_URL}/follower/unfollow`, { user_id: currentUserId, business_id: businessId }, { headers });
         setIsFollowing(false);
         setFollowersCount((prev) => Math.max(0, prev - 1));
       } else {
-        await axios.post(
-          `${API_URL}/follower/follow`,
-          { user_id: currentUserId, business_id: businessId },
-          { headers }
-        );
+        await axios.post(`${API_URL}/follower/follow`, { user_id: currentUserId, business_id: businessId }, { headers });
         setIsFollowing(true);
         setFollowersCount((prev) => prev + 1);
       }
@@ -392,8 +452,7 @@ const BusinessProfileScreen: React.FC = () => {
   const getProductImageUrl = (product: any): string | null => {
     if (product.images && product.images.length > 0) {
       const sorted = [...product.images].sort(
-        (a: any, b: any) =>
-          a.product_image_sequence_number - b.product_image_sequence_number
+        (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
       );
       return getImageUri(sorted[0].product_image_url);
     }
@@ -446,10 +505,7 @@ const BusinessProfileScreen: React.FC = () => {
   const businessEmail = getBizField("email");
   const businessCity = businessDetails.city || "";
   const businessState = businessDetails.state || "";
-  const profileImageUrl =
-    businessDetails.profile_image ||
-    businessDetails.business_profile_image ||
-    null;
+  const profileImageUrl = businessDetails.profile_image || businessDetails.business_profile_image || null;
   const imageUri = getImageUri(profileImageUrl);
 
   return (
@@ -470,12 +526,7 @@ const BusinessProfileScreen: React.FC = () => {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={["#177DDF"]}
-            tintColor="#177DDF"
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#177DDF"]} tintColor="#177DDF" />
         }
       >
         {/* Profile Header */}
@@ -506,7 +557,6 @@ const BusinessProfileScreen: React.FC = () => {
           </View>
 
           <View style={styles.profileHeader}>
-            {/* ✅ Logo is tappable only for own profile */}
             <TouchableOpacity
               onPress={isOwnProfile ? handleProfileImageUpload : undefined}
               activeOpacity={isOwnProfile ? 0.7 : 1}
@@ -522,15 +572,8 @@ const BusinessProfileScreen: React.FC = () => {
                     source={{ uri: imageUri }}
                     style={styles.logo}
                     resizeMode="cover"
-                    onError={(e) =>
-                      console.log(
-                        "❌ Image load error:",
-                        e.nativeEvent.error,
-                        "URL:",
-                        imageUri
-                      )
-                    }
-                    onLoad={() => console.log("✅ Image loaded:", imageUri)}
+                    onLoad={() => console.log("🖼️ [BizImage] ✅ Loaded:", imageUri)}
+                    onError={(e) => console.error("🖼️ [BizImage] ❌ Load error:", e.nativeEvent.error, "| URL:", imageUri)}
                   />
                 ) : (
                   <View style={[styles.logo, styles.logoPlaceholder]}>
@@ -538,7 +581,6 @@ const BusinessProfileScreen: React.FC = () => {
                   </View>
                 )}
 
-                {/* Camera icon overlay — only on own profile */}
                 {isOwnProfile && !imageUploading && (
                   <View style={styles.editImageOverlay}>
                     <Ionicons name="camera" size={14} color="#FFFFFF" />
@@ -568,16 +610,13 @@ const BusinessProfileScreen: React.FC = () => {
               <View style={styles.infoRow}>
                 <Ionicons name="location-outline" size={14} color="#666" />
                 <Text style={styles.infoText}>
-                  {businessCity}
-                  {businessState ? `, ${businessState}` : ""}
+                  {businessCity}{businessState ? `, ${businessState}` : ""}
                 </Text>
               </View>
               {businessEmail ? (
                 <View style={styles.infoRow}>
                   <Ionicons name="mail-outline" size={14} color="#666" />
-                  <Text style={styles.infoText} numberOfLines={1}>
-                    {businessEmail}
-                  </Text>
+                  <Text style={styles.infoText} numberOfLines={1}>{businessEmail}</Text>
                 </View>
               ) : null}
             </View>
@@ -586,12 +625,7 @@ const BusinessProfileScreen: React.FC = () => {
           {/* Star Rating */}
           <View style={styles.ratingRow}>
             {[1, 2, 3, 4, 5].map((star) => (
-              <Ionicons
-                key={star}
-                name="star"
-                size={18}
-                color={star <= 4 ? "#FFB800" : "#E0E0E0"}
-              />
+              <Ionicons key={star} name="star" size={18} color={star <= 4 ? "#FFB800" : "#E0E0E0"} />
             ))}
             <Text style={styles.ratingText}>4.0</Text>
           </View>
@@ -624,25 +658,15 @@ const BusinessProfileScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 {followLoading ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={isFollowing ? "#177DDF" : "#FFFFFF"}
-                  />
+                  <ActivityIndicator size="small" color={isFollowing ? "#177DDF" : "#FFFFFF"} />
                 ) : (
                   <>
                     <Ionicons
-                      name={
-                        isFollowing ? "checkmark-circle" : "add-circle-outline"
-                      }
+                      name={isFollowing ? "checkmark-circle" : "add-circle-outline"}
                       size={18}
                       color={isFollowing ? "#177DDF" : "#FFFFFF"}
                     />
-                    <Text
-                      style={[
-                        styles.followBtnText,
-                        isFollowing && styles.followingBtnText,
-                      ]}
-                    >
+                    <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>
                       {isFollowing ? "Following" : "Follow"}
                     </Text>
                   </>
@@ -657,10 +681,7 @@ const BusinessProfileScreen: React.FC = () => {
               style={styles.actionButton}
               onPress={() => {
                 if (businessDetails?.id) {
-                  router.push({
-                    pathname: "/pages/sellerProfile" as any,
-                    params: { business_id: businessDetails.id },
-                  });
+                  router.push({ pathname: "/pages/sellerProfile" as any, params: { business_id: businessDetails.id } });
                 }
               }}
             >
@@ -677,86 +698,54 @@ const BusinessProfileScreen: React.FC = () => {
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionButton} onPress={handleWhatsApp}>
               <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-              <Text style={[styles.actionButtonText, { color: "#25D366" }]}>
-                WhatsApp
-              </Text>
+              <Text style={[styles.actionButtonText, { color: "#25D366" }]}>WhatsApp</Text>
             </TouchableOpacity>
           </View>
 
           {/* Social Media */}
           {socialDetails &&
-            (socialDetails.linkedin ||
-              socialDetails.instagram ||
-              socialDetails.facebook ||
-              socialDetails.website ||
-              socialDetails.youtube ||
-              socialDetails.telegram ||
-              socialDetails.x) && (
-              <View style={styles.socialMediaSection}>
-                <View style={styles.socialMediaIcons}>
-                  {socialDetails.instagram && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.instagram)}
-                    >
-                      <Ionicons name="logo-instagram" size={22} color="#E4405F" />
-                    </TouchableOpacity>
-                  )}
-                  {socialDetails.youtube && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.youtube)}
-                    >
-                      <Ionicons name="logo-youtube" size={22} color="#FF0000" />
-                    </TouchableOpacity>
-                  )}
-                  {socialDetails.facebook && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.facebook)}
-                    >
-                      <Ionicons name="logo-facebook" size={22} color="#1877F2" />
-                    </TouchableOpacity>
-                  )}
-                  {socialDetails.linkedin && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.linkedin)}
-                    >
-                      <Ionicons name="logo-linkedin" size={22} color="#0A66C2" />
-                    </TouchableOpacity>
-                  )}
-                  {socialDetails.telegram && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.telegram)}
-                    >
-                      <Ionicons
-                        name="paper-plane-outline"
-                        size={22}
-                        color="#0088CC"
-                      />
-                    </TouchableOpacity>
-                  )}
-                  {socialDetails.x && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.x)}
-                    >
-                      <Ionicons name="logo-twitter" size={22} color="#000" />
-                    </TouchableOpacity>
-                  )}
-                  {socialDetails.website && (
-                    <TouchableOpacity
-                      style={styles.socialIcon}
-                      onPress={() => handleSocialMedia(socialDetails.website)}
-                    >
-                      <Ionicons name="globe-outline" size={22} color="#666" />
-                    </TouchableOpacity>
-                  )}
-                </View>
+            (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook ||
+             socialDetails.website || socialDetails.youtube || socialDetails.telegram || socialDetails.x) && (
+            <View style={styles.socialMediaSection}>
+              <View style={styles.socialMediaIcons}>
+                {socialDetails.instagram && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.instagram)}>
+                    <Ionicons name="logo-instagram" size={22} color="#E4405F" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.youtube && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.youtube)}>
+                    <Ionicons name="logo-youtube" size={22} color="#FF0000" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.facebook && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.facebook)}>
+                    <Ionicons name="logo-facebook" size={22} color="#1877F2" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.linkedin && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.linkedin)}>
+                    <Ionicons name="logo-linkedin" size={22} color="#0A66C2" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.telegram && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.telegram)}>
+                    <Ionicons name="paper-plane-outline" size={22} color="#0088CC" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.x && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.x)}>
+                    <Ionicons name="logo-twitter" size={22} color="#000" />
+                  </TouchableOpacity>
+                )}
+                {socialDetails.website && (
+                  <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialMedia(socialDetails.website)}>
+                    <Ionicons name="globe-outline" size={22} color="#666" />
+                  </TouchableOpacity>
+                )}
               </View>
-            )}
+            </View>
+          )}
         </View>
 
         {/* Tabs */}
@@ -765,37 +754,15 @@ const BusinessProfileScreen: React.FC = () => {
             style={[styles.tab, activeTab === "products" && styles.activeTab]}
             onPress={() => setActiveTab("products")}
           >
-            <Ionicons
-              name="cube-outline"
-              size={18}
-              color={activeTab === "products" ? "#177DDF" : "#999"}
-            />
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "products" && styles.activeTabText,
-              ]}
-            >
-              Products
-            </Text>
+            <Ionicons name="cube-outline" size={18} color={activeTab === "products" ? "#177DDF" : "#999"} />
+            <Text style={[styles.tabText, activeTab === "products" && styles.activeTabText]}>Products</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === "statutory" && styles.activeTab]}
             onPress={() => setActiveTab("statutory")}
           >
-            <Ionicons
-              name="document-text-outline"
-              size={18}
-              color={activeTab === "statutory" ? "#177DDF" : "#999"}
-            />
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "statutory" && styles.activeTabText,
-              ]}
-            >
-              Statutory Details
-            </Text>
+            <Ionicons name="document-text-outline" size={18} color={activeTab === "statutory" ? "#177DDF" : "#999"} />
+            <Text style={[styles.tabText, activeTab === "statutory" && styles.activeTabText]}>Statutory Details</Text>
           </TouchableOpacity>
         </View>
 
@@ -815,52 +782,27 @@ const BusinessProfileScreen: React.FC = () => {
                     <TouchableOpacity
                       key={product.product_id}
                       style={styles.productCard}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/pages/productDetail" as any,
-                          params: { product_id: product.product_id },
-                        })
-                      }
+                      onPress={() => router.push({ pathname: "/pages/productDetail" as any, params: { product_id: product.product_id } })}
                       activeOpacity={0.7}
                     >
                       {imageUrl ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          style={styles.productImage}
-                          resizeMode="cover"
-                        />
+                        <Image source={{ uri: imageUrl }} style={styles.productImage} resizeMode="cover" />
                       ) : (
-                        <View
-                          style={[
-                            styles.productImage,
-                            styles.productImagePlaceholder,
-                          ]}
-                        >
+                        <View style={[styles.productImage, styles.productImagePlaceholder]}>
                           <Ionicons name="cube-outline" size={32} color="#CCC" />
                         </View>
                       )}
                       <View style={styles.productInfo}>
-                        <Text style={styles.productName} numberOfLines={2}>
-                          {product.product_name}
-                        </Text>
+                        <Text style={styles.productName} numberOfLines={2}>{product.product_name}</Text>
                         {product.product_quantity && (
-                          <Text style={styles.productQuantity}>
-                            Qty: {product.product_quantity}
-                          </Text>
+                          <Text style={styles.productQuantity}>Qty: {product.product_quantity}</Text>
                         )}
                         {product.product_price && (
-                          <Text style={styles.productPrice}>
-                            {product.product_price}
-                          </Text>
+                          <Text style={styles.productPrice}>{product.product_price}</Text>
                         )}
                         <TouchableOpacity
                           style={styles.enquireButton}
-                          onPress={() =>
-                            router.push({
-                              pathname: "/pages/productDetail" as any,
-                              params: { product_id: product.product_id },
-                            })
-                          }
+                          onPress={() => router.push({ pathname: "/pages/productDetail" as any, params: { product_id: product.product_id } })}
                         >
                           <Text style={styles.enquireButtonText}>Enquire</Text>
                         </TouchableOpacity>
@@ -878,73 +820,23 @@ const BusinessProfileScreen: React.FC = () => {
           </View>
         ) : (
           <View style={styles.tabContent}>
-            {legalDetails &&
-            (legalDetails.pan ||
-              legalDetails.gst ||
-              legalDetails.msme ||
-              legalDetails.aadhaar ||
-              legalDetails.fassi ||
-              legalDetails.export_import) ? (
+            {legalDetails && (legalDetails.pan || legalDetails.gst || legalDetails.msme || legalDetails.aadhaar || legalDetails.fassi || legalDetails.export_import) ? (
               <View style={styles.infoCard}>
                 <View style={styles.infoCardHeader}>
                   <Ionicons name="document-text" size={18} color="#177DDF" />
-                  <Text style={styles.infoCardTitle}>
-                    Legal / Statutory Information
-                  </Text>
+                  <Text style={styles.infoCardTitle}>Legal / Statutory Information</Text>
                 </View>
-                {legalDetails.gst && (
-                  <InfoRow
-                    label="GST Number"
-                    value={legalDetails.gst}
-                    icon="receipt-outline"
-                  />
-                )}
-                {legalDetails.pan && (
-                  <InfoRow
-                    label="PAN Number"
-                    value={legalDetails.pan}
-                    icon="document-outline"
-                  />
-                )}
-                {legalDetails.aadhaar && (
-                  <InfoRow
-                    label="Aadhaar"
-                    value={legalDetails.aadhaar}
-                    icon="card-outline"
-                  />
-                )}
-                {legalDetails.msme && (
-                  <InfoRow
-                    label="MSME"
-                    value={legalDetails.msme}
-                    icon="business-outline"
-                  />
-                )}
-                {legalDetails.fassi && (
-                  <InfoRow
-                    label="FSSAI"
-                    value={legalDetails.fassi}
-                    icon="nutrition-outline"
-                  />
-                )}
-                {legalDetails.export_import && (
-                  <InfoRow
-                    label="Export/Import Code"
-                    value={legalDetails.export_import}
-                    icon="globe-outline"
-                  />
-                )}
+                {legalDetails.gst && <InfoRow label="GST Number" value={legalDetails.gst} icon="receipt-outline" />}
+                {legalDetails.pan && <InfoRow label="PAN Number" value={legalDetails.pan} icon="document-outline" />}
+                {legalDetails.aadhaar && <InfoRow label="Aadhaar" value={legalDetails.aadhaar} icon="card-outline" />}
+                {legalDetails.msme && <InfoRow label="MSME" value={legalDetails.msme} icon="business-outline" />}
+                {legalDetails.fassi && <InfoRow label="FSSAI" value={legalDetails.fassi} icon="nutrition-outline" />}
+                {legalDetails.export_import && <InfoRow label="Export/Import Code" value={legalDetails.export_import} icon="globe-outline" />}
               </View>
             ) : (
               <View style={styles.emptyContainer}>
-                <Ionicons
-                  name="document-text-outline"
-                  size={64}
-                  color="#CCC"
-                />
-                <Text style={styles.emptyText}>
-                  No statutory details available
-                </Text>
+                <Ionicons name="document-text-outline" size={64} color="#CCC" />
+                <Text style={styles.emptyText}>No statutory details available</Text>
               </View>
             )}
           </View>
@@ -956,15 +848,7 @@ const BusinessProfileScreen: React.FC = () => {
   );
 };
 
-const InfoRow = ({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon?: keyof typeof Ionicons.glyphMap;
-}) => (
+const InfoRow = ({ label, value, icon }: { label: string; value: string; icon?: keyof typeof Ionicons.glyphMap }) => (
   <View style={styles.infoCardRow}>
     {icon && <Ionicons name={icon} size={16} color="#888" />}
     <View style={{ flex: 1, marginLeft: icon ? 10 : 0 }}>
@@ -977,338 +861,81 @@ const InfoRow = ({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F7FA" },
   header: {
-    backgroundColor: "#177DDF",
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    backgroundColor: "#177DDF", paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4,
   },
   backButton: { padding: 4 },
   headerTitle: { fontSize: 20, fontWeight: "700", color: "#FFFFFF" },
   loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
-  retryBtn: {
-    marginTop: 16,
-    backgroundColor: "#177DDF",
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
+  retryBtn: { marginTop: 16, backgroundColor: "#177DDF", paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
   retryBtnText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
   scrollView: { flex: 1 },
   profileHeaderSection: {
-    backgroundColor: "#FFFFFF",
-    paddingBottom: 16,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    backgroundColor: "#FFFFFF", paddingBottom: 16, elevation: 2,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3,
   },
-  topBadgesRow: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    gap: 8,
-  },
-  trustedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
+  topBadgesRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 14, gap: 8 },
+  trustedBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#E8F5E9", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   trustedBadgeText: { fontSize: 12, fontWeight: "600", color: "#28A745" },
-  notTrustedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#FFF5F5",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#FFDDDD",
-  },
+  notTrustedBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#FFF5F5", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: "#FFDDDD" },
   notTrustedBadgeText: { fontSize: 12, fontWeight: "600", color: "#DC3545" },
-  verifiedTopBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
+  verifiedTopBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#E8F5E9", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   verifiedTopBadgeText: { fontSize: 12, fontWeight: "600", color: "#28A745" },
-  notVerifiedTopBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#FFF5F5",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#FFDDDD",
-  },
-  notVerifiedTopBadgeText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#DC3545",
-  },
-  profileHeader: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-  },
-  logoContainer: {
-    position: "relative",
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    overflow: "visible",
-  },
-  logo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#E0E0E0",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  logoPlaceholder: {
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#E3F2FD",
-  },
-  // ✅ NEW: Camera overlay for own profile
-  editImageOverlay: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#177DDF",
-    borderRadius: 12,
-    padding: 5,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  verifiedOverlay: {
-    position: "absolute",
-    bottom: -2,
-    right: -2,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 1,
-  },
+  notVerifiedTopBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#FFF5F5", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: "#FFDDDD" },
+  notVerifiedTopBadgeText: { fontSize: 12, fontWeight: "600", color: "#DC3545" },
+  profileHeader: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 14 },
+  logoContainer: { position: "relative", width: 80, height: 80, borderRadius: 40, overflow: "visible" },
+  logo: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#E0E0E0", borderWidth: 2, borderColor: "#FFFFFF" },
+  logoPlaceholder: { justifyContent: "center", alignItems: "center", backgroundColor: "#E3F2FD" },
+  editImageOverlay: { position: "absolute", bottom: 0, right: 0, backgroundColor: "#177DDF", borderRadius: 12, padding: 5, borderWidth: 2, borderColor: "#FFFFFF", justifyContent: "center", alignItems: "center" },
+  verifiedOverlay: { position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 1 },
   basicInfo: { flex: 1, marginLeft: 16, justifyContent: "center" },
-  businessName: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 6,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 3,
-    gap: 6,
-  },
+  businessName: { fontSize: 20, fontWeight: "700", color: "#000", marginBottom: 6 },
+  infoRow: { flexDirection: "row", alignItems: "center", marginBottom: 3, gap: 6 },
   infoText: { fontSize: 13, color: "#666", flex: 1 },
-  ratingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 3,
-  },
+  ratingRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, gap: 3 },
   ratingText: { fontSize: 14, fontWeight: "600", color: "#333", marginLeft: 6 },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginTop: 14,
-    paddingVertical: 14,
-    backgroundColor: "#F8F9FA",
-    borderRadius: 12,
-  },
+  statsRow: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", marginHorizontal: 16, marginTop: 14, paddingVertical: 14, backgroundColor: "#F8F9FA", borderRadius: 12 },
   statItem: { alignItems: "center", flex: 1 },
   statNumber: { fontSize: 18, fontWeight: "700", color: "#1A1A1A" },
   statLabel: { fontSize: 12, color: "#888", marginTop: 2 },
   statDivider: { width: 1, height: 30, backgroundColor: "#E0E0E0" },
-  followBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#177DDF",
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  followingBtn: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#177DDF",
-  },
+  followBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#177DDF", paddingVertical: 12, borderRadius: 10 },
+  followingBtn: { backgroundColor: "#FFFFFF", borderWidth: 1.5, borderColor: "#177DDF" },
   followBtnText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
   followingBtnText: { color: "#177DDF" },
-  actionButtons: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    marginTop: 12,
-  },
+  actionButtons: { flexDirection: "row", justifyContent: "space-around", paddingHorizontal: 12, paddingVertical: 14, marginTop: 12 },
   actionButton: { alignItems: "center", gap: 4, flex: 1 },
   actionButtonText: { fontSize: 11, color: "#177DDF", fontWeight: "600" },
-  socialMediaSection: {
-    paddingHorizontal: 16,
-    marginTop: 10,
-    paddingBottom: 4,
-  },
-  socialMediaIcons: {
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "center",
-  },
-  socialIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F5F7FA",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-  },
-  tabsContainer: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    marginTop: 8,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 14,
-    alignItems: "center",
-    borderBottomWidth: 2.5,
-    borderBottomColor: "transparent",
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 6,
-  },
+  socialMediaSection: { paddingHorizontal: 16, marginTop: 10, paddingBottom: 4 },
+  socialMediaIcons: { flexDirection: "row", gap: 10, justifyContent: "center" },
+  socialIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#F5F7FA", justifyContent: "center", alignItems: "center", elevation: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 2 },
+  tabsContainer: { flexDirection: "row", backgroundColor: "#FFFFFF", marginTop: 8, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3 },
+  tab: { flex: 1, paddingVertical: 14, alignItems: "center", borderBottomWidth: 2.5, borderBottomColor: "transparent", flexDirection: "row", justifyContent: "center", gap: 6 },
   activeTab: { borderBottomColor: "#177DDF" },
   tabText: { fontSize: 14, fontWeight: "500", color: "#999" },
   activeTabText: { color: "#177DDF", fontWeight: "600" },
   tabContent: { flex: 1, padding: 12 },
-  productsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-  },
-  productCard: {
-    width: (width - 36) / 2,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginBottom: 12,
-    overflow: "hidden",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  productImage: {
-    width: "100%",
-    height: 120,
-    backgroundColor: "#F0F0F0",
-  },
+  productsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  productCard: { width: (width - 36) / 2, backgroundColor: "#FFFFFF", borderRadius: 12, marginBottom: 12, overflow: "hidden", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4 },
+  productImage: { width: "100%", height: 120, backgroundColor: "#F0F0F0" },
   productImagePlaceholder: { justifyContent: "center", alignItems: "center" },
   productInfo: { padding: 10 },
-  productName: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1A1A1A",
-    marginBottom: 4,
-  },
+  productName: { fontSize: 13, fontWeight: "600", color: "#1A1A1A", marginBottom: 4 },
   productQuantity: { fontSize: 12, color: "#888", marginBottom: 2 },
-  productPrice: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#28A745",
-    marginBottom: 8,
-  },
-  enquireButton: {
-    backgroundColor: "#177DDF",
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: "center",
-  },
+  productPrice: { fontSize: 14, fontWeight: "700", color: "#28A745", marginBottom: 8 },
+  enquireButton: { backgroundColor: "#177DDF", paddingVertical: 8, borderRadius: 6, alignItems: "center" },
   enquireButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
-  infoCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 16,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  infoCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-  },
+  infoCard: { backgroundColor: "#FFFFFF", borderRadius: 14, padding: 16, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4 },
+  infoCardHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "#F0F0F0" },
   infoCardTitle: { fontSize: 16, fontWeight: "700", color: "#1A1A1A" },
-  infoCardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F8F8F8",
-  },
+  infoCardRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F8F8F8" },
   infoCardLabel: { fontSize: 12, color: "#888" },
-  infoCardValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1A1A1A",
-    marginTop: 2,
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#999",
-    marginTop: 16,
-  },
+  infoCardValue: { fontSize: 14, fontWeight: "600", color: "#1A1A1A", marginTop: 2 },
+  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
+  emptyText: { fontSize: 16, fontWeight: "600", color: "#999", marginTop: 16 },
   bottomPadding: { height: 20 },
 });
 

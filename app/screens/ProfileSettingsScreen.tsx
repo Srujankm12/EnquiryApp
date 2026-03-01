@@ -60,51 +60,74 @@ const ProfileSettingsScreen: React.FC = () => {
 
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    console.log('🔐 [Permissions] Media library permission status:', status);
     if (status !== 'granted') {
       Alert.alert('Permission Required', 'Please grant camera roll permissions to change profile picture.');
     }
   };
 
   const fetchProfileData = async (showLoader = true) => {
+    console.log('👤 [ProfileFetch] Starting fetchProfileData — showLoader:', showLoader);
     try {
       if (showLoader) setLoading(true);
 
       const token = await AsyncStorage.getItem('token');
       if (!token) {
+        console.error('👤 [ProfileFetch] ❌ No token found in AsyncStorage.');
         Alert.alert('Error', 'Authentication token not found. Please login again.');
         router.replace('/pages/loginMail' as any);
         return;
       }
+      console.log('👤 [ProfileFetch] ✅ Token found.');
 
       const decoded = jwtDecode<DecodedToken>(token);
+      console.log('👤 [ProfileFetch] Decoded token:', {
+        user_id: decoded.user_id,
+        user_name: decoded.user_name,
+        business_id: decoded.business_id,
+        exp: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'none',
+      });
       setTokenData(decoded);
       setUserId(decoded.user_id);
 
-      // Fetch user details - Backend User struct: { id, profile_image, first_name, last_name, email, phone, is_user_seller, ... }
+      // ─── Fetch user details ──────────────────────────────────────────────────
+      console.log('👤 [ProfileFetch] Fetching user details for ID:', decoded.user_id);
       try {
         const res = await axios.get(
           `${API_URL}/user/get/user/${decoded.user_id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
+        console.log('👤 [ProfileFetch] User details response status:', res.status);
+        console.log('👤 [ProfileFetch] User details raw data:', JSON.stringify(res.data, null, 2));
+
         if (res.data) {
-          // Backend returns: { message: "...", user: { first_name, last_name, email, phone, profile_image, ... } }
           const details = res.data.user || res.data;
           setUserDetails(details);
+          console.log('👤 [ProfileFetch] User details set:', {
+            first_name: details.first_name,
+            last_name: details.last_name,
+            email: details.email,
+            phone: details.phone,
+            profile_image: details.profile_image,
+          });
 
-          // Profile image path from DB: e.g. "/profile/users/{id}.png"
           const profileUrl = details.profile_image;
           if (profileUrl) {
             const fullImageUrl = getImageUri(profileUrl);
-            setProfileImage(`${fullImageUrl}?t=${Date.now()}`);
+            const finalUrl = `${fullImageUrl}?t=${Date.now()}`;
+            console.log('👤 [ProfileFetch] Profile image raw path:', profileUrl);
+            console.log('👤 [ProfileFetch] Profile image resolved URL:', finalUrl);
+            setProfileImage(finalUrl);
           } else {
+            console.log('👤 [ProfileFetch] No profile image found for user.');
             setProfileImage(null);
           }
         }
-      } catch (e) {
-        console.error('Error fetching user details:', e);
+      } catch (e: any) {
+        console.error('👤 [ProfileFetch] ❌ Error fetching user details:', e?.response?.status, e?.response?.data ?? e?.message);
       }
 
-      // Normalize status helper
+      // ─── Seller status ───────────────────────────────────────────────────────
       const normalizeStatus = (s: string | null): string | null => {
         if (!s) return null;
         const lower = s.toLowerCase().trim();
@@ -114,177 +137,260 @@ const ProfileSettingsScreen: React.FC = () => {
         return lower;
       };
 
-      // Sync seller status from API
       let status = normalizeStatus(await AsyncStorage.getItem('sellerStatus'));
+      console.log('👤 [ProfileFetch] Stored sellerStatus from AsyncStorage:', status);
+
       const businessId = decoded.business_id || await AsyncStorage.getItem('companyId');
+      console.log('👤 [ProfileFetch] Business ID:', businessId);
 
       if (businessId) {
+        // Try application endpoint
+        console.log('👤 [ProfileFetch] Fetching business application status...');
         try {
           const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
             headers: { 'Content-Type': 'application/json' },
           });
+          console.log('👤 [ProfileFetch] Application endpoint status:', appRes.status);
           if (appRes.ok) {
             const appData = await appRes.json();
+            console.log('👤 [ProfileFetch] Application data:', JSON.stringify(appData, null, 2));
             const appStatus = appData.details?.status || appData.application?.status || appData.status;
+            console.log('👤 [ProfileFetch] Raw application status:', appStatus);
             if (appStatus) {
               status = normalizeStatus(appStatus);
+              console.log('👤 [ProfileFetch] Normalized status:', status);
               await AsyncStorage.setItem('sellerStatus', status || '');
             }
           }
-        } catch {
+        } catch (e: any) {
+          console.warn('👤 [ProfileFetch] ⚠️ Application endpoint failed:', e?.message);
+          // Fallback: check business directly
           try {
             const bizCheckRes = await fetch(`${API_URL}/business/get/${businessId}`, {
               headers: { 'Content-Type': 'application/json' },
             });
+            console.log('👤 [ProfileFetch] Business check fallback status:', bizCheckRes.status);
             if (bizCheckRes.ok) {
               const bizCheck = await bizCheckRes.json();
+              console.log('👤 [ProfileFetch] Business check data:', JSON.stringify(bizCheck, null, 2));
               if (bizCheck.details?.is_business_approved || bizCheck.business?.is_business_approved) {
                 status = 'approved';
                 await AsyncStorage.setItem('sellerStatus', 'approved');
+                console.log('👤 [ProfileFetch] Status set to approved via business check.');
               }
             }
-          } catch {}
+          } catch (e2: any) {
+            console.error('👤 [ProfileFetch] ❌ Business check fallback also failed:', e2?.message);
+          }
         }
 
-        // Also check simple status endpoint
+        // Check simple status endpoint
         if (status !== 'approved') {
+          console.log('👤 [ProfileFetch] Checking simple status endpoint...');
           try {
             const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, {
               headers: { 'Content-Type': 'application/json' },
             });
+            console.log('👤 [ProfileFetch] Simple status endpoint response:', statusRes.status);
             if (statusRes.ok) {
               const statusData = await statusRes.json();
+              console.log('👤 [ProfileFetch] Simple status data:', JSON.stringify(statusData, null, 2));
               if (statusData?.is_approved === true || statusData?.details?.is_approved === true ||
                   statusData?.is_business_approved === true || statusData?.details?.is_business_approved === true) {
                 status = 'approved';
                 await AsyncStorage.setItem('sellerStatus', 'approved');
+                console.log('👤 [ProfileFetch] Status set to approved via simple status endpoint.');
               }
             }
-          } catch {}
+          } catch (e: any) {
+            console.error('👤 [ProfileFetch] ❌ Simple status endpoint failed:', e?.message);
+          }
         }
 
         await AsyncStorage.setItem('companyId', businessId);
       }
+
+      console.log('👤 [ProfileFetch] Final seller status:', status);
       setSellerStatus(status);
 
-      // Fetch business details
+      // ─── Fetch business details ──────────────────────────────────────────────
       if (businessId) {
+        console.log('👤 [ProfileFetch] Fetching business details for ID:', businessId);
         try {
-          // Try complete endpoint first
           const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, {
             headers: { 'Content-Type': 'application/json' },
           });
+          console.log('👤 [ProfileFetch] Business complete endpoint status:', completeRes.status);
 
           if (completeRes.ok) {
             const result = await completeRes.json();
+            console.log('👤 [ProfileFetch] Business complete data:', JSON.stringify(result, null, 2));
             const details = result.details;
             setBusinessDetails({ ...details.business_details, id: businessId });
             setSocialDetails(details.social_details);
             setLegalDetails(details.legal_details);
+            console.log('👤 [ProfileFetch] ✅ Business/social/legal details set from complete endpoint.');
           } else {
-            // Fallback to individual endpoints
+            console.warn('👤 [ProfileFetch] ⚠️ Complete endpoint failed, falling back to individual endpoints...');
             const [bizRes, socialRes, legalRes] = await Promise.allSettled([
               fetch(`${API_URL}/business/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
               fetch(`${API_URL}/business/social/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
               fetch(`${API_URL}/business/legal/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
             ]);
 
+            console.log('👤 [ProfileFetch] Fallback results — biz:', bizRes.status, '| social:', socialRes.status, '| legal:', legalRes.status);
+
             if (bizRes.status === 'fulfilled' && bizRes.value.ok) {
               const r = await bizRes.value.json();
+              console.log('👤 [ProfileFetch] Business fallback data:', JSON.stringify(r, null, 2));
               setBusinessDetails({ ...r.details, id: businessId });
             }
             if (socialRes.status === 'fulfilled' && socialRes.value.ok) {
               const r = await socialRes.value.json();
+              console.log('👤 [ProfileFetch] Social fallback data:', JSON.stringify(r, null, 2));
               setSocialDetails(r.details);
             }
             if (legalRes.status === 'fulfilled' && legalRes.value.ok) {
               const r = await legalRes.value.json();
+              console.log('👤 [ProfileFetch] Legal fallback data:', JSON.stringify(r, null, 2));
               setLegalDetails(r.details);
             }
           }
-        } catch (e) {
-          console.error('Error fetching business details:', e);
+        } catch (e: any) {
+          console.error('👤 [ProfileFetch] ❌ Error fetching business details:', e?.message);
         }
+      } else {
+        console.log('👤 [ProfileFetch] No business ID — skipping business details fetch.');
       }
     } catch (error: any) {
-      console.error('Error fetching profile:', error);
+      console.error('👤 [ProfileFetch] ❌ Unhandled error in fetchProfileData:', error?.message, error?.stack);
     } finally {
       if (showLoader) setLoading(false);
       setRefreshing(false);
+      console.log('👤 [ProfileFetch] Done.');
     }
   };
 
   const onRefresh = () => {
+    console.log('🔄 [Refresh] Pull-to-refresh triggered.');
     setRefreshing(true);
     fetchProfileData(false);
   };
 
   const handleBack = () => {
+    console.log('⬅️ [Nav] Back pressed.');
     router.back();
   };
 
+  // ─── S3 Upload via fetch ───────────────────────────────────────────────────
   const uploadImageToS3 = async (s3Url: string, imageUri: string) => {
+    console.log('☁️ [S3Upload] Fetching blob from local URI:', imageUri);
     const response = await fetch(imageUri);
     const blob = await response.blob();
+    console.log('☁️ [S3Upload] Blob — size:', blob.size, '| type:', blob.type);
+
+    if (blob.size === 0) throw new Error('Blob is empty — could not read image file.');
+
+    console.log('☁️ [S3Upload] Sending PUT to S3...');
     const uploadResponse = await fetch(s3Url, {
       method: 'PUT',
       body: blob,
       headers: { 'Content-Type': blob.type || 'image/jpeg' },
     });
+    console.log('☁️ [S3Upload] S3 PUT response status:', uploadResponse.status);
     if (!uploadResponse.ok) {
+      const responseText = await uploadResponse.text();
+      console.error('☁️ [S3Upload] ❌ S3 upload failed. Response body:', responseText.substring(0, 300));
       throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
     }
+    console.log('☁️ [S3Upload] ✅ S3 upload successful.');
     return true;
   };
 
+  // ─── Image Pick + Upload Flow ──────────────────────────────────────────────
   const handleImagePick = async () => {
+    console.log('📸 [ImagePick] Starting user profile image upload...');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],     // ✅ fixes deprecation warning
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
       });
 
-      if (!result.canceled) {
-        setUploadingImage(true);
-        const selectedImageUri = result.assets[0].uri;
+      console.log('📸 [ImagePick] Picker result — canceled:', result.canceled, '| assets:', result.assets?.length ?? 0);
+      if (result.canceled || !result.assets?.[0]) {
+        console.log('📸 [ImagePick] Aborted by user.');
+        return;
+      }
 
-        const token = await AsyncStorage.getItem('token');
-        if (!token) {
-          Alert.alert('Error', 'Authentication token not found.');
-          setUploadingImage(false);
-          return;
-        }
+      const asset = result.assets[0];
+      console.log('📸 [ImagePick] Selected asset:', {
+        uri: asset.uri,
+        width: asset.width,
+        height: asset.height,
+        fileSize: asset.fileSize,
+        mimeType: asset.mimeType,
+      });
 
-        const presignedUrlRes = await axios.get(
-          `${API_URL}/user/get/presigned/${userId}`,
-          { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 }
-        );
+      setUploadingImage(true);
 
-        const s3PresignedUrl = presignedUrlRes.data.data?.url || presignedUrlRes.data.url;
-        if (!s3PresignedUrl) {
-          throw new Error('Invalid response from server: missing presigned URL');
-        }
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        console.error('📸 [ImagePick] ❌ No token in AsyncStorage.');
+        Alert.alert('Error', 'Authentication token not found.');
+        setUploadingImage(false);
+        return;
+      }
 
-        await uploadImageToS3(s3PresignedUrl, selectedImageUri);
+      // STEP 1: Get presigned URL
+      const presignEndpoint = `${API_URL}/user/get/presigned/${userId}`;
+      console.log('📸 [ImagePick] STEP 1 — Fetching presigned URL from:', presignEndpoint);
+      const presignedUrlRes = await axios.get(presignEndpoint, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000,
+      });
+      console.log('📸 [ImagePick] Presign response status:', presignedUrlRes.status);
+      console.log('📸 [ImagePick] Presign response data:', JSON.stringify(presignedUrlRes.data, null, 2));
 
-        const updateRes = await axios.put(
-          `${API_URL}/user/update/image/${userId}`,
-          null,
-          { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 }
-        );
+      const s3PresignedUrl = presignedUrlRes.data.data?.url || presignedUrlRes.data.url;
+      if (!s3PresignedUrl) {
+        console.error('📸 [ImagePick] ❌ No presigned URL in response:', presignedUrlRes.data);
+        throw new Error('Invalid response from server: missing presigned URL');
+      }
+      console.log('📸 [ImagePick] ✅ Got presigned URL:', s3PresignedUrl.substring(0, 120) + '...');
 
-        if (updateRes.status === 200 || updateRes.data.message) {
-          await fetchProfileData(false);
-          setUploadingImage(false);
-          Alert.alert('Success', 'Profile picture updated successfully!');
-        } else {
-          throw new Error('Failed to update profile image');
-        }
+      // STEP 2: Upload to S3
+      console.log('📸 [ImagePick] STEP 2 — Uploading to S3...');
+      await uploadImageToS3(s3PresignedUrl, asset.uri);
+      console.log('📸 [ImagePick] ✅ S3 upload done.');
+
+      // STEP 3: Notify backend to save image path
+      const saveEndpoint = `${API_URL}/user/update/image/${userId}`;
+      console.log('📸 [ImagePick] STEP 3 — Saving image path to backend:', saveEndpoint);
+      const updateRes = await axios.put(saveEndpoint, null, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000,
+      });
+      console.log('📸 [ImagePick] Save response status:', updateRes.status);
+      console.log('📸 [ImagePick] Save response data:', JSON.stringify(updateRes.data, null, 2));
+
+      if (updateRes.status === 200 || updateRes.data.message) {
+        console.log('📸 [ImagePick] ✅ Image path saved. Refreshing profile...');
+        await fetchProfileData(false);
+        setUploadingImage(false);
+        Alert.alert('Success', 'Profile picture updated successfully!');
+      } else {
+        console.error('📸 [ImagePick] ❌ Backend save returned unexpected status:', updateRes.status);
+        throw new Error('Failed to update profile image');
       }
     } catch (error: any) {
-      console.error('Error in handleImagePick:', error);
+      console.error('📸 [ImagePick] ❌ Unhandled error:');
+      console.error('  message:', error?.message);
+      console.error('  response status:', error?.response?.status);
+      console.error('  response data:', JSON.stringify(error?.response?.data, null, 2));
+      console.error('  stack:', error?.stack);
+
       let errorMessage = 'Failed to update profile picture. Please try again.';
       if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
         errorMessage = 'Network error. Please check your connection.';
@@ -293,30 +399,25 @@ const ProfileSettingsScreen: React.FC = () => {
       }
       Alert.alert('Error', errorMessage);
       setUploadingImage(false);
+    } finally {
+      console.log('📸 [ImagePick] uploadingImage reset to false.');
     }
   };
 
   const getUserName = () => {
-    // Backend returns first_name + last_name, token has user_name
     if (userDetails?.first_name) {
       return `${userDetails.first_name}${userDetails.last_name ? ' ' + userDetails.last_name : ''}`;
     }
     return tokenData?.user_name || 'N/A';
   };
 
-  const getUserEmail = () => {
-    return userDetails?.email || 'N/A';
-  };
-
-  const getUserPhone = () => {
-    return userDetails?.phone || '';
-  };
+  const getUserEmail = () => userDetails?.email || 'N/A';
+  const getUserPhone = () => userDetails?.phone || '';
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" translucent={false} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
@@ -342,7 +443,13 @@ const ProfileSettingsScreen: React.FC = () => {
           <View style={styles.profileSection}>
             <View style={styles.profileImageContainer}>
               {profileImage ? (
-                <Image source={{ uri: profileImage }} style={styles.profileImage} resizeMode="cover" />
+                <Image
+                  source={{ uri: profileImage }}
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                  onLoad={() => console.log('🖼️ [Image] ✅ Profile image loaded:', profileImage)}
+                  onError={(e) => console.error('🖼️ [Image] ❌ Profile image load error:', e.nativeEvent.error, '| URL:', profileImage)}
+                />
               ) : (
                 <View style={styles.profileImagePlaceholder}>
                   <Ionicons name="person" size={60} color="#0078D7" />
@@ -424,31 +531,19 @@ const ProfileSettingsScreen: React.FC = () => {
               </View>
               <View style={styles.badgesRow}>
                 <View style={[styles.statusBadge, businessDetails.is_business_verified ? styles.verifiedBadge : styles.unverifiedBadge]}>
-                  <Ionicons
-                    name={businessDetails.is_business_verified ? 'checkmark-circle' : 'close-circle'}
-                    size={16}
-                    color={businessDetails.is_business_verified ? '#28A745' : '#999'}
-                  />
+                  <Ionicons name={businessDetails.is_business_verified ? 'checkmark-circle' : 'close-circle'} size={16} color={businessDetails.is_business_verified ? '#28A745' : '#999'} />
                   <Text style={[styles.statusBadgeText, { color: businessDetails.is_business_verified ? '#28A745' : '#999' }]}>
                     {businessDetails.is_business_verified ? 'Verified' : 'Not Verified'}
                   </Text>
                 </View>
                 <View style={[styles.statusBadge, businessDetails.is_business_trusted ? styles.trustedBadge : styles.unverifiedBadge]}>
-                  <Ionicons
-                    name={businessDetails.is_business_trusted ? 'ribbon' : 'ribbon-outline'}
-                    size={16}
-                    color={businessDetails.is_business_trusted ? '#FF9500' : '#999'}
-                  />
+                  <Ionicons name={businessDetails.is_business_trusted ? 'ribbon' : 'ribbon-outline'} size={16} color={businessDetails.is_business_trusted ? '#FF9500' : '#999'} />
                   <Text style={[styles.statusBadgeText, { color: businessDetails.is_business_trusted ? '#FF9500' : '#999' }]}>
                     {businessDetails.is_business_trusted ? 'Trusted' : 'Not Trusted'}
                   </Text>
                 </View>
                 <View style={[styles.statusBadge, businessDetails.is_business_approved ? styles.approvedBadgePill : styles.unverifiedBadge]}>
-                  <Ionicons
-                    name={businessDetails.is_business_approved ? 'shield-checkmark' : 'shield-outline'}
-                    size={16}
-                    color={businessDetails.is_business_approved ? '#0078D7' : '#999'}
-                  />
+                  <Ionicons name={businessDetails.is_business_approved ? 'shield-checkmark' : 'shield-outline'} size={16} color={businessDetails.is_business_approved ? '#0078D7' : '#999'} />
                   <Text style={[styles.statusBadgeText, { color: businessDetails.is_business_approved ? '#0078D7' : '#999' }]}>
                     {businessDetails.is_business_approved ? 'Approved' : 'Not Approved'}
                   </Text>
@@ -504,21 +599,14 @@ const ProfileSettingsScreen: React.FC = () => {
                   <Text style={styles.approvedActiveBadgeText}>Active</Text>
                 </View>
               </View>
-              <TouchableOpacity
-                style={styles.viewDetailsButton}
-                onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity style={styles.viewDetailsButton} onPress={() => router.push('/pages/sellerApplicationStatus' as any)} activeOpacity={0.7}>
                 <Ionicons name="eye-outline" size={18} color="#0078D7" />
                 <Text style={styles.viewDetailsButtonText}>View & Edit Details</Text>
                 <Ionicons name="chevron-forward" size={18} color="#0078D7" />
               </TouchableOpacity>
             </View>
           ) : sellerStatus === 'pending' ? (
-            <TouchableOpacity
-              style={[styles.applicationStatusCard, { borderColor: '#FFE0B2' }]}
-              onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
-            >
+            <TouchableOpacity style={[styles.applicationStatusCard, { borderColor: '#FFE0B2' }]} onPress={() => router.push('/pages/sellerApplicationStatus' as any)}>
               <Ionicons name="time" size={24} color="#FFC107" />
               <View style={styles.applicationStatusInfo}>
                 <Text style={styles.applicationStatusTitle}>Application Under Review</Text>
@@ -527,10 +615,7 @@ const ProfileSettingsScreen: React.FC = () => {
               <Ionicons name="chevron-forward" size={22} color="#666" />
             </TouchableOpacity>
           ) : sellerStatus === 'rejected' ? (
-            <TouchableOpacity
-              style={[styles.applicationStatusCard, { borderColor: '#F5C6CB' }]}
-              onPress={() => router.push('/pages/becomeSellerForm' as any)}
-            >
+            <TouchableOpacity style={[styles.applicationStatusCard, { borderColor: '#F5C6CB' }]} onPress={() => router.push('/pages/becomeSellerForm' as any)}>
               <Ionicons name="alert-circle" size={24} color="#DC3545" />
               <View style={styles.applicationStatusInfo}>
                 <Text style={styles.applicationStatusTitle}>Application Rejected</Text>
@@ -554,16 +639,8 @@ const ProfileSettingsScreen: React.FC = () => {
                 }}
               />
             )}
-            <ActionItem
-              icon="person-outline"
-              title="Update Profile Details"
-              onPress={() => router.push('/pages/updateUserProfileScreen' as any)}
-            />
-            <ActionItem
-              icon="key-outline"
-              title="Update Password"
-              onPress={() => router.push('/pages/upadetPasswordScreen' as any)}
-            />
+            <ActionItem icon="person-outline" title="Update Profile Details" onPress={() => router.push('/pages/updateUserProfileScreen' as any)} />
+            <ActionItem icon="key-outline" title="Update Password" onPress={() => router.push('/pages/upadetPasswordScreen' as any)} />
           </View>
 
           <View style={{ height: 40 }} />
@@ -609,21 +686,13 @@ const styles = StyleSheet.create({
   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 12, fontSize: 16, color: '#666' },
   scrollView: { flex: 1 },
-
-  // Profile Section
   profileSection: {
     backgroundColor: '#FFFFFF', alignItems: 'center', paddingVertical: 24, marginBottom: 12,
     elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
   },
   profileImageContainer: { position: 'relative', width: 110, height: 110, marginBottom: 14 },
-  profileImage: {
-    width: 110, height: 110, borderRadius: 55, backgroundColor: '#E0E0E0',
-    borderWidth: 3, borderColor: '#FFFFFF',
-  },
-  profileImagePlaceholder: {
-    width: 110, height: 110, borderRadius: 55, backgroundColor: '#E3F2FD',
-    justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF',
-  },
+  profileImage: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#E0E0E0', borderWidth: 3, borderColor: '#FFFFFF' },
+  profileImagePlaceholder: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF' },
   cameraButton: {
     position: 'absolute', bottom: 2, right: 2, width: 34, height: 34, borderRadius: 17,
     backgroundColor: '#177DDF', justifyContent: 'center', alignItems: 'center', elevation: 4,
@@ -633,8 +702,6 @@ const styles = StyleSheet.create({
   userName: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
   userEmail: { fontSize: 14, color: '#888', marginBottom: 2 },
   userPhone: { fontSize: 14, color: '#888' },
-
-  // Section Card
   sectionCard: {
     backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
     elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3,
@@ -642,14 +709,10 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   sectionIconBg: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-
-  // Detail Row
   detailRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F8F8F8' },
   detailRowContent: { flex: 1 },
   detailLabel: { fontSize: 12, color: '#888', marginBottom: 2 },
   detailValue: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
-
-  // Badges
   badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
   verifiedBadge: { backgroundColor: '#E8F5E9' },
@@ -657,13 +720,9 @@ const styles = StyleSheet.create({
   approvedBadgePill: { backgroundColor: '#E3F2FD' },
   unverifiedBadge: { backgroundColor: '#F5F5F5' },
   statusBadgeText: { fontSize: 12, fontWeight: '600' },
-
-  // Legal Summary
   legalSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
   legalBadgeItem: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F0FFF0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   legalBadgeText: { fontSize: 11, fontWeight: '600', color: '#28A745' },
-
-  // Application Status
   applicationStatusCard: {
     backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
     flexDirection: 'row', alignItems: 'center', elevation: 1,
@@ -673,34 +732,21 @@ const styles = StyleSheet.create({
   applicationStatusInfo: { flex: 1, marginLeft: 12 },
   applicationStatusTitle: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
   applicationStatusSubtitle: { fontSize: 12, color: '#888', marginTop: 2 },
-
-  // Approved Status Card
   approvedStatusCard: {
     backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
     elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4,
     borderWidth: 1.5, borderColor: '#C3E6CB',
   },
   approvedStatusHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  approvedIconContainer: {
-    width: 48, height: 48, borderRadius: 24, backgroundColor: '#28A745',
-    justifyContent: 'center', alignItems: 'center',
-  },
+  approvedIconContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#28A745', justifyContent: 'center', alignItems: 'center' },
   approvedStatusInfo: { flex: 1, marginLeft: 12 },
   approvedStatusTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
   approvedStatusSubtitle: { fontSize: 13, color: '#666', marginTop: 3 },
   approvedBadgeRow: { flexDirection: 'row', marginBottom: 14 },
-  approvedActiveBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10,
-  },
+  approvedActiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   approvedActiveBadgeText: { fontSize: 12, fontWeight: '600', color: '#28A745' },
-  viewDetailsButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#E3F2FD', paddingVertical: 12, borderRadius: 10,
-  },
+  viewDetailsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#E3F2FD', paddingVertical: 12, borderRadius: 10 },
   viewDetailsButtonText: { fontSize: 14, fontWeight: '600', color: '#0078D7' },
-
-  // Actions
   actionsContainer: { paddingHorizontal: 16, marginTop: 4 },
   actionItem: {
     backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center',
