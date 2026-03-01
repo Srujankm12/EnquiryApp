@@ -1,9 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import Constants from 'expo-constants';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import Constants from "expo-constants";
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
-const FOLLOW_CACHE_KEY = 'followed_company_ids';
+const FOLLOW_CACHE_KEY = "followed_company_ids";
 
 /**
  * Safely extract an array from various response formats.
@@ -36,10 +36,10 @@ const extractIds = (followings: any[]): Set<string> => {
   return new Set<string>(
     followings
       .map((f: any) => {
-        const id = f.following_id ?? f.business_id ?? f.id ?? '';
+        const id = f.following_id ?? f.business_id ?? f.id ?? "";
         return String(id);
       })
-      .filter((id: string) => id !== '' && id !== 'undefined' && id !== 'null')
+      .filter((id: string) => id !== "" && id !== "undefined" && id !== "null"),
   );
 };
 
@@ -51,10 +51,12 @@ export const getCachedFollowedIds = async (): Promise<Set<string>> => {
     const cached = await AsyncStorage.getItem(FOLLOW_CACHE_KEY);
     if (cached) {
       const ids: string[] = JSON.parse(cached);
-      return new Set(ids.filter((id) => id !== '' && id !== 'undefined' && id !== 'null'));
+      return new Set(
+        ids.filter((id) => id !== "" && id !== "undefined" && id !== "null"),
+      );
     }
   } catch (e) {
-    console.warn('[FollowState] Error reading cache:', e);
+    console.warn("[FollowState] Error reading cache:", e);
   }
   return new Set();
 };
@@ -62,11 +64,13 @@ export const getCachedFollowedIds = async (): Promise<Set<string>> => {
 /**
  * Save followed company IDs to local storage.
  */
-export const saveCachedFollowedIds = async (ids: Set<string>): Promise<void> => {
+export const saveCachedFollowedIds = async (
+  ids: Set<string>,
+): Promise<void> => {
   try {
     await AsyncStorage.setItem(FOLLOW_CACHE_KEY, JSON.stringify([...ids]));
   } catch (e) {
-    console.warn('[FollowState] Error saving cache:', e);
+    console.warn("[FollowState] Error saving cache:", e);
   }
 };
 
@@ -77,7 +81,7 @@ export const saveCachedFollowedIds = async (ids: Set<string>): Promise<void> => 
  */
 export const fetchFollowedCompanyIds = async (
   userId: string,
-  token: string
+  token: string,
 ): Promise<Set<string>> => {
   const cachedIds = await getCachedFollowedIds();
 
@@ -85,7 +89,7 @@ export const fetchFollowedCompanyIds = async (
     const headers = { Authorization: `Bearer ${token}` };
     const res = await axios.get(
       `${API_URL}/follower/get/followings/${userId}`,
-      { headers }
+      { headers },
     );
 
     const followings = extractFollowings(res.data);
@@ -110,9 +114,9 @@ export const fetchFollowedCompanyIds = async (
     return new Set();
   } catch (error: any) {
     console.warn(
-      '[FollowState] Failed to fetch followings from backend, using cache. Error:',
+      "[FollowState] Failed to fetch followings from backend, using cache. Error:",
       error?.response?.status,
-      error?.response?.data || error?.message
+      error?.response?.data || error?.message,
     );
     // Return cached data when backend fails
     return cachedIds;
@@ -125,7 +129,7 @@ export const fetchFollowedCompanyIds = async (
 export const isFollowingBusiness = async (
   userId: string,
   businessId: string,
-  token: string
+  token: string,
 ): Promise<boolean> => {
   const followedIds = await fetchFollowedCompanyIds(userId, token);
   return followedIds.has(String(businessId));
@@ -143,8 +147,11 @@ export const addFollowToCache = async (businessId: string): Promise<void> => {
 /**
  * Update the local cache after an unfollow action.
  */
-export const removeFollowFromCache = async (businessId: string): Promise<void> => {
+export const removeFollowFromCache = async (
+  businessId: string,
+): Promise<void> => {
   const ids = await getCachedFollowedIds();
   ids.delete(String(businessId));
   await saveCachedFollowedIds(ids);
 };
+export default {};
