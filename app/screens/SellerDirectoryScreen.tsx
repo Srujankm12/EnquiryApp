@@ -184,45 +184,77 @@ const SellerDirectoryScreen: React.FC = () => {
     router.back();
   };
 
-  const handleFollow = async (companyId: string) => {
+  const performFollow = async (companyIdStr: string) => {
+    setProcessingId(companyIdStr);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.post(
+        `${API_URL}/follower/follow`,
+        { user_id: userId, business_id: companyIdStr },
+        { headers }
+      );
+      setFollowedCompanyIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.add(companyIdStr);
+        return newSet;
+      });
+    } catch (error: any) {
+      console.error('Error following:', error?.response?.data || error);
+      Alert.alert('Error', 'Failed to follow. Please try again.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const performUnfollow = async (companyIdStr: string) => {
+    setProcessingId(companyIdStr);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.post(
+        `${API_URL}/follower/unfollow`,
+        { user_id: userId, business_id: companyIdStr },
+        { headers }
+      );
+      setFollowedCompanyIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(companyIdStr);
+        return newSet;
+      });
+    } catch (error: any) {
+      console.error('Error unfollowing:', error?.response?.data || error);
+      Alert.alert('Error', 'Failed to unfollow. Please try again.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleFollow = (companyId: string) => {
     if (!companyId) {
       Alert.alert('Error', 'Unable to follow this seller. Please try again later.');
       return;
     }
     const companyIdStr = String(companyId);
-    setProcessingId(companyIdStr);
-    try {
-      const token = await AsyncStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
+    const isCurrentlyFollowing = followedCompanyIds.has(companyIdStr);
 
-      if (followedCompanyIds.has(companyIdStr)) {
-        await axios.post(
-          `${API_URL}/follower/unfollow`,
-          { user_id: userId, business_id: companyIdStr },
-          { headers }
-        );
-        setFollowedCompanyIds((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(companyIdStr);
-          return newSet;
-        });
-      } else {
-        await axios.post(
-          `${API_URL}/follower/follow`,
-          { user_id: userId, business_id: companyIdStr },
-          { headers }
-        );
-        setFollowedCompanyIds((prev) => {
-          const newSet = new Set(prev);
-          newSet.add(companyIdStr);
-          return newSet;
-        });
-      }
-    } catch (error: any) {
-      console.error('Error following/unfollowing:', error?.response?.data || error);
-      Alert.alert('Error', 'Failed to update follow status. Please try again.');
-    } finally {
-      setProcessingId(null);
+    if (isCurrentlyFollowing) {
+      const company = companies.find((c) => String(c.company_id) === companyIdStr);
+      const companyName = company?.company_name || 'this company';
+      Alert.alert(
+        'Unfollow',
+        `Are you sure you want to unfollow ${companyName}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Unfollow',
+            style: 'destructive',
+            onPress: () => performUnfollow(companyIdStr),
+          },
+        ]
+      );
+    } else {
+      performFollow(companyIdStr);
     }
   };
 
