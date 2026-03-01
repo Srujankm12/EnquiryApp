@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import { fetchFollowedCompanyIds, removeFollowFromCache } from '../utils/followState';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
@@ -163,6 +164,7 @@ const FollowersScreen: React.FC = () => {
                 prev.filter((c) => c.following_id !== company.following_id)
               );
               setFollowingCount((prev) => Math.max(0, prev - 1));
+              await removeFollowFromCache(company.following_id);
             } catch (error: any) {
               console.error('Error unfollowing:', error?.response?.data || error);
               Alert.alert('Error', 'Failed to unfollow. Please try again.');

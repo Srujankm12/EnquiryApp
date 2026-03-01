@@ -20,6 +20,7 @@ import Constants from 'expo-constants';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
+import { fetchFollowedCompanyIds, addFollowToCache, removeFollowFromCache } from '../utils/followState';
 
 const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
@@ -147,22 +148,11 @@ const ProductDetailScreen = () => {
             }
           }
 
-          // Check if user is following this company
+          // Check if user is following this company (with local cache fallback)
           if (token) {
-            try {
-              const decoded: any = jwtDecode(token);
-              const followRes = await axios.get(
-                `${API_URL}/follower/get/followings/${decoded.user_id}`,
-                { headers }
-              );
-              const followedCompanies = followRes.data?.data?.followings || followRes.data?.followings || [];
-              const followedIds = (Array.isArray(followedCompanies) ? followedCompanies : []).map(
-                (c: any) => String(c.following_id || c.business_id || "")
-              );
-              setIsFollowing(followedIds.includes(String(productCompanyId)));
-            } catch {
-              setIsFollowing(false);
-            }
+            const decoded: any = jwtDecode(token);
+            const followedIds = await fetchFollowedCompanyIds(decoded.user_id, token);
+            setIsFollowing(followedIds.has(String(productCompanyId)));
           }
         }
       }
@@ -320,6 +310,7 @@ const ProductDetailScreen = () => {
           { headers }
         );
         setIsFollowing(false);
+        await removeFollowFromCache(companyInfo.company_id);
       } else {
         await axios.post(
           `${API_URL}/follower/follow`,
@@ -327,6 +318,7 @@ const ProductDetailScreen = () => {
           { headers }
         );
         setIsFollowing(true);
+        await addFollowToCache(companyInfo.company_id);
       }
     } catch (error: any) {
       Alert.alert('Error', error?.response?.data?.message || 'Failed to update follow status');

@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import { fetchFollowedCompanyIds, addFollowToCache, removeFollowFromCache } from '../utils/followState';
 
 const { width } = Dimensions.get('window');
 
@@ -151,22 +152,9 @@ const SellerDirectoryScreen: React.FC = () => {
         setCategories([]);
       }
 
-      // Fetch user's followed companies
-      try {
-        const followingRes = await axios.get(
-          `${API_URL}/follower/get/followings/${currentUserId}`,
-          { headers }
-        );
-        const followedData = followingRes.data?.data?.followings || followingRes.data?.followings || [];
-        const ids = new Set<string>(
-          (Array.isArray(followedData) ? followedData : []).map(
-            (c: any) => String(c.following_id || c.business_id || "")
-          )
-        );
-        setFollowedCompanyIds(ids);
-      } catch {
-        setFollowedCompanyIds(new Set());
-      }
+      // Fetch user's followed companies (with local cache fallback)
+      const ids = await fetchFollowedCompanyIds(currentUserId, token);
+      setFollowedCompanyIds(ids);
     } catch (error) {
       console.error('Error fetching directory:', error);
     } finally {
@@ -199,6 +187,7 @@ const SellerDirectoryScreen: React.FC = () => {
         newSet.add(companyIdStr);
         return newSet;
       });
+      await addFollowToCache(companyIdStr);
     } catch (error: any) {
       console.error('Error following:', error?.response?.data || error);
       Alert.alert('Error', 'Failed to follow. Please try again.');
@@ -222,6 +211,7 @@ const SellerDirectoryScreen: React.FC = () => {
         newSet.delete(companyIdStr);
         return newSet;
       });
+      await removeFollowFromCache(companyIdStr);
     } catch (error: any) {
       console.error('Error unfollowing:', error?.response?.data || error);
       Alert.alert('Error', 'Failed to unfollow. Please try again.');

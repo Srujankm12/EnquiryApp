@@ -20,6 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { fetchFollowedCompanyIds, addFollowToCache, removeFollowFromCache } from "../utils/followState";
 
 const { width } = Dimensions.get("window");
 
@@ -146,18 +147,9 @@ const BusinessProfileScreen: React.FC = () => {
         setFollowersCount(0);
       }
 
-      try {
-        const followingRes = await axios.get(`${API_URL}/follower/get/followings/${userId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const followings = followingRes.data?.data?.followings || followingRes.data?.followings || [];
-        const followedIds = (Array.isArray(followings) ? followings : []).map(
-          (f: any) => String(f.following_id || f.business_id || "")
-        );
-        setIsFollowing(followedIds.includes(String(businessId)));
-      } catch {
-        setIsFollowing(false);
-      }
+      // Check if user is following this business (with local cache fallback)
+      const followedIds = await fetchFollowedCompanyIds(userId, token);
+      setIsFollowing(followedIds.has(String(businessId)));
     } catch (error) {
       console.error("Error fetching business profile:", error);
     } finally {
@@ -437,10 +429,12 @@ const BusinessProfileScreen: React.FC = () => {
         await axios.post(`${API_URL}/follower/unfollow`, { user_id: currentUserId, business_id: businessId }, { headers });
         setIsFollowing(false);
         setFollowersCount((prev) => Math.max(0, prev - 1));
+        await removeFollowFromCache(businessId);
       } else {
         await axios.post(`${API_URL}/follower/follow`, { user_id: currentUserId, business_id: businessId }, { headers });
         setIsFollowing(true);
         setFollowersCount((prev) => prev + 1);
+        await addFollowToCache(businessId);
       }
     } catch (error: any) {
       console.error("Follow error:", error?.response?.data || error);
