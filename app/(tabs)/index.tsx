@@ -611,7 +611,7 @@ const HomeScreen = () => {
         )}
 
         {/* All Sellers / Top Sellers */}
-        <View style={styles.section}>
+        {/* <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Top Sellers</Text>
             <TouchableOpacity
@@ -694,7 +694,7 @@ const HomeScreen = () => {
               </Text>
             </View>
           )}
-        </View>
+        </View> */}
 
         {/* Bottom Spacing for tab bar */}
         <View style={{ height: 20 }} />

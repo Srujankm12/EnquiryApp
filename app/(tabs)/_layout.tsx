@@ -1,70 +1,98 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#0078D7',
-        tabBarInactiveTintColor: '#666',
+        tabBarActiveTintColor: "#0078D7",
+        tabBarInactiveTintColor: "#666",
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
+          backgroundColor: "#FFFFFF",
           borderTopWidth: 1,
-          borderTopColor: '#E0E0E0',
+          borderTopColor: "#E0E0E0",
           height: 70,
           paddingBottom: 10,
           paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '500',
+          fontWeight: "500",
         },
       }}
     >
+      {/* HOME */}
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={24} color={color} />
+          title: "Home",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "home" : "home-outline"}
+              size={size ?? 24}
+              color={color}
+            />
           ),
         }}
       />
+
+      {/* CATEGORIES */}
       <Tabs.Screen
         name="catgories"
         options={{
-          title: 'Categories',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="grid-outline" size={24} color={color} />
+          title: "Categories",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "grid" : "grid-outline"}
+              size={size ?? 24}
+              color={color}
+            />
           ),
         }}
       />
+
+      {/* PRODUCTS */}
       <Tabs.Screen
         name="listing"
         options={{
-          title: 'Seller',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="storefront-outline" size={24} color={color} />
+          title: "Products",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "storefront" : "storefront-outline"}
+              size={size ?? 24}
+              color={color}
+            />
           ),
         }}
       />
+
+      {/* LEADS */}
       <Tabs.Screen
         name="enquiries"
         options={{
-          title: 'Buyer',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="cart-outline" size={24} color={color} />
+          title: "Leads",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "search" : "search-outline"}
+              size={size ?? 24}
+              color={color}
+            />
           ),
         }}
       />
+
+      {/* MENU */}
       <Tabs.Screen
         name="menu"
         options={{
-          title: 'Menu',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="menu-outline" size={24} color={color} />
+          title: "Menu",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? "menu" : "menu-outline"}
+              size={size ?? 24}
+              color={color}
+            />
           ),
         }}
       />

@@ -1,28 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import Constants from "expo-constants";
+import { router } from "expo-router";
+import { jwtDecode } from "jwt-decode";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  Linking,
+  RefreshControl,
   ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  Dimensions,
-  RefreshControl,
-  StatusBar,
-  Alert,
-  Linking,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
-import axios from 'axios';
-import Constants from 'expo-constants';
-import { fetchFollowedCompanyIds, addFollowToCache, removeFollowFromCache } from '../utils/followState';
+  View,
+} from "react-native";
+import {
+  addFollowToCache,
+  fetchFollowedCompanyIds,
+  removeFollowFromCache,
+} from "../utils/followState";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
@@ -30,8 +34,8 @@ const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const path = url.startsWith('/') ? url : `/${url}`;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const path = url.startsWith("/") ? url : `/${url}`;
   if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
   return `${S3_URL}${path}`;
 };
@@ -55,11 +59,13 @@ interface CompanyInfo {
 const SellerDirectoryScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [companies, setCompanies] = useState<CompanyInfo[]>([]);
-  const [followedCompanyIds, setFollowedCompanyIds] = useState<Set<string>>(new Set());
+  const [followedCompanyIds, setFollowedCompanyIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string>('');
+  const [userId, setUserId] = useState<string>("");
   const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -71,72 +77,82 @@ const SellerDirectoryScreen: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem("token");
       if (!token) return;
 
       const decoded: any = jwtDecode(token);
       const currentUserId = decoded.user_id;
       setUserId(currentUserId);
-      const storedCompanyId = await AsyncStorage.getItem('companyId');
+      const storedCompanyId = await AsyncStorage.getItem("companyId");
       setUserCompanyId(storedCompanyId);
       const headers = { Authorization: `Bearer ${token}` };
 
-      // Fetch all approved companies
       let allCompanies: CompanyInfo[] = [];
       try {
         const res = await axios.get(`${API_URL}/company/get/all`, { headers });
         const data = res.data?.data?.companies || res.data?.data || [];
-        allCompanies = (Array.isArray(data) ? data : []).filter(
-          (c: any) => c.is_approved
-        ).map((c: any) => ({
-          company_id: String(c.company_id || c.id || ''),
-          user_id: String(c.user_id || ''),
-          company_name: c.company_name || c.name || '',
-          company_email: c.company_email || c.email || '',
-          company_phone: c.company_phone || c.phone || '',
-          company_profile_url: c.company_profile_url || c.profile_image || null,
-          company_address: c.company_address || c.address || '',
-          company_city: c.company_city || c.city || '',
-          company_state: c.company_state || c.state || '',
-          is_approved: true,
-          is_verified: c.is_verified || c.is_business_verified || false,
-          contact_person: c.contact_person || '',
-          rating: c.rating || 0,
-        }));
+        allCompanies = (Array.isArray(data) ? data : [])
+          .filter((c: any) => c.is_approved)
+          .map((c: any) => ({
+            company_id: String(c.company_id || c.id || ""),
+            user_id: String(c.user_id || ""),
+            company_name: c.company_name || c.name || "",
+            company_email: c.company_email || c.email || "",
+            company_phone: c.company_phone || c.phone || "",
+            company_profile_url:
+              c.company_profile_url || c.profile_image || null,
+            company_address: c.company_address || c.address || "",
+            company_city: c.company_city || c.city || "",
+            company_state: c.company_state || c.state || "",
+            is_approved: true,
+            is_verified: c.is_verified || c.is_business_verified || false,
+            contact_person: c.contact_person || "",
+            rating: c.rating || 0,
+          }));
       } catch {
         allCompanies = [];
       }
 
-      // Fallback: try business endpoint
       if (allCompanies.length === 0) {
         try {
-          const res = await axios.get(`${API_URL}/business/get/all`, { headers });
-          const data = res.data?.data?.businesses || res.data?.businesses || res.data?.data || [];
-          allCompanies = (Array.isArray(data) ? data : []).map((b: any) => {
-            const biz = b.business_details || b;
-            return {
-              company_id: String(biz.id || b.id || ''),
-              user_id: String(biz.user_id || b.user_id || ''),
-              company_name: biz.name || b.name || '',
-              company_email: biz.email || b.email || '',
-              company_phone: biz.phone || b.phone || '',
-              company_profile_url: biz.profile_image || b.profile_image || null,
-              company_address: biz.address || b.address || '',
-              company_city: biz.city || b.city || '',
-              company_state: biz.state || b.state || '',
-              is_approved: biz.is_business_approved !== false,
-              is_verified: biz.is_business_verified || b.is_business_verified || false,
-              contact_person: biz.contact_person || b.contact_person || '',
-              rating: biz.rating || b.rating || 0,
-            };
-          }).filter((c: any) => c.is_approved);
+          const res = await axios.get(`${API_URL}/business/get/all`, {
+            headers,
+          });
+          const data =
+            res.data?.data?.businesses ||
+            res.data?.businesses ||
+            res.data?.data ||
+            [];
+          allCompanies = (Array.isArray(data) ? data : [])
+            .map((b: any) => {
+              const biz = b.business_details || b;
+              return {
+                company_id: String(biz.id || b.id || ""),
+                user_id: String(biz.user_id || b.user_id || ""),
+                company_name: biz.name || b.name || "",
+                company_email: biz.email || b.email || "",
+                company_phone: biz.phone || b.phone || "",
+                company_profile_url:
+                  biz.profile_image || b.profile_image || null,
+                company_address: biz.address || b.address || "",
+                company_city: biz.city || b.city || "",
+                company_state: biz.state || b.state || "",
+                is_approved: biz.is_business_approved !== false,
+                is_verified:
+                  biz.is_business_verified || b.is_business_verified || false,
+                contact_person: biz.contact_person || b.contact_person || "",
+                rating: biz.rating || b.rating || 0,
+              };
+            })
+            .filter((c: any) => c.is_approved);
         } catch {}
       }
 
-      // Also try approved companies endpoint as additional source
       if (allCompanies.length === 0) {
         try {
-          const res = await axios.get(`${API_URL}/company/get/approved/all`, { headers });
+          const res = await axios.get(`${API_URL}/company/get/approved/all`, {
+            headers,
+          });
           const data = res.data?.data?.companies || res.data?.data || [];
           allCompanies = Array.isArray(data) ? data : [];
         } catch {}
@@ -144,19 +160,19 @@ const SellerDirectoryScreen: React.FC = () => {
 
       setCompanies(allCompanies);
 
-      // Fetch categories
       try {
-        const catRes = await axios.get(`${API_URL}/category/get/all`, { headers });
+        const catRes = await axios.get(`${API_URL}/category/get/all`, {
+          headers,
+        });
         setCategories(catRes.data?.categories || []);
       } catch {
         setCategories([]);
       }
 
-      // Fetch user's followed companies (with local cache fallback)
       const ids = await fetchFollowedCompanyIds(currentUserId, token);
       setFollowedCompanyIds(ids);
     } catch (error) {
-      console.error('Error fetching directory:', error);
+      console.error("Error fetching directory:", error);
     } finally {
       setLoading(false);
     }
@@ -168,19 +184,17 @@ const SellerDirectoryScreen: React.FC = () => {
     setRefreshing(false);
   };
 
-  const handleBack = () => {
-    router.back();
-  };
+  const handleBack = () => router.back();
 
   const performFollow = async (companyIdStr: string) => {
     setProcessingId(companyIdStr);
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
       await axios.post(
         `${API_URL}/follower/follow`,
         { user_id: userId, business_id: companyIdStr },
-        { headers }
+        { headers },
       );
       setFollowedCompanyIds((prev) => {
         const newSet = new Set(prev);
@@ -188,9 +202,8 @@ const SellerDirectoryScreen: React.FC = () => {
         return newSet;
       });
       await addFollowToCache(companyIdStr);
-    } catch (error: any) {
-      console.error('Error following:', error?.response?.data || error);
-      Alert.alert('Error', 'Failed to follow. Please try again.');
+    } catch {
+      Alert.alert("Error", "Failed to follow. Please try again.");
     } finally {
       setProcessingId(null);
     }
@@ -199,12 +212,12 @@ const SellerDirectoryScreen: React.FC = () => {
   const performUnfollow = async (companyIdStr: string) => {
     setProcessingId(companyIdStr);
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
       await axios.post(
         `${API_URL}/follower/unfollow`,
         { user_id: userId, business_id: companyIdStr },
-        { headers }
+        { headers },
       );
       setFollowedCompanyIds((prev) => {
         const newSet = new Set(prev);
@@ -212,9 +225,8 @@ const SellerDirectoryScreen: React.FC = () => {
         return newSet;
       });
       await removeFollowFromCache(companyIdStr);
-    } catch (error: any) {
-      console.error('Error unfollowing:', error?.response?.data || error);
-      Alert.alert('Error', 'Failed to unfollow. Please try again.');
+    } catch {
+      Alert.alert("Error", "Failed to unfollow. Please try again.");
     } finally {
       setProcessingId(null);
     }
@@ -222,26 +234,29 @@ const SellerDirectoryScreen: React.FC = () => {
 
   const handleFollow = (companyId: string) => {
     if (!companyId) {
-      Alert.alert('Error', 'Unable to follow this seller. Please try again later.');
+      Alert.alert(
+        "Error",
+        "Unable to follow this seller. Please try again later.",
+      );
       return;
     }
     const companyIdStr = String(companyId);
     const isCurrentlyFollowing = followedCompanyIds.has(companyIdStr);
-
     if (isCurrentlyFollowing) {
-      const company = companies.find((c) => String(c.company_id) === companyIdStr);
-      const companyName = company?.company_name || 'this company';
+      const company = companies.find(
+        (c) => String(c.company_id) === companyIdStr,
+      );
       Alert.alert(
-        'Unfollow',
-        `Are you sure you want to unfollow ${companyName}?`,
+        "Unfollow",
+        `Are you sure you want to unfollow ${company?.company_name || "this company"}?`,
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: "Cancel", style: "cancel" },
           {
-            text: 'Unfollow',
-            style: 'destructive',
+            text: "Unfollow",
+            style: "destructive",
             onPress: () => performUnfollow(companyIdStr),
           },
-        ]
+        ],
       );
     } else {
       performFollow(companyIdStr);
@@ -250,7 +265,7 @@ const SellerDirectoryScreen: React.FC = () => {
 
   const handleProfile = (companyId: string) => {
     router.push({
-      pathname: '/pages/bussinesProfile' as any,
+      pathname: "/pages/bussinesProfile" as any,
       params: { business_id: companyId },
     });
   };
@@ -258,23 +273,18 @@ const SellerDirectoryScreen: React.FC = () => {
   const handleContact = (phone: string) => {
     if (phone) Linking.openURL(`tel:${phone}`);
   };
-
   const handleMessage = (email: string) => {
     if (email) Linking.openURL(`mailto:${email}`);
   };
-
   const handleWhatsApp = (phone: string) => {
-    if (phone) {
-      const cleaned = phone.replace(/[^0-9]/g, '');
-      Linking.openURL(`https://wa.me/${cleaned}`);
-    }
+    if (phone) Linking.openURL(`https://wa.me/${phone.replace(/[^0-9]/g, "")}`);
   };
 
   const filteredCompanies = companies.filter((company) => {
-    // Hide the user's own company
-    if (company.user_id && String(company.user_id) === String(userId)) return false;
-    if (userCompanyId && String(company.company_id) === String(userCompanyId)) return false;
-
+    if (company.user_id && String(company.user_id) === String(userId))
+      return false;
+    if (userCompanyId && String(company.company_id) === String(userCompanyId))
+      return false;
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -288,23 +298,24 @@ const SellerDirectoryScreen: React.FC = () => {
     const stars = [];
     const fullStars = Math.floor(rating || 0);
     const hasHalfStar = (rating || 0) % 1 >= 0.5;
-
-    for (let i = 0; i < fullStars; i++) {
+    for (let i = 0; i < fullStars; i++)
       stars.push(
-        <Ionicons key={`full-${i}`} name="star" size={14} color="#FFB800" />
+        <Ionicons key={`full-${i}`} name="star" size={14} color="#FFB800" />,
       );
-    }
-    if (hasHalfStar) {
+    if (hasHalfStar)
       stars.push(
-        <Ionicons key="half" name="star-half" size={14} color="#FFB800" />
+        <Ionicons key="half" name="star-half" size={14} color="#FFB800" />,
       );
-    }
     const remaining = 5 - Math.ceil(rating || 0);
-    for (let i = 0; i < remaining; i++) {
+    for (let i = 0; i < remaining; i++)
       stars.push(
-        <Ionicons key={`empty-${i}`} name="star-outline" size={14} color="#FFB800" />
+        <Ionicons
+          key={`empty-${i}`}
+          name="star-outline"
+          size={14}
+          color="#FFB800"
+        />,
       );
-    }
     return <View style={styles.starsContainer}>{stars}</View>;
   };
 
@@ -315,9 +326,17 @@ const SellerDirectoryScreen: React.FC = () => {
     const imageUri = getImageUri(company.company_profile_url);
 
     return (
-      <View key={`${company.company_id || 'seller'}-${index}`} style={styles.sellerCard}>
-        <View style={styles.sellerHeader}>
-          <TouchableOpacity onPress={() => handleProfile(company.company_id)}>
+      <View
+        key={`${company.company_id || "seller"}-${index}`}
+        style={styles.sellerCard}
+      >
+        {/* ── TOP SECTION ── */}
+        <View style={styles.cardTop}>
+          {/* Col 1 — Avatar */}
+          <TouchableOpacity
+            onPress={() => handleProfile(company.company_id)}
+            style={styles.avatarTouchable}
+          >
             {imageUri ? (
               <Image
                 source={{ uri: `${imageUri}?t=${Date.now()}` }}
@@ -331,22 +350,27 @@ const SellerDirectoryScreen: React.FC = () => {
             )}
           </TouchableOpacity>
 
-          <View style={styles.sellerInfo}>
+          {/* Col 2 — Info */}
+          <View style={styles.infoBlock}>
             <Text style={styles.sellerName} numberOfLines={1}>
-              {company.company_name || 'Business'}
+              {company.company_name || "Business"}
             </Text>
+
             {renderStars(company.rating || 4)}
-            {company.contact_person && (
+
+            {!!company.contact_person && (
               <Text style={styles.contactPerson} numberOfLines={1}>
                 {company.contact_person}
               </Text>
             )}
+
             <View style={styles.locationRow}>
               <Ionicons name="location-outline" size={13} color="#888" />
               <Text style={styles.sellerLocation} numberOfLines={1}>
                 {company.company_city}, {company.company_state}
               </Text>
             </View>
+
             {company.is_verified ? (
               <View style={styles.verifiedBadge}>
                 <Ionicons name="shield-checkmark" size={12} color="#28A745" />
@@ -360,62 +384,78 @@ const SellerDirectoryScreen: React.FC = () => {
             )}
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.followButton,
-              isFollowing && styles.followingButton,
-              isProcessing && styles.followButtonDisabled,
-            ]}
-            onPress={() => handleFollow(company.company_id)}
-            disabled={isProcessing}
-          >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color={isFollowing ? '#177DDF' : '#FFFFFF'} />
-            ) : (
-              <Text
-                style={[
-                  styles.followButtonText,
-                  isFollowing && styles.followingButtonText,
-                ]}
-              >
-                {isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            )}
-          </TouchableOpacity>
+          {/* Col 3 — Follow button (top-right) */}
+          <View style={styles.followCol}>
+            <TouchableOpacity
+              style={[
+                styles.followButton,
+                isFollowing && styles.followingButton,
+                isProcessing && styles.followButtonDisabled,
+              ]}
+              onPress={() => handleFollow(company.company_id)}
+              disabled={isProcessing}
+            >
+              {isProcessing ? (
+                <ActivityIndicator
+                  size="small"
+                  color={isFollowing ? "#177DDF" : "#FFFFFF"}
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.followButtonText,
+                    isFollowing && styles.followingButtonText,
+                  ]}
+                >
+                  {isFollowing ? "Following" : "Follow"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Action Buttons */}
+        {/* ── ACTION BUTTONS (icons only) ── */}
         <View style={styles.actionButtons}>
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => handleProfile(company.company_id)}
           >
-            <Ionicons name="person-outline" size={18} color="#177DDF" />
-            <Text style={styles.actionButtonText}>Profile</Text>
+            <View style={styles.actionIconCircle}>
+              <Ionicons name="person-outline" size={20} color="#177DDF" />
+            </View>
           </TouchableOpacity>
+
+          <View style={styles.actionDivider} />
 
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => handleContact(company.company_phone)}
           >
-            <Ionicons name="call-outline" size={18} color="#177DDF" />
-            <Text style={styles.actionButtonText}>Contact</Text>
+            <View style={styles.actionIconCircle}>
+              <Ionicons name="call-outline" size={20} color="#177DDF" />
+            </View>
           </TouchableOpacity>
+
+          <View style={styles.actionDivider} />
 
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => handleMessage(company.company_email)}
           >
-            <Ionicons name="mail-outline" size={18} color="#177DDF" />
-            <Text style={styles.actionButtonText}>Message</Text>
+            <View style={styles.actionIconCircle}>
+              <Ionicons name="mail-outline" size={20} color="#177DDF" />
+            </View>
           </TouchableOpacity>
+
+          <View style={styles.actionDivider} />
 
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => handleWhatsApp(company.company_phone)}
           >
-            <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
-            <Text style={[styles.actionButtonText, { color: '#25D366' }]}>WhatsApp</Text>
+            <View style={[styles.actionIconCircle, styles.whatsappCircle]}>
+              <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -439,7 +479,7 @@ const SellerDirectoryScreen: React.FC = () => {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Search Bar */}
+      {/* Search */}
       <View style={styles.searchContainer}>
         <Ionicons
           name="search"
@@ -455,13 +495,12 @@ const SellerDirectoryScreen: React.FC = () => {
           placeholderTextColor="#999"
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
+          <TouchableOpacity onPress={() => setSearchQuery("")}>
             <Ionicons name="close-circle" size={20} color="#999" />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Loading Indicator */}
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#177DDF" />
@@ -475,22 +514,23 @@ const SellerDirectoryScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#177DDF']}
+              colors={["#177DDF"]}
               tintColor="#177DDF"
             />
           }
         >
-          {/* Results count */}
           <View style={styles.resultsHeader}>
             <Text style={styles.resultsCount}>
-              {filteredCompanies.length} seller{filteredCompanies.length !== 1 ? 's' : ''} found
+              {filteredCompanies.length} seller
+              {filteredCompanies.length !== 1 ? "s" : ""} found
             </Text>
           </View>
 
-          {/* Sellers List */}
           <View style={styles.sellersContainer}>
             {filteredCompanies.length > 0 ? (
-              filteredCompanies.map((company, index) => renderSellerCard(company, index))
+              filteredCompanies.map((company, index) =>
+                renderSellerCard(company, index),
+              )
             ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={64} color="#CCC" />
@@ -510,240 +550,199 @@ const SellerDirectoryScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F7FA',
-  },
+  container: { flex: 1, backgroundColor: "#F5F7FA" },
+
+  // ── Header ────────────────────────────────────────────────
   header: {
-    backgroundColor: '#177DDF',
+    backgroundColor: "#177DDF",
     paddingTop: 50,
     paddingBottom: 15,
     paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
   },
-  backButton: {
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  backButton: { marginRight: 12 },
+  headerTitle: { fontSize: 20, fontWeight: "700", color: "#FFFFFF" },
+
+  // ── Search ────────────────────────────────────────────────
   searchContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 12,
     borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 12,
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#333',
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  resultsHeader: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  resultsCount: {
-    fontSize: 14,
-    color: '#888',
-    fontWeight: '500',
-  },
-  sellersContainer: {
-    marginTop: 4,
-  },
+  searchIcon: { marginRight: 8 },
+  searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, color: "#333" },
+
+  // ── Misc ──────────────────────────────────────────────────
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
+  scrollView: { flex: 1 },
+  resultsHeader: { paddingHorizontal: 16, paddingBottom: 8 },
+  resultsCount: { fontSize: 14, color: "#888", fontWeight: "500" },
+  sellersContainer: { marginTop: 4 },
+
+  // ── Card ──────────────────────────────────────────────────
   sellerCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
     marginBottom: 12,
     borderRadius: 14,
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 0,
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 4,
   },
-  sellerHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+
+  // Three-column top row
+  cardTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     marginBottom: 12,
   },
+
+  // Col 1 – Avatar
+  avatarTouchable: { marginTop: 1 },
   sellerImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#E3F2FD',
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#E3F2FD",
     borderWidth: 2,
-    borderColor: '#F0F0F0',
+    borderColor: "#E8F0FE",
   },
-  imagePlaceholder: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sellerInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
+  imagePlaceholder: { justifyContent: "center", alignItems: "center" },
+
+  // Col 2 – Info
+  infoBlock: { flex: 1, marginLeft: 12, marginRight: 10 },
   sellerName: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 4,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 3,
+    lineHeight: 22,
   },
-  starsContainer: {
-    flexDirection: 'row',
-    marginBottom: 4,
-    gap: 1,
-  },
-  contactPerson: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 2,
-  },
+  starsContainer: { flexDirection: "row", marginBottom: 4, gap: 1 },
+  contactPerson: { fontSize: 12, color: "#666", marginBottom: 3 },
   locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginBottom: 6,
   },
-  sellerLocation: {
-    fontSize: 13,
-    color: '#888',
-  },
+  sellerLocation: { fontSize: 13, color: "#888", flexShrink: 1 },
   verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
-    alignSelf: 'flex-start',
-    backgroundColor: '#E8F5E9',
+    alignSelf: "flex-start",
+    backgroundColor: "#E8F5E9",
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
   },
-  verifiedText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#28A745',
-  },
+  verifiedText: { fontSize: 11, fontWeight: "600", color: "#28A745" },
   notVerifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
-    alignSelf: 'flex-start',
-    backgroundColor: '#FFF5F5',
+    alignSelf: "flex-start",
+    backgroundColor: "#FFF5F5",
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#FFDDDD',
+    borderColor: "#FFDDDD",
   },
-  notVerifiedText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#DC3545',
-  },
+  notVerifiedText: { fontSize: 11, fontWeight: "600", color: "#DC3545" },
+
+  // Col 3 – Follow button
+  followCol: { alignItems: "flex-end", justifyContent: "flex-start" },
   followButton: {
-    backgroundColor: '#177DDF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: "#177DDF",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 8,
-    minWidth: 85,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 36,
+    minWidth: 86,
+    alignItems: "center",
+    justifyContent: "center",
+    height: 34,
   },
   followingButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
-    borderColor: '#177DDF',
+    borderColor: "#177DDF",
   },
-  followButtonDisabled: {
-    opacity: 0.7,
-  },
-  followButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  followingButtonText: {
-    color: '#177DDF',
-  },
+  followButtonDisabled: { opacity: 0.7 },
+  followButtonText: { fontSize: 13, fontWeight: "600", color: "#FFFFFF" },
+  followingButtonText: { color: "#177DDF" },
+
+  // ── Action Buttons Row (icons only) ───────────────────────
   actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    paddingTop: 12,
+    borderTopColor: "#F0F0F0",
+    paddingVertical: 10,
   },
   actionButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    gap: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
   },
-  actionButtonText: {
-    fontSize: 12,
-    color: '#177DDF',
-    fontWeight: '600',
+  actionIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#EEF5FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
+  whatsappCircle: {
+    backgroundColor: "#E8FBF0",
+  },
+  actionDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: "#E8E8E8",
+  },
+
+  // ── Empty State ───────────────────────────────────────────
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingVertical: 60,
     paddingHorizontal: 40,
   },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#666',
-    marginTop: 16,
-  },
+  emptyText: { fontSize: 18, fontWeight: "600", color: "#666", marginTop: 16 },
   emptySubtext: {
     fontSize: 14,
-    color: '#999',
+    color: "#999",
     marginTop: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
-  bottomPadding: {
-    height: 20,
-  },
+  bottomPadding: { height: 20 },
 });
 
 export default SellerDirectoryScreen;
