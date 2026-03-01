@@ -426,14 +426,14 @@ const BusinessProfileScreen: React.FC = () => {
     if (url) Linking.openURL(url);
   };
 
-  const handleFollowToggle = async () => {
+  const performFollowToggle = async (shouldUnfollow: boolean) => {
     const businessId = businessDetails?.id;
     if (!businessId || !currentUserId) return;
     setFollowLoading(true);
     try {
       const token = await AsyncStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
-      if (isFollowing) {
+      if (shouldUnfollow) {
         await axios.post(`${API_URL}/follower/unfollow`, { user_id: currentUserId, business_id: businessId }, { headers });
         setIsFollowing(false);
         setFollowersCount((prev) => Math.max(0, prev - 1));
@@ -444,8 +444,29 @@ const BusinessProfileScreen: React.FC = () => {
       }
     } catch (error: any) {
       console.error("Follow error:", error?.response?.data || error);
+      Alert.alert("Error", "Failed to update follow status. Please try again.");
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const handleFollowToggle = () => {
+    if (isFollowing) {
+      const businessName = getBizField("name", "this company");
+      Alert.alert(
+        "Unfollow",
+        `Are you sure you want to unfollow ${businessName}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Unfollow",
+            style: "destructive",
+            onPress: () => performFollowToggle(true),
+          },
+        ]
+      );
+    } else {
+      performFollowToggle(false);
     }
   };
 
@@ -635,11 +656,6 @@ const BusinessProfileScreen: React.FC = () => {
             <TouchableOpacity style={styles.statItem}>
               <Text style={styles.statNumber}>{followersCount}</Text>
               <Text style={styles.statLabel}>Followers</Text>
-            </TouchableOpacity>
-            <View style={styles.statDivider} />
-            <TouchableOpacity style={styles.statItem}>
-              <Text style={styles.statNumber}>{followingCount}</Text>
-              <Text style={styles.statLabel}>Following</Text>
             </TouchableOpacity>
             <View style={styles.statDivider} />
             <TouchableOpacity style={styles.statItem}>

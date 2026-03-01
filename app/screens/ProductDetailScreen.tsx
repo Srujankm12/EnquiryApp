@@ -301,8 +301,8 @@ const ProductDetailScreen = () => {
     ]);
   };
 
-  const handleFollowCompany = async () => {
-    if (!companyInfo?.company_id || followLoading) return;
+  const performFollowAction = async (shouldUnfollow: boolean) => {
+    if (!companyInfo?.company_id) return;
     try {
       setFollowLoading(true);
       const token = await AsyncStorage.getItem('token');
@@ -313,14 +313,13 @@ const ProductDetailScreen = () => {
       };
       const decoded: any = jwtDecode(token);
 
-      if (isFollowing) {
+      if (shouldUnfollow) {
         await axios.post(
           `${API_URL}/follower/unfollow`,
           { user_id: decoded.user_id, business_id: companyInfo.company_id },
           { headers }
         );
         setIsFollowing(false);
-        Alert.alert('Unfollowed', `You unfollowed ${companyInfo.company_name}`);
       } else {
         await axios.post(
           `${API_URL}/follower/follow`,
@@ -328,12 +327,33 @@ const ProductDetailScreen = () => {
           { headers }
         );
         setIsFollowing(true);
-        Alert.alert('Following', `You are now following ${companyInfo.company_name}`);
       }
     } catch (error: any) {
       Alert.alert('Error', error?.response?.data?.message || 'Failed to update follow status');
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const handleFollowCompany = () => {
+    if (!companyInfo?.company_id || followLoading) return;
+
+    if (isFollowing) {
+      const companyName = companyInfo.company_name || 'this company';
+      Alert.alert(
+        'Unfollow',
+        `Are you sure you want to unfollow ${companyName}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Unfollow',
+            style: 'destructive',
+            onPress: () => performFollowAction(true),
+          },
+        ]
+      );
+    } else {
+      performFollowAction(false);
     }
   };
 
