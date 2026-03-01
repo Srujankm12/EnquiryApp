@@ -155,7 +155,33 @@ const CompanySocialInfoStep: React.FC<CompanySocialInfoStepProps> = ({
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    if (!businessId) {
+      onComplete(3);
+      return;
+    }
+
+    // If rows already exist, just move to next step
+    if (isExisting) {
+      onComplete(3);
+      return;
+    }
+
+    // Create empty social table entry so future updates don't fail with "no rows in result set"
+    try {
+      const response = await fetch(`${API_URL}/business/social/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: businessId }),
+      });
+
+      if (!response.ok) {
+        console.warn("Failed to create empty social entry on skip, proceeding anyway");
+      }
+    } catch (error) {
+      console.warn("Error creating empty social entry on skip:", error);
+    }
+
     onComplete(3);
   };
 
