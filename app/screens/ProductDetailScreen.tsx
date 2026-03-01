@@ -157,9 +157,9 @@ const ProductDetailScreen = () => {
               );
               const followedCompanies = followRes.data?.data?.followings || followRes.data?.followings || [];
               const followedIds = (Array.isArray(followedCompanies) ? followedCompanies : []).map(
-                (c: any) => c.following_id
+                (c: any) => String(c.following_id || c.business_id || "")
               );
-              setIsFollowing(followedIds.includes(productCompanyId));
+              setIsFollowing(followedIds.includes(String(productCompanyId)));
             } catch {
               setIsFollowing(false);
             }
