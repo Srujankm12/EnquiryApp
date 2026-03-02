@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context"; // ✅ ADDED
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets(); // ✅ ADDED — detects system nav bar height
+
   return (
     <Tabs
       screenOptions={{
@@ -12,8 +15,8 @@ export default function TabLayout() {
           backgroundColor: "#FFFFFF",
           borderTopWidth: 1,
           borderTopColor: "#E0E0E0",
-          height: 70,
-          paddingBottom: 10,
+          height: 60 + insets.bottom, // ✅ FIXED — adds system nav bar height automatically
+          paddingBottom: 8 + insets.bottom, // ✅ FIXED — pushes icons/labels up above system buttons
           paddingTop: 8,
         },
         tabBarLabelStyle: {

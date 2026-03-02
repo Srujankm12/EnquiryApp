@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context"; // ✅ ADDED
 
 const { width } = Dimensions.get("window");
 const TILE_SIZE = (width - 48 - 12) / 2;
@@ -53,6 +54,8 @@ interface GridItem {
 }
 
 const MenuScreen: React.FC = () => {
+  const insets = useSafeAreaInsets(); // ✅ ADDED — handles system nav bar on all phones
+
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,7 +88,6 @@ const MenuScreen: React.FC = () => {
       const bId = storedCompanyId || decoded.business_id;
       setCompanyId(bId);
 
-      // Normalize stored status
       const normalizeStatus = (s: string | null): string | null => {
         if (!s) return null;
         const lower = s.toLowerCase().trim();
@@ -97,7 +99,6 @@ const MenuScreen: React.FC = () => {
 
       status = normalizeStatus(status);
 
-      // Sync seller status from API if we have a business_id
       if (bId) {
         try {
           const appRes = await fetch(
@@ -118,7 +119,6 @@ const MenuScreen: React.FC = () => {
             }
           }
         } catch {
-          // Check if business is approved directly
           try {
             const bizRes = await fetch(`${API_URL}/business/get/${bId}`, {
               headers: { "Content-Type": "application/json" },
@@ -136,7 +136,6 @@ const MenuScreen: React.FC = () => {
           } catch {}
         }
 
-        // Also check the simple status endpoint
         if (status !== "approved") {
           try {
             const statusRes = await fetch(`${API_URL}/business/status/${bId}`, {
@@ -159,7 +158,6 @@ const MenuScreen: React.FC = () => {
       }
       setSellerStatus(status);
 
-      // Fetch user details for email and profile image
       try {
         const res = await fetch(`${API_URL}/user/get/user/${decoded.user_id}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -189,7 +187,6 @@ const MenuScreen: React.FC = () => {
   };
 
   const gridItems: GridItem[] = [
-    // Seller-specific items
     {
       id: "business-mgmt",
       title: "Business",
@@ -217,7 +214,6 @@ const MenuScreen: React.FC = () => {
       route: "pages/myRfqs",
       condition: "seller",
     },
-    // Non-seller items
     {
       id: "become-seller",
       title: "Become\nSeller",
@@ -236,7 +232,6 @@ const MenuScreen: React.FC = () => {
       route: "pages/sellerApplicationStatus",
       condition: "has-application",
     },
-    // Common items
     {
       id: "followers",
       title: "Followers &\nFollowing",
@@ -324,19 +319,24 @@ const MenuScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
+      {/* ✅ FIXED: Header now uses insets.top for proper top spacing on all phones */}
       <LinearGradient
         colors={["#177DDF", "#1567BF"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.header}
+        style={[styles.header, { paddingTop: 16 + insets.top }]}
       >
         <Text style={styles.headerTitle}>Menu</Text>
       </LinearGradient>
 
+      {/* ✅ FIXED: paddingBottom now accounts for system nav bar + tab bar height */}
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: 100 + insets.bottom },
+        ]}
       >
         {/* Profile Card */}
         <TouchableOpacity
@@ -483,8 +483,6 @@ const MenuScreen: React.FC = () => {
           <Ionicons name="log-out-outline" size={22} color="#DC3545" />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
-
-        <View style={{ height: 30 }} />
       </ScrollView>
     </View>
   );
@@ -493,7 +491,7 @@ const MenuScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F5F5" },
   header: {
-    paddingTop: 50,
+    paddingTop: 16, // ✅ Base value — insets.top added dynamically above
     paddingBottom: 16,
     paddingHorizontal: 16,
     flexDirection: "row",
@@ -501,7 +499,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: "700", color: "#FFFFFF" },
   scrollView: { flex: 1 },
-  scrollContent: { paddingBottom: 100 },
+  scrollContent: { paddingBottom: 100 }, // ✅ insets.bottom added dynamically above
   profileCard: {
     backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
