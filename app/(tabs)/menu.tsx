@@ -1,13 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { jwtDecode } from "jwt-decode";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   Image,
   ScrollView,
@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context"; // ✅ ADDED
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
 const TILE_SIZE = (width - 48 - 12) / 2;
@@ -53,8 +53,144 @@ interface GridItem {
   condition?: "always" | "seller" | "not-seller" | "has-application";
 }
 
+// ─── Animated Grid Tile ───────────────────────────────────────────────────────
+const GridTile = ({
+  item,
+  onPress,
+  index,
+}: {
+  item: GridItem;
+  onPress: () => void;
+  index: number;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(18)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        tension: 60,
+        friction: 9,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: fadeAnim,
+        transform: [{ translateY }, { scale: scaleAnim }],
+      }}
+    >
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={() =>
+          Animated.spring(scaleAnim, {
+            toValue: 0.95,
+            useNativeDriver: true,
+            speed: 20,
+          }).start()
+        }
+        onPressOut={() =>
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            speed: 20,
+          }).start()
+        }
+        activeOpacity={1}
+        style={styles.gridItem}
+      >
+        <View
+          style={[styles.gridIconContainer, { backgroundColor: item.bgColor }]}
+        >
+          <Ionicons name={item.icon} size={28} color={item.color} />
+        </View>
+        <Text style={styles.gridItemTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <View style={styles.gridArrow}>
+          <Ionicons name="arrow-forward" size={10} color="#0078D7" />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+// ─── Quick Action Row ─────────────────────────────────────────────────────────
+const QuickActionRow = ({
+  icon,
+  label,
+  onPress,
+  danger,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  return (
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={[styles.quickAction, danger && styles.quickActionDanger]}
+        onPress={onPress}
+        onPressIn={() =>
+          Animated.spring(scaleAnim, {
+            toValue: 0.97,
+            useNativeDriver: true,
+            speed: 20,
+          }).start()
+        }
+        onPressOut={() =>
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            speed: 20,
+          }).start()
+        }
+        activeOpacity={1}
+      >
+        <View
+          style={[
+            styles.qaIconWrap,
+            { backgroundColor: danger ? "#FFF0F0" : "#EBF5FF" },
+          ]}
+        >
+          <Ionicons
+            name={icon}
+            size={18}
+            color={danger ? "#DC3545" : "#0078D7"}
+          />
+        </View>
+        <Text style={[styles.quickActionText, danger && { color: "#DC3545" }]}>
+          {label}
+        </Text>
+        <Ionicons
+          name="chevron-forward"
+          size={16}
+          color={danger ? "#DC3545" : "#CBD5E1"}
+        />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 const MenuScreen: React.FC = () => {
-  const insets = useSafeAreaInsets(); // ✅ ADDED — handles system nav bar on all phones
+  const insets = useSafeAreaInsets();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -66,6 +202,19 @@ const MenuScreen: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 60,
+        friction: 9,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   useFocusEffect(
@@ -78,7 +227,6 @@ const MenuScreen: React.FC = () => {
     try {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
-
       const decoded = jwtDecode<DecodedToken>(token);
       setUserName(decoded.user_name || "");
       setBusinessId(decoded.business_id || "");
@@ -96,7 +244,6 @@ const MenuScreen: React.FC = () => {
         if (lower === "declined") return "rejected";
         return lower;
       };
-
       status = normalizeStatus(status);
 
       if (bId) {
@@ -135,7 +282,6 @@ const MenuScreen: React.FC = () => {
             }
           } catch {}
         }
-
         if (status !== "approved") {
           try {
             const statusRes = await fetch(`${API_URL}/business/status/${bId}`, {
@@ -176,9 +322,7 @@ const MenuScreen: React.FC = () => {
             setProfileImage(`${getImageUri(profileUrl)}?t=${Date.now()}`);
           }
         }
-      } catch (e) {
-        // Use token data as fallback
-      }
+      } catch {}
     } catch (error) {
       console.error("Error loading menu data:", error);
     } finally {
@@ -243,21 +387,12 @@ const MenuScreen: React.FC = () => {
     },
   ];
 
-  const tagItems = [
-    {
-      id: "share",
-      label: "App Share",
-      icon: "share-social-outline" as keyof typeof Ionicons.glyphMap,
-      color: "#9C27B0",
-    },
-  ];
-
   const isApproved = sellerStatus === "approved";
   const isPending = sellerStatus === "pending";
   const isRejected = sellerStatus === "rejected";
 
-  const getVisibleGridItems = (): GridItem[] => {
-    return gridItems.filter((item) => {
+  const getVisibleGridItems = (): GridItem[] =>
+    gridItems.filter((item) => {
       switch (item.condition) {
         case "always":
           return true;
@@ -271,13 +406,9 @@ const MenuScreen: React.FC = () => {
           return true;
       }
     });
-  };
 
   const handleGridItemPress = (item: GridItem) => {
-    if (item.route) {
-      //@ts-expect-error
-      router.push(`/${item.route}`);
-    }
+    if (item.route) router.push(`/${item.route}` as any);
   };
 
   const performLogout = async () => {
@@ -296,19 +427,95 @@ const MenuScreen: React.FC = () => {
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Logout", onPress: () => performLogout() },
+      { text: "Logout", style: "destructive", onPress: performLogout },
     ]);
   };
 
+  // ── Header ─────────────────────────────────────────────────────────────────
+  const Header = () => (
+    <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+      {/* decorative orbs — identical to Categories */}
+      <View style={styles.headerOrb1} />
+      <View style={styles.headerOrb2} />
+      <View style={styles.headerOrb3} />
+
+      <View style={styles.headerInner}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerEyebrow}>ACCOUNT</Text>
+          <Text style={styles.headerTitle}>Menu</Text>
+        </View>
+        {isApproved && (
+          <View style={styles.headerBadge}>
+            <View
+              style={[styles.headerBadgeDot, { backgroundColor: "#4ADE80" }]}
+            />
+            <Text style={styles.headerBadgeText}>Seller</Text>
+          </View>
+        )}
+        {isPending && (
+          <View
+            style={[styles.headerBadge, { borderColor: "rgba(255,165,0,0.4)" }]}
+          >
+            <View
+              style={[styles.headerBadgeDot, { backgroundColor: "#FFA500" }]}
+            />
+            <Text style={styles.headerBadgeText}>Pending</Text>
+          </View>
+        )}
+        {!isApproved && !isPending && (
+          <View style={styles.headerBadge}>
+            <View
+              style={[styles.headerBadgeDot, { backgroundColor: "#94A3B8" }]}
+            />
+            <Text style={styles.headerBadgeText}>Buyer</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Profile strip inside header */}
+      <TouchableOpacity
+        style={styles.headerProfile}
+        activeOpacity={0.8}
+        onPress={() => router.push("/pages/profileSetting" as any)}
+      >
+        <View style={styles.headerAvatarWrap}>
+          {profileImage ? (
+            <Image source={{ uri: profileImage }} style={styles.headerAvatar} />
+          ) : (
+            <View style={styles.headerAvatarPlaceholder}>
+              <Ionicons name="person" size={22} color="#0078D7" />
+            </View>
+          )}
+          <View style={styles.headerAvatarOnline} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerProfileName} numberOfLines={1}>
+            {userName || "User"}
+          </Text>
+          {userEmail ? (
+            <Text style={styles.headerProfileEmail} numberOfLines={1}>
+              {userEmail}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.headerProfileArrow}>
+          <Ionicons name="chevron-forward" size={14} color="#0078D7" />
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (loading) {
     return (
-      <View
-        style={[
-          styles.container,
-          { justifyContent: "center", alignItems: "center" },
-        ]}
-      >
-        <ActivityIndicator size="large" color="#177DDF" />
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+        <Header />
+        <View style={styles.loaderContainer}>
+          <View style={styles.loaderCard}>
+            <ActivityIndicator size="large" color="#0078D7" />
+            <Text style={styles.loaderText}>Loading…</Text>
+          </View>
+        </View>
       </View>
     );
   }
@@ -317,337 +524,408 @@ const MenuScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+      <Header />
 
-      {/* ✅ FIXED: Header now uses insets.top for proper top spacing on all phones */}
-      <LinearGradient
-        colors={["#177DDF", "#1567BF"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.header, { paddingTop: 16 + insets.top }]}
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: fadeAnim,
+          transform: [{ scale: scaleAnim }],
+        }}
       >
-        <Text style={styles.headerTitle}>Menu</Text>
-      </LinearGradient>
-
-      {/* ✅ FIXED: paddingBottom now accounts for system nav bar + tab bar height */}
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: 100 + insets.bottom },
-        ]}
-      >
-        {/* Profile Card */}
-        <TouchableOpacity
-          style={styles.profileCard}
-          activeOpacity={0.7}
-          onPress={() => router.push("/pages/profileSetting" as any)}
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: 100 + insets.bottom },
+          ]}
         >
-          <View style={styles.profileCardRow}>
-            <View style={styles.profileImageContainer}>
-              {profileImage ? (
-                <Image
-                  source={{ uri: profileImage }}
-                  style={styles.profileImage}
+          {/* Stats Bar — identical to Categories */}
+          {/* <View style={styles.statsBar}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{visibleItems.length}</Text>
+              <Text style={styles.statLabel}>Features</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{isApproved ? "Seller" : "Buyer"}</Text>
+              <Text style={styles.statLabel}>Account</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>Live</Text>
+              <Text style={styles.statLabel}>Status</Text>
+            </View>
+          </View> */}
+
+          {/* Features Grid */}
+          <View style={[styles.sectionContainer, { marginTop: 20 }]}>
+            <Text style={styles.sectionLabel}>Features</Text>
+            <View style={styles.grid}>
+              {visibleItems.map((item, index) => (
+                <GridTile
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onPress={() => handleGridItemPress(item)}
                 />
-              ) : (
-                <View style={styles.profileImagePlaceholder}>
-                  <Ionicons name="person" size={32} color="#0078D7" />
-                </View>
-              )}
+              ))}
             </View>
-            <View style={styles.profileTextContainer}>
-              <Text style={styles.profileName}>{userName || "User"}</Text>
-              {userEmail ? (
-                <Text style={styles.profileEmail}>{userEmail}</Text>
-              ) : null}
-              <Text style={styles.profileLink}>View Profile</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={22} color="#0078D7" />
           </View>
-        </TouchableOpacity>
 
-        {/* Seller Status Badge */}
-        {isApproved && (
-          <View style={styles.sellerStatusBadge}>
-            <Ionicons name="shield-checkmark" size={18} color="#0078D7" />
-            <Text style={styles.sellerStatusText}>Approved Seller</Text>
+          {/* Quick Actions */}
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionLabel}>Quick Actions</Text>
+            {isApproved && (
+              <QuickActionRow
+                icon="storefront-outline"
+                label="View Seller Profile"
+                onPress={() => {
+                  const bId = companyId || businessId;
+                  if (bId) {
+                    router.push({
+                      pathname: "/pages/sellerProfile" as any,
+                      params: { business_id: bId },
+                    });
+                  }
+                }}
+              />
+            )}
+            <QuickActionRow
+              icon="person-outline"
+              label="Update Profile"
+              onPress={() =>
+                router.push("/pages/updateUserProfileScreen" as any)
+              }
+            />
+            <QuickActionRow
+              icon="key-outline"
+              label="Update Password"
+              onPress={() => router.push("/pages/upadetPasswordScreen" as any)}
+            />
+            <QuickActionRow
+              icon="settings-outline"
+              label="Settings"
+              onPress={() => router.push("/pages/profileSetting" as any)}
+            />
+            <QuickActionRow
+              icon="share-social-outline"
+              label="Share App"
+              onPress={() => {}}
+            />
           </View>
-        )}
 
-        {/* Features Grid */}
-        <View style={styles.gridContainer}>
-          <Text style={styles.sectionLabel}>Features</Text>
-          <View style={styles.grid}>
-            {visibleItems.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.gridItem}
-                activeOpacity={0.7}
-                onPress={() => handleGridItemPress(item)}
-              >
-                <View
-                  style={[
-                    styles.gridIconContainer,
-                    { backgroundColor: item.bgColor },
-                  ]}
-                >
-                  <Ionicons name={item.icon} size={28} color={item.color} />
-                </View>
-                <Text style={styles.gridItemTitle} numberOfLines={2}>
-                  {item.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* Logout */}
+          <View style={styles.sectionContainer}>
+            <QuickActionRow
+              icon="log-out-outline"
+              label="Logout"
+              onPress={handleLogout}
+              danger
+            />
           </View>
-        </View>
-
-        {/* Tags Section */}
-        <View style={styles.tagsContainer}>
-          <Text style={styles.sectionLabel}>Explore</Text>
-          <View style={styles.tagsRow}>
-            {tagItems.map((tag) => (
-              <TouchableOpacity
-                key={tag.id}
-                style={styles.tagItem}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.tagIconContainer,
-                    { backgroundColor: `${tag.color}15` },
-                  ]}
-                >
-                  <Ionicons name={tag.icon} size={18} color={tag.color} />
-                </View>
-                <Text style={styles.tagLabel}>{tag.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.quickActionsContainer}>
-          <Text style={styles.sectionLabel}>Quick Actions</Text>
-          {isApproved && (
-            <TouchableOpacity
-              style={styles.quickAction}
-              onPress={() => {
-                const bId = companyId || businessId;
-                if (bId) {
-                  router.push({
-                    pathname: "/pages/sellerProfile" as any,
-                    params: { business_id: bId },
-                  });
-                }
-              }}
-            >
-              <Ionicons name="storefront-outline" size={22} color="#0078D7" />
-              <Text style={styles.quickActionText}>View Seller Profile</Text>
-              <Ionicons name="chevron-forward" size={18} color="#999" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={styles.quickAction}
-            onPress={() => router.push("/pages/updateUserProfileScreen" as any)}
-          >
-            <Ionicons name="person-outline" size={22} color="#0078D7" />
-            <Text style={styles.quickActionText}>Update Profile</Text>
-            <Ionicons name="chevron-forward" size={18} color="#999" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickAction}
-            onPress={() => router.push("/pages/upadetPasswordScreen" as any)}
-          >
-            <Ionicons name="key-outline" size={22} color="#0078D7" />
-            <Text style={styles.quickActionText}>Update Password</Text>
-            <Ionicons name="chevron-forward" size={18} color="#999" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.quickAction}
-            onPress={() => router.push("/pages/profileSetting" as any)}
-          >
-            <Ionicons name="settings-outline" size={22} color="#0078D7" />
-            <Text style={styles.quickActionText}>Settings</Text>
-            <Ionicons name="chevron-forward" size={18} color="#999" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Logout */}
-        <TouchableOpacity
-          style={styles.logoutButton}
-          activeOpacity={0.7}
-          onPress={handleLogout}
-        >
-          <Ionicons name="log-out-outline" size={22} color="#DC3545" />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </ScrollView>
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F5F5F5" },
-  header: {
-    paddingTop: 16, // ✅ Base value — insets.top added dynamically above
+  container: { flex: 1, backgroundColor: "#F7F9FC" },
+
+  // ── Loader ────────────────────────────────────────────────────────────────
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loaderCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 32,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  loaderText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+
+  // ── Header (mirrors Categories exactly) ──────────────────────────────────
+  headerWrapper: {
+    backgroundColor: "#0060B8",
+    paddingHorizontal: 20,
     paddingBottom: 16,
-    paddingHorizontal: 16,
+    overflow: "hidden",
+    shadowColor: "#003E80",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 18,
+  },
+  headerOrb1: {
+    position: "absolute",
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    top: -100,
+    right: -70,
+  },
+  headerOrb2: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    bottom: 10,
+    left: -60,
+  },
+  headerOrb3: {
+    position: "absolute",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(100,180,255,0.08)",
+    top: 20,
+    right: width * 0.35,
+  },
+  headerInner: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  headerEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.65)",
+    letterSpacing: 2,
+    marginBottom: 2,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  headerBadge: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  headerTitle: { fontSize: 22, fontWeight: "700", color: "#FFFFFF" },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingBottom: 100 }, // ✅ insets.bottom added dynamically above
-  profileCard: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
+  headerBadgeDot: { width: 6, height: 6, borderRadius: 3 },
+  headerBadgeText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: "700",
+  },
+
+  // Profile strip inside header
+  headerProfile: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
     borderRadius: 16,
-    padding: 16,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    marginBottom: 4,
+    gap: 12,
   },
-  profileCardRow: { flexDirection: "row", alignItems: "center" },
-  profileImageContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    overflow: "hidden",
-    marginRight: 14,
+  headerAvatarWrap: { position: "relative" },
+  headerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
   },
-  profileImage: { width: 56, height: 56, borderRadius: 28 },
-  profileImagePlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#E3F2FD",
+  headerAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  headerAvatarOnline: {
+    position: "absolute",
+    bottom: 1,
+    right: 1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: "#4ADE80",
+    borderWidth: 2,
+    borderColor: "#0060B8",
+  },
+  headerProfileName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    letterSpacing: -0.2,
+  },
+  headerProfileEmail: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.65)",
+    marginTop: 1,
+    fontWeight: "500",
+  },
+  headerProfileArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
   },
-  profileTextContainer: { flex: 1 },
-  profileName: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    marginBottom: 2,
-  },
-  profileEmail: { fontSize: 13, color: "#888", marginBottom: 4 },
-  profileLink: { fontSize: 13, fontWeight: "600", color: "#0078D7" },
-  sellerStatusBadge: {
+
+  // ── Stats Bar (mirrors Categories exactly) ────────────────────────────────
+  statsBar: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#E3F2FD",
+    backgroundColor: "#0078D7",
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
     marginHorizontal: 16,
-    marginBottom: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    marginTop: 16,
+    marginBottom: 20,
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 8,
   },
-  sellerStatusText: { fontSize: 14, fontWeight: "600", color: "#0078D7" },
+  statItem: { flex: 1, alignItems: "center" },
+  statValue: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.72)",
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  statDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.2)" },
+
+  // ── Sections ──────────────────────────────────────────────────────────────
+  scrollView: { flex: 1 },
+  scrollContent: { paddingBottom: 100 },
+  sectionContainer: { paddingHorizontal: 16, marginBottom: 20 },
   sectionLabel: {
     fontSize: 16,
-    fontWeight: "700",
-    color: "#1A1A1A",
+    fontWeight: "800",
+    color: "#0F172A",
     marginBottom: 14,
-    paddingHorizontal: 4,
+    letterSpacing: -0.3,
   },
-  gridContainer: { paddingHorizontal: 16, marginBottom: 16 },
+
+  // ── Feature Grid ─────────────────────────────────────────────────────────
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   gridItem: {
     width: TILE_SIZE,
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingVertical: 18,
+    borderRadius: 22,
+    paddingVertical: 20,
     paddingHorizontal: 12,
     alignItems: "center",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowColor: "#64748B",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 16,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: "#F0F4F8",
+    position: "relative",
   },
   gridIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 10,
   },
   gridItemTitle: {
     fontSize: 13,
-    fontWeight: "600",
-    color: "#1A1A1A",
+    fontWeight: "700",
+    color: "#0F172A",
     textAlign: "center",
     lineHeight: 18,
+    letterSpacing: -0.1,
   },
-  tagsContainer: { paddingHorizontal: 16, marginBottom: 16 },
-  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  tagItem: {
-    flexDirection: "row",
-    alignItems: "center",
+  gridArrow: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-  },
-  tagIconContainer: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#EBF5FF",
   },
-  tagLabel: { fontSize: 13, fontWeight: "600", color: "#333" },
-  quickActionsContainer: { paddingHorizontal: 16, marginBottom: 16 },
+
+  // ── Quick Actions ─────────────────────────────────────────────────────────
   quickAction: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     marginBottom: 8,
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowColor: "#64748B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F0F4F8",
+    gap: 12,
+  },
+  quickActionDanger: {
+    borderColor: "#FFE5E5",
+    backgroundColor: "#FFFAFA",
+  },
+  qaIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
   },
   quickActionText: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#1A1A1A",
-    marginLeft: 14,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0F172A",
   },
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 16,
-    marginTop: 4,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 16,
-    borderWidth: 1.5,
-    borderColor: "#FFE5E5",
-    gap: 8,
-  },
-  logoutText: { fontSize: 16, fontWeight: "600", color: "#DC3545" },
 });
 
 export default MenuScreen;

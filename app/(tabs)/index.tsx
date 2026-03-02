@@ -47,40 +47,47 @@ const QUICK_ACTIONS = [
     icon: "newspaper-outline" as const,
     label: "RFQ",
     route: "/pages/requestQutation",
+    color: "#0078D7",
+    bg: "#EBF5FF",
   },
   {
     id: "2",
     icon: "search-outline" as const,
     label: "Leads",
     route: "/pages/bussinesLeads",
+    color: "#7C3AED",
+    bg: "#F3EEFF",
   },
   {
     id: "3",
     icon: "git-network-outline" as const,
     label: "Network",
     route: "/pages/followers",
+    color: "#059669",
+    bg: "#ECFDF5",
   },
   {
     id: "4",
     icon: "people-outline" as const,
     label: "Sellers",
     route: "/pages/sellerDirectory",
+    color: "#D97706",
+    bg: "#FFFBEB",
   },
 ];
 
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [jwtUserName, setJwtUserName] = useState<string>("");
   const [categories, setCategories] = useState<any[]>([]);
-
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [followerProducts, setFollowerProducts] = useState<any[]>([]);
-
   const [showToaster, setShowToaster] = useState(true);
   const [toasterKey, setToasterKey] = useState(0);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
@@ -89,11 +96,19 @@ const HomeScreen = () => {
 
   useEffect(() => {
     loadData();
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 60,
+        friction: 9,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   useFocusEffect(
@@ -197,8 +212,9 @@ const HomeScreen = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const raw: any[] = res.data?.products || [];
-      const activeOnly = raw.filter((p) => p.is_product_active !== false);
-      setAllProducts(activeOnly.slice(0, 10));
+      setAllProducts(
+        raw.filter((p) => p.is_product_active !== false).slice(0, 10),
+      );
     } catch {
       setAllProducts([]);
     }
@@ -211,11 +227,14 @@ const HomeScreen = () => {
       const dec: any = jwtDecode(token);
       const res = await axios.get(
         `${API_URL}/product/get/followers/${dec.user_id}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
       );
       const raw: any[] = res.data?.products || [];
-      const activeOnly = raw.filter((p) => p.is_product_active !== false);
-      setFollowerProducts(activeOnly.slice(0, 10));
+      setFollowerProducts(
+        raw.filter((p) => p.is_product_active !== false).slice(0, 10),
+      );
     } catch {
       setFollowerProducts([]);
     }
@@ -230,8 +249,10 @@ const HomeScreen = () => {
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#0078D7" />
-        <Text style={styles.loaderText}>Loading...</Text>
+        <View style={styles.loaderCard}>
+          <ActivityIndicator size="large" color="#0078D7" />
+          <Text style={styles.loaderText}>Loading...</Text>
+        </View>
       </View>
     );
   }
@@ -244,8 +265,7 @@ const HomeScreen = () => {
 
   const hasAnyProducts = allProducts.length > 0 || followerProducts.length > 0;
 
-  // ── Premium Product Card ──
-  const PremiumProductCard = ({
+  const ProductCard = ({
     item,
     onPress,
   }: {
@@ -254,66 +274,72 @@ const HomeScreen = () => {
   }) => {
     const img = getProductImage(item);
     return (
-      <TouchableOpacity style={styles.premiumCard} activeOpacity={0.92} onPress={onPress}>
-        {/* Image */}
-        <View style={styles.premiumImgWrap}>
+      <TouchableOpacity
+        style={styles.productCard}
+        activeOpacity={0.93}
+        onPress={onPress}
+      >
+        <View style={styles.productImgWrap}>
           {img ? (
-            <Image source={{ uri: img }} style={styles.premiumImg} resizeMode="cover" />
+            <Image
+              source={{ uri: img }}
+              style={styles.productImg}
+              resizeMode="cover"
+            />
           ) : (
-            <View style={styles.premiumImgPlaceholder}>
-              <Ionicons name="cube-outline" size={34} color="#C8D8E8" />
+            <View style={styles.productImgPlaceholder}>
+              <Ionicons name="cube-outline" size={36} color="#D1D9E2" />
             </View>
           )}
-          {/* Active badge */}
-          <View style={styles.premiumBadge}>
-            <View style={styles.premiumBadgeDot} />
-            <Text style={styles.premiumBadgeText}>Active</Text>
+          <View style={styles.activePill}>
+            <View style={styles.activeDot} />
+            <Text style={styles.activeText}>Active</Text>
           </View>
-        </View>
-
-        {/* Content */}
-        <View style={styles.premiumContent}>
-          <Text style={styles.premiumName} numberOfLines={2}>
-            {item.name}
-          </Text>
-
-          {item.business_name ? (
-            <View style={styles.premiumBizRow}>
-              <Ionicons name="storefront-outline" size={10} color="#94A3B8" />
-              <Text style={styles.premiumBizName} numberOfLines={1}>
-                {item.business_name}
-              </Text>
-            </View>
-          ) : (
-            <View style={{ height: 2 }} />
-          )}
-
-          {item.product_description ? (
-            <Text style={styles.premiumDesc} numberOfLines={2}>
-              {item.product_description}
-            </Text>
-          ) : item.category_name ? (
-            <View style={styles.premiumCategoryChip}>
-              <Ionicons name="pricetag-outline" size={9} color="#0078D7" />
-              <Text style={styles.premiumCategoryText} numberOfLines={1}>
+          {item.category_name && (
+            <View style={styles.categoryPillImg}>
+              <Text style={styles.categoryPillImgText} numberOfLines={1}>
                 {item.category_name}
               </Text>
             </View>
-          ) : null}
-
-          <View style={styles.premiumDivider} />
-
-          <View style={styles.premiumFooter}>
-            <View>
-              <Text style={styles.premiumPriceLabel}>PRICE</Text>
-              <Text style={styles.premiumPrice}>
-                ₹{item.price}
-                <Text style={styles.premiumUnit}>/{item.unit}</Text>
+          )}
+        </View>
+        <View style={styles.productBody}>
+          <Text style={styles.productName} numberOfLines={2}>
+            {item.name}
+          </Text>
+          {item.business_name && (
+            <View style={styles.bizRow}>
+              <Ionicons name="storefront-outline" size={10} color="#A0AEC0" />
+              <Text style={styles.bizName} numberOfLines={1}>
+                {item.business_name}
               </Text>
             </View>
-            <View style={styles.premiumEnquireBtn}>
-              <Ionicons name="arrow-forward" size={14} color="#fff" />
+          )}
+          {item.product_description ? (
+            <Text style={styles.productDesc} numberOfLines={2}>
+              {item.product_description}
+            </Text>
+          ) : (
+            <View style={{ height: 4 }} />
+          )}
+          <View style={styles.separator} />
+          <View style={styles.priceRow}>
+            <View>
+              <Text style={styles.priceLabel}>PRICE</Text>
+              <View style={styles.priceValueRow}>
+                <Text style={styles.priceCurrency}>₹</Text>
+                <Text style={styles.priceValue}>{item.price}</Text>
+                <Text style={styles.priceUnit}>/{item.unit}</Text>
+              </View>
             </View>
+            <TouchableOpacity
+              style={styles.enquireBtn}
+              onPress={onPress}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.enquireBtnText}>Enquire</Text>
+              <Ionicons name="arrow-forward" size={11} color="#0078D7" />
+            </TouchableOpacity>
           </View>
         </View>
       </TouchableOpacity>
@@ -322,7 +348,7 @@ const HomeScreen = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
+      <StatusBar barStyle="light-content" backgroundColor="#0078D7" />
 
       {sellerStatus !== "approved" &&
         sellerStatus !== "accepted" &&
@@ -334,57 +360,94 @@ const HomeScreen = () => {
           />
         )}
 
-      {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: 14 + insets.top }]}>
-        <View style={styles.headerLeft}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>
-              {displayName.charAt(0).toUpperCase()}
-            </Text>
+      {/* ── ULTRA PREMIUM HEADER ── */}
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        {/* Layered decorative orbs */}
+        <View style={styles.headerOrb1} />
+        <View style={styles.headerOrb2} />
+        <View style={styles.headerOrb3} />
+
+        {/* Top Row */}
+        <View style={styles.headerInner}>
+          <View style={styles.headerLeft}>
+            <View style={styles.avatarWrapper}>
+              <View style={styles.avatarRing}>
+                <View style={styles.avatarCircle}>
+                  <Text style={styles.avatarText}>
+                    {displayName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.avatarOnlineDot} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.greetingRow}>
+                <Text style={styles.headerGreeting}>Good morning </Text>
+                <Text style={styles.greetingEmoji}>☀️</Text>
+              </View>
+              <Text style={styles.headerName} numberOfLines={1}>
+                {displayName}
+              </Text>
+              <View style={styles.headerBadge}>
+                <View style={styles.headerBadgeDot} />
+                <Text style={styles.headerBadgeText}>Active Trader</Text>
+              </View>
+            </View>
           </View>
-          <View>
-            <Text style={styles.headerGreeting}>Hello 👋</Text>
-            <Text style={styles.headerName} numberOfLines={1}>
-              {displayName}
-            </Text>
+
+          <View style={styles.headerRight}>
+            <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.75}>
+              <Ionicons
+                name="notifications-outline"
+                size={19}
+                color="#FFFFFF"
+              />
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>3</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.75}>
+              <Ionicons
+                name="chatbox-ellipses-outline"
+                size={19}
+                color="#FFFFFF"
+              />
+            </TouchableOpacity>
           </View>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerIconBtn}>
-            <Ionicons name="notifications-outline" size={21} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn}>
-            <Ionicons name="chatbox-outline" size={21} color="#fff" />
+
+        {/* Search Bar */}
+        <View style={styles.headerSearchWrap}>
+          <View style={styles.searchIconCircle}>
+            <Ionicons name="search-outline" size={14} color="#0078D7" />
+          </View>
+          <TextInput
+            style={styles.headerSearchInput}
+            placeholder="Search products, sellers, categories..."
+            placeholderTextColor="#94A3B8"
+          />
+          <TouchableOpacity style={styles.searchFilterBtn} activeOpacity={0.8}>
+            <Ionicons name="options-outline" size={15} color="#0078D7" />
           </TouchableOpacity>
         </View>
+
+        {/* Bottom curved mask */}
       </View>
 
       <Animated.ScrollView
-        style={{ opacity: fadeAnim }}
+        style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: 32 + insets.bottom }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
             colors={["#0078D7"]}
             tintColor="#0078D7"
-            title="Refreshing..."
-            titleColor="#0078D7"
           />
         }
       >
-        {/* ── Search ── */}
-        <View style={styles.searchWrap}>
-          <Ionicons name="search-outline" size={17} color="#BDBDBD" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search products, categories..."
-            placeholderTextColor="#BDBDBD"
-          />
-        </View>
-
-        {/* ── Banners ── */}
+        {/* Banners */}
         <FlatList
           data={BANNERS}
           horizontal
@@ -392,6 +455,7 @@ const HomeScreen = () => {
           showsHorizontalScrollIndicator={false}
           snapToInterval={width - 32}
           decelerationRate="fast"
+          style={{ marginTop: 16 }}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
           onMomentumScrollEnd={(e) =>
             setActiveBanner(
@@ -400,45 +464,59 @@ const HomeScreen = () => {
           }
           renderItem={({ item }) => (
             <View style={styles.bannerCard}>
-              <Image source={item.image} style={styles.bannerImg} resizeMode="cover" />
+              <Image
+                source={item.image}
+                style={styles.bannerImg}
+                resizeMode="cover"
+              />
+              <View style={styles.bannerShine} />
             </View>
           )}
           keyExtractor={(i) => i.id}
         />
         <View style={styles.dotsRow}>
           {BANNERS.map((_, i) => (
-            <View key={i} style={[styles.dot, i === activeBanner && styles.dotActive]} />
+            <View
+              key={i}
+              style={[styles.dot, i === activeBanner && styles.dotActive]}
+            />
           ))}
         </View>
 
-        {/* ── Quick Actions ── */}
-        <View style={styles.quickCard}>
-          {QUICK_ACTIONS.map((a) => (
-            <TouchableOpacity
-              key={a.id}
-              style={styles.quickItem}
-              activeOpacity={0.7}
-              onPress={() => router.push(a.route as any)}
-            >
-              <View style={styles.quickIconWrap}>
-                <Ionicons name={a.icon} size={24} color="#0078D7" />
-              </View>
-              <Text style={styles.quickLabel}>{a.label}</Text>
-            </TouchableOpacity>
-          ))}
+        {/* Quick Actions */}
+        <View style={styles.quickSection}>
+          <Text style={styles.quickTitle}>Quick Actions</Text>
+          <View style={styles.quickGrid}>
+            {QUICK_ACTIONS.map((a) => (
+              <TouchableOpacity
+                key={a.id}
+                style={styles.quickItem}
+                activeOpacity={0.8}
+                onPress={() => router.push(a.route as any)}
+              >
+                <View style={[styles.quickIconWrap, { backgroundColor: a.bg }]}>
+                  <Ionicons name={a.icon} size={22} color={a.color} />
+                </View>
+                <Text style={styles.quickLabel}>{a.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
-        {/* ── Categories ── */}
+        {/* Categories */}
         {categories.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Categories</Text>
+              <View>
+                <Text style={styles.sectionTitle}>Categories</Text>
+                <Text style={styles.sectionSubtitle}>Browse by type</Text>
+              </View>
               <TouchableOpacity
-                style={styles.viewAllBtn}
+                style={styles.viewAllChip}
                 onPress={() => router.push("/(tabs)/catgories" as any)}
               >
-                <Text style={styles.seeAll}>View All</Text>
-                <Ionicons name="chevron-forward" size={13} color="#0078D7" />
+                <Text style={styles.viewAllChipText}>View All</Text>
+                <Ionicons name="chevron-forward" size={11} color="#0078D7" />
               </TouchableOpacity>
             </View>
             <FlatList
@@ -449,7 +527,7 @@ const HomeScreen = () => {
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.catCard}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                   onPress={() =>
                     router.push({
                       pathname: "/pages/specificCategory",
@@ -465,7 +543,7 @@ const HomeScreen = () => {
                     />
                   ) : (
                     <View style={[styles.catImg, styles.catImgPlaceholder]}>
-                      <Ionicons name="leaf-outline" size={22} color="#0078D7" />
+                      <Ionicons name="leaf-outline" size={24} color="#0078D7" />
                     </View>
                   )}
                   <View style={styles.catLabelWrap}>
@@ -480,19 +558,39 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* ── SECTION 1: All Products ── */}
+        {/* Stats Bar */}
+        <View style={styles.statsBar}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{allProducts.length}+</Text>
+            <Text style={styles.statLabel}>Products</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{categories.length}+</Text>
+            <Text style={styles.statLabel}>Categories</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{followerProducts.length}+</Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </View>
+        </View>
+
+        {/* All Products */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionTitle}>All Products</Text>
-              <Text style={styles.sectionSubtitle}>Discover what's available</Text>
+              <Text style={styles.sectionSubtitle}>
+                Discover what's available
+              </Text>
             </View>
             <TouchableOpacity
-              style={styles.viewAllBtn}
+              style={styles.viewAllChip}
               onPress={() => router.push("/(tabs)/listing" as any)}
             >
-              <Text style={styles.seeAll}>View All</Text>
-              <Ionicons name="chevron-forward" size={13} color="#0078D7" />
+              <Text style={styles.viewAllChipText}>View All</Text>
+              <Ionicons name="chevron-forward" size={11} color="#0078D7" />
             </TouchableOpacity>
           </View>
           {allProducts.length > 0 ? (
@@ -502,7 +600,7 @@ const HomeScreen = () => {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
               renderItem={({ item }) => (
-                <PremiumProductCard
+                <ProductCard
                   item={item}
                   onPress={() =>
                     router.push({
@@ -516,13 +614,16 @@ const HomeScreen = () => {
             />
           ) : (
             <View style={styles.emptySection}>
-              <Ionicons name="cube-outline" size={32} color="#E0E0E0" />
-              <Text style={styles.emptySectionText}>No products available</Text>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="cube-outline" size={28} color="#CBD5E1" />
+              </View>
+              <Text style={styles.emptyTitle}>No products available</Text>
+              <Text style={styles.emptySubtitle}>Check back soon</Text>
             </View>
           )}
         </View>
 
-        {/* ── SECTION 2: From Sellers You Follow ── */}
+        {/* From Sellers You Follow */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
@@ -530,11 +631,11 @@ const HomeScreen = () => {
               <Text style={styles.sectionSubtitle}>Curated for you</Text>
             </View>
             <TouchableOpacity
-              style={styles.viewAllBtn}
+              style={styles.viewAllChip}
               onPress={() => router.push("/(tabs)/listing" as any)}
             >
-              <Text style={styles.seeAll}>View All</Text>
-              <Ionicons name="chevron-forward" size={13} color="#0078D7" />
+              <Text style={styles.viewAllChipText}>View All</Text>
+              <Ionicons name="chevron-forward" size={11} color="#0078D7" />
             </TouchableOpacity>
           </View>
           {followerProducts.length > 0 ? (
@@ -544,7 +645,7 @@ const HomeScreen = () => {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
               renderItem={({ item }) => (
-                <PremiumProductCard
+                <ProductCard
                   item={item}
                   onPress={() =>
                     router.push({
@@ -558,26 +659,28 @@ const HomeScreen = () => {
             />
           ) : (
             <View style={styles.emptySection}>
-              <Ionicons name="people-outline" size={32} color="#E0E0E0" />
-              <Text style={styles.emptySectionText}>
-                Follow sellers to see their products here
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="people-outline" size={28} color="#CBD5E1" />
+              </View>
+              <Text style={styles.emptyTitle}>No curated products yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Follow sellers to see their listings
               </Text>
               <TouchableOpacity
-                style={styles.followSellersBtn}
+                style={styles.browseSellersBtn}
                 onPress={() => router.push("/pages/sellerDirectory" as any)}
               >
-                <Text style={styles.followSellersBtnText}>Browse Sellers</Text>
+                <Text style={styles.browseSellersBtnText}>Browse Sellers</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* ── Global empty ── */}
         {!hasAnyProducts && !refreshing && (
           <View style={styles.emptyWrap}>
-            <Ionicons name="cube-outline" size={44} color="#E0E0E0" />
-            <Text style={styles.emptyTitle}>No active products yet</Text>
-            <Text style={styles.emptySub}>Pull down to refresh</Text>
+            <Ionicons name="cube-outline" size={40} color="#E2E8F0" />
+            <Text style={styles.emptyWrapTitle}>No active products yet</Text>
+            <Text style={styles.emptyWrapSub}>Pull down to refresh</Text>
           </View>
         )}
       </Animated.ScrollView>
@@ -586,358 +689,605 @@ const HomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F0F4F8" },
+  container: { flex: 1, backgroundColor: "#F7F9FC" },
+
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F0F4F8",
+    backgroundColor: "#F7F9FC",
   },
-  loaderText: { marginTop: 10, fontSize: 14, color: "#999" },
+  loaderCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 32,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  loaderText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
 
-  /* Header */
-  header: {
-    backgroundColor: "#1E90FF",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+  // ── PREMIUM HEADER ──
+  // ─────────────────────────────────
+  // ULTRA PREMIUM HEADER STYLES
+  // ─────────────────────────────────
+  headerWrapper: {
+    backgroundColor: "#0060B8",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    overflow: "hidden",
+    shadowColor: "#003E80",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 18,
+  },
+  headerOrb1: {
+    position: "absolute",
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    top: -100,
+    right: -70,
+  },
+  headerOrb2: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    bottom: 10,
+    left: -60,
+  },
+  headerOrb3: {
+    position: "absolute",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(100,180,255,0.08)",
+    top: 20,
+    right: width * 0.35,
+  },
+  headerInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingTop: 16,
+    paddingBottom: 20,
   },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1 },
+  avatarWrapper: { position: "relative" },
+  avatarRing: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.35)",
+    padding: 3,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   avatarCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: "rgba(255,255,255,0.22)",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.5)",
   },
-  avatarText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  avatarText: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+    fontSize: 20,
+    letterSpacing: 0.5,
+  },
+  avatarOnlineDot: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: "#22C55E",
+    borderWidth: 2.5,
+    borderColor: "#0060B8",
+  },
+  greetingRow: { flexDirection: "row", alignItems: "center", marginBottom: 2 },
+  greetingEmoji: { fontSize: 13 },
   headerGreeting: {
-    fontSize: 10,
-    color: "rgba(255,255,255,0.75)",
-    marginBottom: 1,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.68)",
+    fontWeight: "500",
   },
-  headerName: { fontSize: 14, fontWeight: "700", color: "#fff", maxWidth: 180 },
-  headerRight: { flexDirection: "row", gap: 6 },
+  headerName: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    maxWidth: 180,
+    letterSpacing: -0.5,
+    lineHeight: 24,
+  },
+  headerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 5,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignSelf: "flex-start",
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  headerBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#4ADE80",
+  },
+  headerBadgeText: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: "700",
+  },
+  headerRight: { flexDirection: "row", gap: 10 },
   headerIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.12)",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  notifBadge: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#FF3B30",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#0060B8",
+    paddingHorizontal: 3,
+  },
+  notifBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#fff",
+    lineHeight: 11,
+  },
+  headerSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 0,
+    marginBottom: 0,
+    paddingHorizontal: 12,
+    height: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    shadowColor: "#003E80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  searchIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 8,
+  },
+  headerSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: "#0F172A",
+    fontWeight: "500",
+  },
+  searchFilterBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 6,
+  },
+  headerBottomCurve: {
+    height: 28,
+    backgroundColor: "#F7F9FC",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: 18,
   },
 
-  /* Search */
+  // ── SEARCH ──
+  searchOuter: { paddingHorizontal: 16, marginTop: 2, marginBottom: 14 },
   searchWrap: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    marginHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 12,
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#EDF2F7",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  searchInput: { flex: 1, marginLeft: 8, fontSize: 13, color: "#333" },
-
-  /* Banner */
-  bannerCard: {
-    width: width - 32,
-    height: 155,
-    borderRadius: 16,
-    overflow: "hidden",
-    marginRight: 12,
-  },
-  bannerImg: { width: "100%", height: "100%" },
-  dotsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 5,
-    marginTop: 8,
-    marginBottom: 2,
-  },
-  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#C0DCFF" },
-  dotActive: { width: 16, backgroundColor: "#0078D7" },
-
-  /* Quick Actions */
-  quickCard: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "#fff",
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 16,
-    paddingVertical: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
-  quickItem: { alignItems: "center", gap: 6 },
-  quickIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 13, color: "#2D3748" },
+  filterBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     backgroundColor: "#EBF5FF",
     justifyContent: "center",
     alignItems: "center",
   },
-  quickLabel: { fontSize: 11, fontWeight: "600", color: "#333" },
 
-  /* Section */
-  section: { marginTop: 22 },
+  bannerCard: {
+    width: width - 32,
+    height: 160,
+    borderRadius: 20,
+    overflow: "hidden",
+    marginRight: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  bannerImg: { width: "100%", height: "100%" },
+  bannerShine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "45%",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  dotsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#CBD5E1" },
+  dotActive: { width: 18, backgroundColor: "#0078D7", borderRadius: 3 },
+
+  quickSection: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F0F4F8",
+  },
+  quickTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94A3B8",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 14,
+  },
+  quickGrid: { flexDirection: "row", justifyContent: "space-between" },
+  quickItem: { alignItems: "center", gap: 8, flex: 1 },
+  quickIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  quickLabel: { fontSize: 11, fontWeight: "700", color: "#334155" },
+
+  statsBar: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 22,
+    backgroundColor: "#0078D7",
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  statItem: { flex: 1, alignItems: "center" },
+  statValue: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.72)",
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  statDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.2)" },
+
+  section: { marginTop: 28 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "800",
     color: "#0F172A",
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
   sectionSubtitle: {
-    fontSize: 11,
+    fontSize: 12,
     color: "#94A3B8",
-    marginTop: 1,
+    marginTop: 2,
     fontWeight: "500",
   },
-  viewAllBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
-  seeAll: { fontSize: 13, fontWeight: "600", color: "#0078D7" },
-  hList: { paddingHorizontal: 16, paddingBottom: 6 },
+  viewAllChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#EBF5FF",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  viewAllChipText: { fontSize: 12, fontWeight: "700", color: "#0078D7" },
+  hList: { paddingHorizontal: 16, paddingBottom: 4 },
 
-  /* Category Cards */
   catCard: {
-    width: 115,
-    height: 115,
-    borderRadius: 14,
+    width: 120,
+    height: 120,
+    borderRadius: 18,
     marginRight: 10,
     overflow: "hidden",
     backgroundColor: "#EBF5FF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 3,
   },
   catImg: { width: "100%", height: "100%" },
   catImgPlaceholder: {
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#EBF5FF",
+    backgroundColor: "#F0F8FF",
   },
   catLabelWrap: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    paddingVertical: 5,
+    backgroundColor: "rgba(15,23,42,0.58)",
+    paddingVertical: 7,
+    paddingHorizontal: 6,
   },
   catLabel: {
     fontSize: 11,
     fontWeight: "700",
     color: "#fff",
     textAlign: "center",
+    letterSpacing: 0.1,
   },
 
-  /* ── PREMIUM Product Card ── */
-  premiumCard: {
-    width: 235,
-    backgroundColor: "#fff",
-    borderRadius: 20,
+  productCard: {
+    width: 240,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
     marginRight: 14,
     overflow: "hidden",
-    shadowColor: "#1B4FBF",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
+    shadowColor: "#64748B",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
     shadowRadius: 16,
-    elevation: 7,
+    elevation: 6,
     borderWidth: 1,
-    borderColor: "rgba(0,120,215,0.08)",
+    borderColor: "#F0F4F8",
   },
-  premiumImgWrap: {
+  productImgWrap: {
     width: "100%",
-    height: 118,
-    backgroundColor: "#EEF4FB",
+    height: 132,
+    backgroundColor: "#F7F9FC",
     position: "relative",
   },
-  premiumImg: { width: "100%", height: "100%" },
-  premiumImgPlaceholder: {
+  productImg: { width: "100%", height: "100%" },
+  productImgPlaceholder: {
     width: "100%",
-    height: 118,
+    height: 132,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F1F7FD",
+    backgroundColor: "#F7F9FC",
   },
-  premiumBadge: {
+  activePill: {
     position: "absolute",
     top: 10,
     left: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
     backgroundColor: "rgba(255,255,255,0.96)",
     borderRadius: 20,
     paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingVertical: 5,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
   },
-  premiumBadgeDot: {
+  activeDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#16A34A",
+    backgroundColor: "#10B981",
   },
-  premiumBadgeText: {
+  activeText: {
     fontSize: 9,
     fontWeight: "700",
-    color: "#16A34A",
-    letterSpacing: 0.4,
+    color: "#10B981",
+    letterSpacing: 0.5,
   },
-  premiumContent: {
-    padding: 10,
-    paddingTop: 9,
-  },
-  premiumName: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#0F172A",
-    lineHeight: 18,
-    letterSpacing: -0.2,
-    marginBottom: 3,
-  },
-  premiumBizRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 5,
-  },
-  premiumBizName: {
-    fontSize: 10,
-    color: "#94A3B8",
-    fontWeight: "500",
-    flex: 1,
-  },
-  premiumDesc: {
-    fontSize: 11,
-    color: "#64748B",
-    lineHeight: 16,
-    marginBottom: 6,
-    fontWeight: "400",
-  },
-  premiumCategoryChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#EBF5FF",
-    alignSelf: "flex-start",
+  categoryPillImg: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "rgba(0,0,0,0.48)",
+    borderRadius: 20,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 20,
+    maxWidth: 90,
+  },
+  categoryPillImgText: { fontSize: 9, color: "#fff", fontWeight: "600" },
+  productBody: { padding: 13 },
+  productName: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+    lineHeight: 20,
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  bizRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     marginBottom: 6,
   },
-  premiumCategoryText: {
-    fontSize: 10,
-    color: "#0078D7",
-    fontWeight: "600",
-  },
-  premiumDivider: {
-    height: 1,
-    backgroundColor: "#F1F5F9",
+  bizName: { fontSize: 11, color: "#94A3B8", fontWeight: "500", flex: 1 },
+  productDesc: {
+    fontSize: 12,
+    color: "#64748B",
+    lineHeight: 17,
     marginBottom: 8,
   },
-  premiumFooter: {
+  separator: {
+    height: 1,
+    backgroundColor: "#F0F4F8",
+    marginBottom: 10,
+    marginTop: 2,
+  },
+  priceRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  premiumPriceLabel: {
+  priceLabel: {
     fontSize: 9,
-    color: "#94A3B8",
+    color: "#A0AEC0",
     fontWeight: "700",
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     marginBottom: 2,
   },
-  premiumPrice: {
-    fontSize: 17,
-    fontWeight: "800",
+  priceValueRow: { flexDirection: "row", alignItems: "baseline", gap: 1 },
+  priceCurrency: { fontSize: 13, fontWeight: "700", color: "#0078D7" },
+  priceValue: {
+    fontSize: 20,
+    fontWeight: "900",
     color: "#0078D7",
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
-  premiumUnit: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#94A3B8",
-  },
-  premiumEnquireBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
-    backgroundColor: "#0078D7",
-    justifyContent: "center",
+  priceUnit: { fontSize: 11, color: "#94A3B8", fontWeight: "500" },
+  enquireBtn: {
+    flexDirection: "row",
     alignItems: "center",
-    shadowColor: "#0078D7",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 5,
+    gap: 5,
+    backgroundColor: "#EBF5FF",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
   },
+  enquireBtnText: { fontSize: 11, fontWeight: "700", color: "#0078D7" },
 
-  /* Empty section */
   emptySection: {
     alignItems: "center",
-    paddingVertical: 28,
+    paddingVertical: 32,
     marginHorizontal: 16,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E8F0F8",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#F0F4F8",
     borderStyle: "dashed",
   },
-  emptySectionText: {
-    fontSize: 13,
-    color: "#BDBDBD",
-    marginTop: 8,
-    textAlign: "center",
-    paddingHorizontal: 16,
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "#F7F9FC",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
   },
-  followSellersBtn: {
-    marginTop: 12,
-    backgroundColor: "#0078D7",
-    paddingHorizontal: 20,
-    paddingVertical: 9,
-    borderRadius: 10,
-  },
-  followSellersBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-
-  /* Global empty */
-  emptyWrap: { alignItems: "center", paddingVertical: 40 },
   emptyTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#94A3B8",
+    marginTop: 4,
+  },
+  emptySubtitle: { fontSize: 12, color: "#CBD5E1", marginTop: 3 },
+  browseSellersBtn: {
+    marginTop: 14,
+    backgroundColor: "#0078D7",
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 12,
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  browseSellersBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  emptyWrap: { alignItems: "center", paddingVertical: 40 },
+  emptyWrapTitle: {
     fontSize: 15,
-    fontWeight: "600",
-    color: "#BDBDBD",
+    fontWeight: "700",
+    color: "#CBD5E1",
     marginTop: 10,
   },
-  emptySub: {
-    fontSize: 12,
-    color: "#DEDEDE",
-    marginTop: 4,
-    textAlign: "center",
-    paddingHorizontal: 32,
-  },
+  emptyWrapSub: { fontSize: 12, color: "#E2E8F0", marginTop: 4 },
 });
 
 export default HomeScreen;
