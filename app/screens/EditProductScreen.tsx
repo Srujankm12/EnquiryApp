@@ -6,7 +6,6 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   Dimensions,
   StatusBar,
@@ -17,24 +16,13 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
-const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
-const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
-
-const getImageUri = (url: string | null | undefined): string | null => {
-  if (!url) return null;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const path = url.startsWith('/') ? url : `/${url}`;
-  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
-  return `${S3_URL}${path}`;
-};
 
 interface Category {
   id: string;
@@ -60,9 +48,11 @@ const UNIT_OPTIONS = [
   'other',
 ];
 
-const AddProductsScreen: React.FC = () => {
+const EditProductScreen: React.FC = () => {
+  const router = useRouter();
+  const { product_id } = useLocalSearchParams();
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [isSeller, setIsSeller] = useState<boolean | null>(null);
 
   // Form fields
   const [productName, setProductName] = useState('');
@@ -71,13 +61,15 @@ const AddProductsScreen: React.FC = () => {
   const [productUnit, setProductUnit] = useState('');
   const [productPrice, setProductPrice] = useState('');
   const [productMOQ, setProductMOQ] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<SubCategory | null>(null);
 
   // Category data
   const [categories, setCategories] = useState<Category[]>([]);
   const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingSubCategories, setLoadingSubCategories] = useState(false);
 
   // Modals
@@ -85,29 +77,51 @@ const AddProductsScreen: React.FC = () => {
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
 
-  // Images (placeholder for future upload)
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
-
-  const [businessId, setBusinessId] = useState<string | null>(null);
-
   useEffect(() => {
-    checkSellerStatus();
+    loadProductDetails();
     fetchCategories();
-  }, []);
+  }, [product_id]);
 
-  const checkSellerStatus = async () => {
-    const status = await AsyncStorage.getItem('sellerStatus');
-    const storedBusinessId = await AsyncStorage.getItem('companyId');
-    if (status?.toLowerCase() !== 'approved' || !storedBusinessId) {
-      setIsSeller(false);
-      Alert.alert(
-        'Access Denied',
-        'Only approved sellers can add products. Please become a seller first.',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
-    } else {
-      setIsSeller(true);
-      setBusinessId(storedBusinessId);
+  const loadProductDetails = async () => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      // Backend: GET /product/get/{id} - returns CompleteProduct
+      const res = await axios.get(`${API_URL}/product/get/${product_id}`, { headers });
+      const data = res.data?.product_details;
+
+      if (data) {
+        setProductName(data.product_name || '');
+        setProductDescription(''); // Description not in CompleteProduct, keep empty
+        setProductQuantity(String(data.quantity || ''));
+        setProductUnit(data.unit || '');
+        setProductPrice(String(data.price || ''));
+        setProductMOQ(data.moq || '');
+        setSelectedCategoryId(data.category_id || '');
+        setSelectedSubCategoryId(data.sub_category_id || '');
+
+        // Set category display name from details
+        if (data.category_id && data.category_name) {
+          setSelectedCategory({ id: data.category_id, name: data.category_name, category_image: null, description: '' });
+        }
+        if (data.sub_category_id && data.sub_category_name) {
+          setSelectedSubCategory({ id: data.sub_category_id, category_id: data.category_id, name: data.sub_category_name, category_image: null, description: '' });
+        }
+
+        // Fetch subcategories for the current category
+        if (data.category_id) {
+          fetchSubCategories(data.category_id);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error loading product:', error);
+      Alert.alert('Error', 'Unable to load product details.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -121,7 +135,6 @@ const AddProductsScreen: React.FC = () => {
       setCategories(res.data?.categories || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
-      Alert.alert('Error', 'Unable to load categories. Please try again.');
     } finally {
       setLoadingCategories(false);
     }
@@ -147,36 +160,17 @@ const AddProductsScreen: React.FC = () => {
 
   const handleCategorySelect = (category: Category) => {
     setSelectedCategory(category);
+    setSelectedCategoryId(category.id);
     setSelectedSubCategory(null);
+    setSelectedSubCategoryId('');
     setShowCategoryModal(false);
     fetchSubCategories(category.id);
   };
 
   const handleSubCategorySelect = (subCategory: SubCategory) => {
     setSelectedSubCategory(subCategory);
+    setSelectedSubCategoryId(subCategory.id);
     setShowSubCategoryModal(false);
-  };
-
-  const handlePickImage = async () => {
-    if (selectedImages.length >= 3) {
-      Alert.alert('Limit Reached', 'You can add up to 3 images per product.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets[0]?.uri) {
-      setSelectedImages((prev) => [...prev, result.assets[0].uri]);
-    }
-  };
-
-  const handleRemoveImage = (index: number) => {
-    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const validateForm = (): boolean => {
@@ -184,36 +178,20 @@ const AddProductsScreen: React.FC = () => {
       Alert.alert('Missing Information', 'Please enter a product name.');
       return false;
     }
-    if (productName.trim().length < 2) {
-      Alert.alert('Invalid Name', 'Product name must be at least 2 characters long.');
-      return false;
-    }
-    if (!productDescription.trim()) {
-      Alert.alert('Missing Information', 'Please enter a product description.');
-      return false;
-    }
-    if (productDescription.trim().length < 10) {
-      Alert.alert('Invalid Description', 'Product description must be at least 10 characters long.');
-      return false;
-    }
     if (!productQuantity.trim() || isNaN(Number(productQuantity))) {
-      Alert.alert('Missing Information', 'Please enter a valid product quantity.');
+      Alert.alert('Missing Information', 'Please enter a valid quantity.');
       return false;
     }
     if (!productUnit.trim()) {
-      Alert.alert('Missing Information', 'Please select a unit for your product.');
+      Alert.alert('Missing Information', 'Please select a unit.');
       return false;
     }
     if (!productPrice.trim() || isNaN(Number(productPrice))) {
-      Alert.alert('Missing Information', 'Please enter a valid product price.');
+      Alert.alert('Missing Information', 'Please enter a valid price.');
       return false;
     }
     if (!productMOQ.trim()) {
-      Alert.alert('Missing Information', 'Please enter the minimum order quantity (MOQ).');
-      return false;
-    }
-    if (!selectedCategory) {
-      Alert.alert('Missing Information', 'Please select a category for your product.');
+      Alert.alert('Missing Information', 'Please enter the MOQ.');
       return false;
     }
     return true;
@@ -235,52 +213,63 @@ const AddProductsScreen: React.FC = () => {
         'Content-Type': 'application/json',
       };
 
-      if (!businessId) {
-        Alert.alert('Error', 'Business information not found. Please try again.');
-        return;
-      }
-
-      // Create product - aligned with Go backend field names
-      const productData: any = {
-        business_id: businessId,
+      // Backend: PUT /product/update/{id}
+      const updateData: any = {
         name: productName.trim(),
-        description: productDescription.trim(),
+        description: productDescription.trim() || undefined,
+        category_id: selectedCategoryId || undefined,
+        sub_category_id: selectedSubCategoryId || undefined,
         quantity: parseFloat(productQuantity),
         unit: productUnit.trim(),
         price: parseFloat(productPrice),
         moq: productMOQ.trim(),
-        category_id: selectedCategory!.id,
-        sub_category_id: selectedSubCategory?.id || '',
-        is_product_active: true,
       };
 
-      await axios.post(`${API_URL}/product/create`, productData, { headers });
+      await axios.put(`${API_URL}/product/update/${product_id}`, updateData, { headers });
 
-      Alert.alert('Product Created', 'Your product has been added successfully!', [
+      Alert.alert('Success', 'Product updated successfully!', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (error: any) {
-      console.error('Error creating product:', error);
+      console.error('Error updating product:', error);
       const msg =
         error.response?.data?.error ||
         error.response?.data?.message ||
-        'Failed to create product. Please check your input and try again.';
+        'Failed to update product. Please try again.';
       Alert.alert('Error', msg);
     } finally {
       setSubmitting(false);
     }
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Product</Text>
+          <View style={styles.backButton} />
+        </View>
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#177DDF" />
+          <Text style={styles.loaderText}>Loading product...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Product</Text>
+        <Text style={styles.headerTitle}>Edit Product</Text>
         <View style={styles.backButton} />
       </View>
 
@@ -293,31 +282,6 @@ const AddProductsScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Images Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Product Images</Text>
-            <Text style={styles.sectionSubtitle}>Add up to 3 images (optional - upload later)</Text>
-            <View style={styles.imagesRow}>
-              {selectedImages.map((uri, index) => (
-                <View key={index} style={styles.imageBox}>
-                  <Image source={{ uri }} style={styles.imagePreview} />
-                  <TouchableOpacity
-                    style={styles.removeImageButton}
-                    onPress={() => handleRemoveImage(index)}
-                  >
-                    <Ionicons name="close-circle" size={22} color="#DC3545" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {selectedImages.length < 3 && (
-                <TouchableOpacity style={styles.addImageBox} onPress={handlePickImage}>
-                  <Ionicons name="camera-outline" size={28} color="#0078D7" />
-                  <Text style={styles.addImageText}>Add</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-
           {/* Product Name */}
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Product Name *</Text>
@@ -331,12 +295,12 @@ const AddProductsScreen: React.FC = () => {
             />
           </View>
 
-          {/* Product Description */}
+          {/* Description */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Description *</Text>
+            <Text style={styles.fieldLabel}>Description</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Describe your product (min 10 characters)"
+              placeholder="Update product description"
               placeholderTextColor="#999"
               value={productDescription}
               onChangeText={setProductDescription}
@@ -350,17 +314,12 @@ const AddProductsScreen: React.FC = () => {
 
           {/* Category */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Category *</Text>
+            <Text style={styles.fieldLabel}>Category</Text>
             <TouchableOpacity
               style={styles.selectButton}
               onPress={() => setShowCategoryModal(true)}
             >
-              <Text
-                style={[
-                  styles.selectButtonText,
-                  !selectedCategory && styles.placeholderText,
-                ]}
-              >
+              <Text style={[styles.selectButtonText, !selectedCategory && styles.placeholderText]}>
                 {selectedCategory ? selectedCategory.name : 'Select a category'}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
@@ -370,7 +329,7 @@ const AddProductsScreen: React.FC = () => {
           {/* Sub-Category */}
           {selectedCategory && (
             <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>Sub-Category (Optional)</Text>
+              <Text style={styles.fieldLabel}>Sub-Category</Text>
               <TouchableOpacity
                 style={styles.selectButton}
                 onPress={() => setShowSubCategoryModal(true)}
@@ -380,17 +339,10 @@ const AddProductsScreen: React.FC = () => {
                   <ActivityIndicator size="small" color="#0078D7" />
                 ) : (
                   <>
-                    <Text
-                      style={[
-                        styles.selectButtonText,
-                        !selectedSubCategory && styles.placeholderText,
-                      ]}
-                    >
+                    <Text style={[styles.selectButtonText, !selectedSubCategory && styles.placeholderText]}>
                       {selectedSubCategory
                         ? selectedSubCategory.name
-                        : subCategories.length > 0
-                        ? 'Select a sub-category'
-                        : 'No sub-categories available'}
+                        : subCategories.length > 0 ? 'Select a sub-category' : 'No sub-categories'}
                     </Text>
                     <Ionicons name="chevron-down" size={20} color="#666" />
                   </>
@@ -416,17 +368,9 @@ const AddProductsScreen: React.FC = () => {
           {/* Unit */}
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Unit *</Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => setShowUnitModal(true)}
-            >
-              <Text
-                style={[
-                  styles.selectButtonText,
-                  !productUnit && styles.placeholderText,
-                ]}
-              >
-                {productUnit || 'Select unit (kg, piece, litre...)'}
+            <TouchableOpacity style={styles.selectButton} onPress={() => setShowUnitModal(true)}>
+              <Text style={[styles.selectButtonText, !productUnit && styles.placeholderText]}>
+                {productUnit || 'Select unit'}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
@@ -451,7 +395,7 @@ const AddProductsScreen: React.FC = () => {
             <Text style={styles.fieldLabel}>Minimum Order Quantity (MOQ) *</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g., 10 kg, 5 pieces"
+              placeholder="e.g., 10 kg"
               placeholderTextColor="#999"
               value={productMOQ}
               onChangeText={setProductMOQ}
@@ -459,7 +403,7 @@ const AddProductsScreen: React.FC = () => {
             />
           </View>
 
-          {/* Submit Button */}
+          {/* Submit */}
           <TouchableOpacity
             style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
             onPress={handleSubmit}
@@ -468,12 +412,12 @@ const AddProductsScreen: React.FC = () => {
             {submitting ? (
               <View style={styles.submitContent}>
                 <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text style={styles.submitText}>Creating Product...</Text>
+                <Text style={styles.submitText}>Updating...</Text>
               </View>
             ) : (
               <View style={styles.submitContent}>
                 <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
-                <Text style={styles.submitText}>Create Product</Text>
+                <Text style={styles.submitText}>Update Product</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -492,29 +436,20 @@ const AddProductsScreen: React.FC = () => {
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-            {loadingCategories ? (
-              <View style={styles.modalLoader}>
-                <ActivityIndicator size="large" color="#0078D7" />
-              </View>
-            ) : (
-              <FlatList
-                data={categories}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.modalItem, selectedCategory?.id === item.id && styles.modalItemSelected]}
-                    onPress={() => handleCategorySelect(item)}
-                  >
-                    {item.category_image && (
-                      <Image source={{ uri: getImageUri(item.category_image)! }} style={styles.modalItemImage} />
-                    )}
-                    <Text style={styles.modalItemText}>{item.name}</Text>
-                    {selectedCategory?.id === item.id && <Ionicons name="checkmark" size={20} color="#0078D7" />}
-                  </TouchableOpacity>
-                )}
-                ListEmptyComponent={<Text style={styles.modalEmptyText}>No categories available</Text>}
-              />
-            )}
+            <FlatList
+              data={categories}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modalItem, selectedCategory?.id === item.id && styles.modalItemSelected]}
+                  onPress={() => handleCategorySelect(item)}
+                >
+                  <Text style={styles.modalItemText}>{item.name}</Text>
+                  {selectedCategory?.id === item.id && <Ionicons name="checkmark" size={20} color="#0078D7" />}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.modalEmptyText}>No categories available</Text>}
+            />
           </View>
         </View>
       </Modal>
@@ -537,9 +472,6 @@ const AddProductsScreen: React.FC = () => {
                   style={[styles.modalItem, selectedSubCategory?.id === item.id && styles.modalItemSelected]}
                   onPress={() => handleSubCategorySelect(item)}
                 >
-                  {item.category_image && (
-                    <Image source={{ uri: getImageUri(item.category_image)! }} style={styles.modalItemImage} />
-                  )}
                   <Text style={styles.modalItemText}>{item.name}</Text>
                   {selectedSubCategory?.id === item.id && <Ionicons name="checkmark" size={20} color="#0078D7" />}
                 </TouchableOpacity>
@@ -583,29 +515,15 @@ const AddProductsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: {
-    backgroundColor: '#177DDF',
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: '#177DDF', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center',
   },
   backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { flex: 1, fontSize: 20, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loaderText: { marginTop: 12, fontSize: 16, color: '#666' },
   scrollView: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
-  section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
-  sectionSubtitle: { fontSize: 13, color: '#888', marginBottom: 12 },
-  imagesRow: { flexDirection: 'row', gap: 12 },
-  imageBox: { width: 90, height: 90, borderRadius: 12, position: 'relative' },
-  imagePreview: { width: 90, height: 90, borderRadius: 12 },
-  removeImageButton: { position: 'absolute', top: -8, right: -8, backgroundColor: '#FFFFFF', borderRadius: 11 },
-  addImageBox: {
-    width: 90, height: 90, borderRadius: 12, borderWidth: 2, borderColor: '#0078D7',
-    borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F8FF',
-  },
-  addImageText: { fontSize: 12, color: '#0078D7', fontWeight: '600', marginTop: 4 },
   fieldContainer: { marginBottom: 16 },
   fieldLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
   input: {
@@ -636,15 +554,13 @@ const styles = StyleSheet.create({
     padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
-  modalLoader: { padding: 40, alignItems: 'center' },
   modalItem: {
     flexDirection: 'row', alignItems: 'center', padding: 14, paddingHorizontal: 16,
     borderBottomWidth: 1, borderBottomColor: '#F8F8F8',
   },
   modalItemSelected: { backgroundColor: '#F0F8FF' },
-  modalItemImage: { width: 40, height: 40, borderRadius: 8, marginRight: 12, backgroundColor: '#F0F0F0' },
   modalItemText: { flex: 1, fontSize: 15, color: '#333' },
   modalEmptyText: { padding: 40, fontSize: 15, color: '#999', textAlign: 'center' },
 });
 
-export default AddProductsScreen;
+export default EditProductScreen;

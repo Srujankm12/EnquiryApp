@@ -343,79 +343,23 @@ const HomeScreen = () => {
       const decoded: any = jwtDecode(token);
       const userId = decoded.user_id;
 
-      // Get list of companies the user follows
-      let followedCompanyIds: string[] = [];
-      try {
-        const followingRes = await axios.get(
-          `${API_URL}/follower/get/followings/${userId}`,
-          { headers }
-        );
-        const fResData = followingRes.data;
-        const companies = Array.isArray(fResData?.followings)
-          ? fResData.followings
-          : Array.isArray(fResData?.data?.followings)
-            ? fResData.data.followings
-            : Array.isArray(fResData?.data)
-              ? fResData.data
-              : [];
-        followedCompanyIds = companies
-          .map((c: any) => String(c.following_id ?? c.business_id ?? c.id ?? ''))
-          .filter((id: string) => id !== '' && id !== 'undefined' && id !== 'null');
-      } catch {
-        followedCompanyIds = [];
-      }
-
-      if (followedCompanyIds.length === 0) {
-        setProducts([]);
-        return;
-      }
-
-      // Fetch products from each followed company
-      let allProducts: any[] = [];
-      await Promise.all(
-        followedCompanyIds.map(async (companyId: string) => {
-          try {
-            const res = await axios.get(
-              `${API_URL}/product/get/company/${companyId}`,
-              { headers }
-            );
-            const productsData = res.data?.data?.products || res.data?.data || [];
-            const active = (Array.isArray(productsData) ? productsData : []).filter(
-              (p: any) => p.is_product_active
-            );
-            allProducts = [...allProducts, ...active];
-          } catch {
-            // Company may have no products
-          }
-        })
+      // Backend: GET /product/get/followers/{id} - returns products from followed businesses
+      const res = await axios.get(
+        `${API_URL}/product/get/followers/${userId}`,
+        { headers }
       );
-
-      // Fetch images for first 6 products
-      const productsWithImages = await Promise.all(
-        allProducts.slice(0, 6).map(async (product: any) => {
-          try {
-            const imgRes = await axios.get(
-              `${API_URL}/product/image/get/${product.product_id}`,
-              { headers }
-            );
-            return { ...product, images: imgRes.data.data?.images || [] };
-          } catch {
-            return { ...product, images: [] };
-          }
-        })
-      );
-      setProducts(productsWithImages);
+      const productsData = res.data?.products || [];
+      const productsList = Array.isArray(productsData) ? productsData.slice(0, 6) : [];
+      setProducts(productsList);
     } catch (error) {
       console.error("Error fetching products:", error);
+      setProducts([]);
     }
   };
 
   const getProductImageUrl = (product: any): string | null => {
-    if (product.images && product.images.length > 0) {
-      const sorted = [...product.images].sort(
-        (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
-      );
-      return getImageUri(sorted[0].product_image_url);
+    if (product.product_images && product.product_images.length > 0) {
+      return getImageUri(product.product_images[0].image);
     }
     return null;
   };
@@ -577,7 +521,7 @@ const HomeScreen = () => {
                     onPress={() =>
                       router.push({
                         pathname: "/pages/productDetail" as any,
-                        params: { product_id: item.product_id },
+                        params: { product_id: item.id },
                       })
                     }
                   >
@@ -596,16 +540,16 @@ const HomeScreen = () => {
                     </View>
                     <View style={styles.productInfo}>
                       <Text style={styles.productName} numberOfLines={1}>
-                        {item.product_name}
+                        {item.name}
                       </Text>
                       <Text style={styles.productPrice} numberOfLines={1}>
-                        {item.product_price}
+                        Rs {item.price}/{item.unit}
                       </Text>
                     </View>
                   </TouchableOpacity>
                 );
               }}
-              keyExtractor={(item) => item.product_id}
+              keyExtractor={(item) => item.id}
             />
           </View>
         )}
