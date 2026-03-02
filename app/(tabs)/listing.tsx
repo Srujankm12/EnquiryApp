@@ -18,7 +18,6 @@ import { useRouter, useFocusEffect } from "expo-router";
 import Constants from "expo-constants";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { jwtDecode } from "jwt-decode";
 
 const { width } = Dimensions.get("window");
 
@@ -41,6 +40,19 @@ interface Category {
   description: string;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  price: number;
+  moq: string;
+  product_images?: any[];
+  created_at: string;
+  updated_at: string;
+}
+
 const SellerTab: React.FC = () => {
   const router = useRouter();
   const [loading, setLoading] = useState<boolean>(true);
@@ -48,12 +60,8 @@ const SellerTab: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  // Seller-specific state
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
-
-  // All products from all sellers
-  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
 
   useEffect(() => {
     loadData();
@@ -82,114 +90,21 @@ const SellerTab: React.FC = () => {
         normalizedStatus === "active";
       setSellerStatus(isApproved ? "approved" : normalizedStatus);
 
-      // Fetch categories and all companies in parallel
-      const [catRes, companyRes] = await Promise.allSettled([
+      // Fetch categories and all products in parallel
+      const [catRes, productsRes] = await Promise.allSettled([
         axios.get(`${API_URL}/category/get/all`, { headers }),
-        axios.get(`${API_URL}/company/get/approved/all`, { headers }),
+        // Backend: GET /product/get/all - returns all active products
+        axios.get(`${API_URL}/product/get/all`, { headers }),
       ]);
 
       if (catRes.status === "fulfilled") {
         setCategories(catRes.value.data?.categories || []);
       }
 
-      // Get all approved companies, then fetch products from each
-      let companies: any[] = [];
-      if (companyRes.status === "fulfilled") {
-        const compData =
-          companyRes.value.data?.data?.companies ||
-          companyRes.value.data?.data ||
-          companyRes.value.data?.companies ||
-          [];
-        companies = Array.isArray(compData) ? compData : [];
+      if (productsRes.status === "fulfilled") {
+        const productsData = productsRes.value.data?.products || [];
+        setAllProducts(Array.isArray(productsData) ? productsData : []);
       }
-
-      // Fallback: try all companies and filter approved
-      if (companies.length === 0) {
-        try {
-          const allRes = await axios.get(`${API_URL}/company/get/all`, { headers });
-          const allData = allRes.data?.data?.companies || allRes.data?.data || [];
-          companies = (Array.isArray(allData) ? allData : []).filter((c: any) => c.is_approved);
-        } catch {}
-      }
-
-      // Fallback: try business endpoint
-      if (companies.length === 0) {
-        try {
-          const bizRes = await axios.get(`${API_URL}/business/get/all`, { headers });
-          const bizData = bizRes.data?.data?.businesses || bizRes.data?.businesses || bizRes.data?.data || [];
-          companies = (Array.isArray(bizData) ? bizData : []).map((b: any) => {
-            const biz = b.business_details || b;
-            return {
-              company_id: biz.id || b.id || '',
-              company_name: biz.name || b.name || '',
-              company_profile_url: biz.profile_image || b.profile_image || null,
-              company_city: biz.city || b.city || '',
-              company_state: biz.state || b.state || '',
-              is_verified: biz.is_business_verified || b.is_business_verified || false,
-              is_approved: biz.is_business_approved !== false,
-            };
-          }).filter((c: any) => c.is_approved);
-        } catch {}
-      }
-
-      // Fetch products from all companies
-      let productsFromAll: any[] = [];
-      await Promise.all(
-        companies.map(async (company: any) => {
-          try {
-            const prodRes = await axios.get(
-              `${API_URL}/product/get/company/${company.company_id}`,
-              { headers }
-            );
-            const productsData =
-              prodRes.data?.data?.products || prodRes.data?.data || [];
-            const productsList = Array.isArray(productsData)
-              ? productsData
-              : [];
-            const activeProducts = productsList
-              .filter((p: any) => p.is_product_active)
-              .map((p: any) => ({
-                ...p,
-                company_name: company.company_name,
-                company_id: company.company_id,
-                company_profile_url: company.company_profile_url,
-                company_city: company.company_city,
-                company_state: company.company_state,
-                is_verified: company.is_verified,
-                is_approved: company.is_approved,
-              }));
-            productsFromAll = [...productsFromAll, ...activeProducts];
-          } catch {
-            // Company may have no products
-          }
-        })
-      );
-
-      // Fetch images for products (limit to first 20 for performance)
-      const productsWithImages = await Promise.all(
-        productsFromAll.slice(0, 20).map(async (product: any) => {
-          try {
-            const imgRes = await axios.get(
-              `${API_URL}/product/image/get/${product.product_id}`,
-              { headers }
-            );
-            return {
-              ...product,
-              images: imgRes.data.data?.images || [],
-            };
-          } catch {
-            return { ...product, images: [] };
-          }
-        })
-      );
-
-      // Add remaining products without images
-      const remaining = productsFromAll.slice(20).map((p: any) => ({
-        ...p,
-        images: [],
-      }));
-
-      setAllProducts([...productsWithImages, ...remaining]);
     } catch (err: any) {
       console.error("Error loading data:", err);
       setError("Unable to load data. Please try again.");
@@ -211,13 +126,9 @@ const SellerTab: React.FC = () => {
     });
   };
 
-  const getProductImageUrl = (product: any): string | null => {
-    if (product.images && product.images.length > 0) {
-      const sorted = [...product.images].sort(
-        (a: any, b: any) =>
-          a.product_image_sequence_number - b.product_image_sequence_number
-      );
-      return getImageUri(sorted[0].product_image_url);
+  const getProductImageUrl = (product: Product): string | null => {
+    if (product.product_images && product.product_images.length > 0) {
+      return getImageUri(product.product_images[0].image);
     }
     return null;
   };
@@ -229,26 +140,10 @@ const SellerTab: React.FC = () => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
-      p.product_name?.toLowerCase().includes(q) ||
-      p.company_name?.toLowerCase().includes(q)
+      p.name?.toLowerCase().includes(q) ||
+      p.description?.toLowerCase().includes(q)
     );
   });
-
-  // Group products by category
-  const productsByCategory: { [key: string]: any[] } = {};
-  filteredProducts.forEach((product) => {
-    const catId = product.product_category_id || "uncategorized";
-    if (!productsByCategory[catId]) {
-      productsByCategory[catId] = [];
-    }
-    productsByCategory[catId].push(product);
-  });
-
-  const getCategoryName = (catId: string): string => {
-    if (catId === "uncategorized") return "Other Products";
-    const cat = categories.find((c) => c.id === catId);
-    return cat?.name || "Products";
-  };
 
   const renderCategoryItem = ({ item }: { item: Category }) => (
     <TouchableOpacity
@@ -272,16 +167,16 @@ const SellerTab: React.FC = () => {
     </TouchableOpacity>
   );
 
-  const renderProductCard = (item: any) => {
+  const renderProductCard = (item: Product) => {
     const imageUrl = getProductImageUrl(item);
     return (
       <TouchableOpacity
-        key={item.product_id}
+        key={item.id}
         style={styles.productGridCard}
         onPress={() =>
           router.push({
             pathname: "/pages/productDetail" as any,
-            params: { product_id: item.product_id },
+            params: { product_id: item.id },
           })
         }
         activeOpacity={0.7}
@@ -295,30 +190,15 @@ const SellerTab: React.FC = () => {
         )}
         <View style={styles.productGridInfo}>
           <Text style={styles.productGridName} numberOfLines={1}>
-            {item.product_name}
+            {item.name}
           </Text>
           <Text style={styles.productGridPrice} numberOfLines={1}>
-            {item.product_price}
+            Rs {item.price}/{item.unit}
           </Text>
-          {item.company_name && (
-            <View style={styles.productCompanyRow}>
-              <Ionicons name="business-outline" size={11} color="#888" />
-              <Text style={styles.productCompanyName} numberOfLines={1}>
-                {item.company_name}
-              </Text>
-            </View>
-          )}
-          {/* Verification badge */}
-          {item.is_verified ? (
-            <View style={styles.verifiedBadge}>
-              <Ionicons name="checkmark-circle" size={12} color="#28A745" />
-              <Text style={styles.verifiedText}>Verified</Text>
-            </View>
-          ) : (
-            <View style={styles.notVerifiedBadge}>
-              <Ionicons name="alert-circle" size={12} color="#DC3545" />
-              <Text style={styles.notVerifiedText}>Not Verified</Text>
-            </View>
+          {item.moq && (
+            <Text style={styles.productMoq} numberOfLines={1}>
+              MOQ: {item.moq}
+            </Text>
           )}
         </View>
       </TouchableOpacity>
@@ -359,7 +239,7 @@ const SellerTab: React.FC = () => {
           <Ionicons name="search" size={20} color="#999" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search products, sellers..."
+            placeholder="Search products..."
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholderTextColor="#999"
@@ -414,43 +294,19 @@ const SellerTab: React.FC = () => {
             </View>
           )}
 
-          {/* All Products grouped by Category */}
-          {Object.keys(productsByCategory).length > 0 ? (
-            Object.keys(productsByCategory).map((catId) => (
-              <View key={catId} style={styles.productCategorySection}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>
-                    {getCategoryName(catId)}
-                  </Text>
-                  <Text style={styles.productCountText}>
-                    {productsByCategory[catId].length} products
-                  </Text>
-                </View>
-                <View style={styles.productsGrid}>
-                  {productsByCategory[catId]
-                    .slice(0, 6)
-                    .map((product) => renderProductCard(product))}
-                </View>
-                {productsByCategory[catId].length > 6 && (
-                  <TouchableOpacity
-                    style={styles.viewMoreBtn}
-                    onPress={() => {
-                      const cat = categories.find((c) => c.id === catId);
-                      if (cat) handleCategoryPress(cat);
-                    }}
-                  >
-                    <Text style={styles.viewMoreText}>
-                      View All {productsByCategory[catId].length} Products
-                    </Text>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color="#1E90FF"
-                    />
-                  </TouchableOpacity>
-                )}
+          {/* All Products */}
+          {filteredProducts.length > 0 ? (
+            <View style={styles.productCategorySection}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>All Products</Text>
+                <Text style={styles.productCountText}>
+                  {filteredProducts.length} products
+                </Text>
               </View>
-            ))
+              <View style={styles.productsGrid}>
+                {filteredProducts.map((product) => renderProductCard(product))}
+              </View>
+            </View>
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="cube-outline" size={48} color="#CCC" />
@@ -469,9 +325,7 @@ const SellerTab: React.FC = () => {
           {!isApproved && (
             <TouchableOpacity
               style={styles.becomeSellerBanner}
-              onPress={() =>
-                router.push("/pages/becomeSellerForm" as any)
-              }
+              onPress={() => router.push("/pages/becomeSellerForm" as any)}
               activeOpacity={0.7}
             >
               <View style={styles.becomeSellerIcon}>
@@ -495,326 +349,84 @@ const SellerTab: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
+  container: { flex: 1, backgroundColor: "#F8F9FA" },
   header: {
-    backgroundColor: "#1E90FF",
-    paddingTop: 50,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    backgroundColor: "#1E90FF", paddingTop: 50, paddingBottom: 12, paddingHorizontal: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  headerTitle: { fontSize: 22, fontWeight: "700", color: "#FFFFFF" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerMyProductsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
+    flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, gap: 4,
   },
-  headerMyProductsText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  headerMyProductsText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
   headerAddBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
+    width: 32, height: 32, borderRadius: 16, backgroundColor: "#FFFFFF",
+    justifyContent: "center", alignItems: "center",
   },
-  searchWrapper: {
-    backgroundColor: "#1E90FF",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-  },
+  searchWrapper: { backgroundColor: "#1E90FF", paddingHorizontal: 16, paddingBottom: 14 },
   searchContainer: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    height: 44,
+    backgroundColor: "#FFFFFF", borderRadius: 10, flexDirection: "row",
+    alignItems: "center", paddingHorizontal: 12, height: 44,
   },
-  searchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 15,
-    color: "#333",
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 40,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 15,
-    color: "#666",
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 16,
-  },
-  errorText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    marginTop: 8,
-  },
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 15, color: "#333" },
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 40 },
+  loadingText: { marginTop: 12, fontSize: 15, color: "#666" },
+  errorTitle: { fontSize: 18, fontWeight: "600", color: "#333", marginTop: 16 },
+  errorText: { fontSize: 14, color: "#666", textAlign: "center", marginTop: 8 },
   retryButton: {
-    marginTop: 20,
-    backgroundColor: "#1E90FF",
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-    borderRadius: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    marginTop: 20, backgroundColor: "#1E90FF", paddingHorizontal: 28, paddingVertical: 12,
+    borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 8,
   },
-  retryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  // Categories
-  categoriesSection: {
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    marginBottom: 12,
-    paddingHorizontal: 16,
-  },
-  categoriesRow: {
-    paddingHorizontal: 16,
-    gap: 10,
-  },
+  retryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  scrollView: { flex: 1 },
+  categoriesSection: { paddingTop: 16, paddingBottom: 8 },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: "#1A1A1A", marginBottom: 12, paddingHorizontal: 16 },
+  categoriesRow: { paddingHorizontal: 16, gap: 10 },
   categoryChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
+    flexDirection: "row", alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 20,
+    paddingVertical: 8, paddingHorizontal: 14, elevation: 1, shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2,
+    borderWidth: 1, borderColor: "#F0F0F0",
   },
   categoryChipIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#EBF5FF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-    overflow: "hidden",
+    width: 28, height: 28, borderRadius: 14, backgroundColor: "#EBF5FF",
+    justifyContent: "center", alignItems: "center", marginRight: 8, overflow: "hidden",
   },
-  categoryChipImage: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
-  categoryChipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#333",
-    maxWidth: 100,
-  },
-  // Product Category Section
-  productCategorySection: {
-    marginTop: 16,
-    marginBottom: 4,
-  },
+  categoryChipImage: { width: 28, height: 28, borderRadius: 14 },
+  categoryChipText: { fontSize: 13, fontWeight: "600", color: "#333", maxWidth: 100 },
+  productCategorySection: { marginTop: 16, marginBottom: 4 },
   sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 16, marginBottom: 12,
   },
-  productCountText: {
-    fontSize: 13,
-    color: "#888",
-    paddingHorizontal: 16,
-  },
-  // Products Grid
-  productsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 12,
-    justifyContent: "space-between",
-  },
+  productCountText: { fontSize: 13, color: "#888", paddingHorizontal: 16 },
+  productsGrid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, justifyContent: "space-between" },
   productGridCard: {
-    width: (width - 36) / 2,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginBottom: 12,
-    overflow: "hidden",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    width: (width - 36) / 2, backgroundColor: "#FFFFFF", borderRadius: 12, marginBottom: 12,
+    overflow: "hidden", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08, shadowRadius: 4,
   },
-  productGridImage: {
-    width: "100%",
-    height: 120,
-    backgroundColor: "#F0F0F0",
-  },
-  productImagePlaceholder: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  productGridInfo: {
-    padding: 10,
-  },
-  productGridName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1A1A1A",
-    marginBottom: 4,
-  },
-  productGridPrice: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#28A745",
-    marginBottom: 4,
-  },
-  productCompanyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 4,
-  },
-  productCompanyName: {
-    fontSize: 11,
-    color: "#888",
-    flex: 1,
-  },
-  verifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  verifiedText: {
-    fontSize: 11,
-    color: "#28A745",
-    fontWeight: "600",
-  },
-  notVerifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#FFF5F5",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: "#FFDDDD",
-  },
-  notVerifiedText: {
-    fontSize: 10,
-    color: "#DC3545",
-    fontWeight: "600",
-  },
-  viewMoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    marginHorizontal: 16,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    gap: 4,
-  },
-  viewMoreText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1E90FF",
-  },
-  // Empty State
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 40,
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 12,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    color: "#999",
-    marginTop: 6,
-    textAlign: "center",
-  },
-  // Become Seller Banner
+  productGridImage: { width: "100%", height: 120, backgroundColor: "#F0F0F0" },
+  productImagePlaceholder: { justifyContent: "center", alignItems: "center" },
+  productGridInfo: { padding: 10 },
+  productGridName: { fontSize: 14, fontWeight: "600", color: "#1A1A1A", marginBottom: 4 },
+  productGridPrice: { fontSize: 14, fontWeight: "700", color: "#28A745", marginBottom: 4 },
+  productMoq: { fontSize: 11, color: "#888" },
+  emptyState: { alignItems: "center", paddingVertical: 40, paddingHorizontal: 40 },
+  emptyTitle: { fontSize: 16, fontWeight: "600", color: "#333", marginTop: 12 },
+  emptySubtext: { fontSize: 13, color: "#999", marginTop: 6, textAlign: "center" },
   becomeSellerBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#0078D7",
-    marginHorizontal: 16,
-    marginTop: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 12,
+    flexDirection: "row", alignItems: "center", backgroundColor: "#0078D7", marginHorizontal: 16,
+    marginTop: 16, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 12,
   },
   becomeSellerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
+    width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center", alignItems: "center", marginRight: 12,
   },
-  becomeSellerTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  becomeSellerSubtitle: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: 2,
-  },
+  becomeSellerTitle: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
+  becomeSellerSubtitle: { fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 2 },
 });
 
 export default SellerTab;

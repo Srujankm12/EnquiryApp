@@ -35,17 +35,20 @@ const getImageUri = (url: string | null | undefined): string | null => {
 };
 
 interface Product {
-  product_id: string;
-  product_name: string;
-  product_description: string;
-  product_quantity: string;
-  product_price: string;
-  product_category_id: string;
-  product_sub_category_id?: string;
+  id: string;
+  business_id?: string;
+  category_id?: string;
+  sub_category_id?: string;
+  name: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  price: number;
+  moq: string;
+  product_images?: any[];
   is_product_active: boolean;
   created_at: string;
   updated_at: string;
-  images?: any[];
 }
 
 const MyProductsScreen: React.FC = () => {
@@ -76,51 +79,30 @@ const MyProductsScreen: React.FC = () => {
         return;
       }
       const headers = { Authorization: `Bearer ${token}` };
-      let companyId = await AsyncStorage.getItem('companyId');
+      let businessId = await AsyncStorage.getItem('companyId');
 
-      // If no stored companyId, resolve from user's company
-      if (!companyId) {
+      // If no stored businessId, resolve from JWT token
+      if (!businessId) {
         try {
           const decoded: any = jwtDecode(token);
-          const userCompanyRes = await axios.get(
-            `${API_URL}/company/get/user/${decoded.user_id}`,
-            { headers }
-          );
-          const compData = userCompanyRes.data.data?.company || userCompanyRes.data.data;
-          if (compData?.company_id) {
-            companyId = compData.company_id;
-            await AsyncStorage.setItem('companyId', companyId!);
+          if (decoded.business_id) {
+            businessId = decoded.business_id;
+            await AsyncStorage.setItem('companyId', businessId!);
           }
         } catch {
-          // User may not have a company
+          // User may not have a business
         }
       }
 
-      // Fetch products by company_id (seller sees their own)
-      if (!companyId) {
+      if (!businessId) {
         setProducts([]);
         return;
       }
 
-      const res = await axios.get(`${API_URL}/product/get/company/${companyId}`, { headers });
-      const productsData = res.data.data?.products || res.data.data || [];
-
-      // Fetch images for each product
-      const productsWithImages = await Promise.all(
-        (Array.isArray(productsData) ? productsData : []).map(async (product: Product) => {
-          try {
-            const imgRes = await axios.get(
-              `${API_URL}/product/image/get/${product.product_id}`,
-              { headers }
-            );
-            return { ...product, images: imgRes.data.data?.images || [] };
-          } catch {
-            return { ...product, images: [] };
-          }
-        })
-      );
-
-      setProducts(productsWithImages);
+      // Backend: GET /product/get/business/{id}
+      const res = await axios.get(`${API_URL}/product/get/business/${businessId}`, { headers });
+      const productsData = res.data?.products || [];
+      setProducts(Array.isArray(productsData) ? productsData : []);
     } catch (error: any) {
       console.error('Error fetching products:', error);
       if (error.response?.status === 404) {
@@ -143,10 +125,17 @@ const MyProductsScreen: React.FC = () => {
     router.back();
   };
 
-  const handleEditProduct = (product: Product) => {
+  const handleViewProduct = (product: Product) => {
     router.push({
       pathname: '/pages/productDetail' as any,
-      params: { product_id: product.product_id },
+      params: { product_id: product.id },
+    });
+  };
+
+  const handleEditProduct = (product: Product) => {
+    router.push({
+      pathname: '/pages/editProduct' as any,
+      params: { product_id: product.id },
     });
   };
 
@@ -156,26 +145,23 @@ const MyProductsScreen: React.FC = () => {
 
   const handleToggleStatus = async (product: Product) => {
     try {
-      setTogglingStatus(product.product_id);
+      setTogglingStatus(product.id);
       const token = await AsyncStorage.getItem('token');
       const headers = {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       };
 
-      await axios.put(
-        `${API_URL}/product/update/status`,
-        {
-          product_id: product.product_id,
-          is_product_active: !product.is_product_active,
-        },
+      // Backend: PATCH /product/update/status/{id}
+      await axios.patch(
+        `${API_URL}/product/update/status/${product.id}`,
+        { is_product_active: !product.is_product_active },
         { headers }
       );
 
-      // Update local state
       setProducts((prev) =>
         prev.map((p) =>
-          p.product_id === product.product_id
+          p.id === product.id
             ? { ...p, is_product_active: !p.is_product_active }
             : p
         )
@@ -183,11 +169,11 @@ const MyProductsScreen: React.FC = () => {
 
       Alert.alert(
         'Status Updated',
-        `Product "${product.product_name}" is now ${!product.is_product_active ? 'active' : 'inactive'}.`
+        `Product "${product.name}" is now ${!product.is_product_active ? 'active' : 'inactive'}.`
       );
     } catch (error: any) {
       console.error('Error toggling product status:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to update product status. Please try again.');
+      Alert.alert('Error', error.response?.data?.error || 'Failed to update product status.');
     } finally {
       setTogglingStatus(null);
     }
@@ -196,7 +182,7 @@ const MyProductsScreen: React.FC = () => {
   const handleDeleteProduct = (product: Product) => {
     Alert.alert(
       'Delete Product',
-      `Are you sure you want to delete "${product.product_name}"? This action cannot be undone.`,
+      `Are you sure you want to delete "${product.name}"? This action cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -205,16 +191,13 @@ const MyProductsScreen: React.FC = () => {
           onPress: async () => {
             try {
               const token = await AsyncStorage.getItem('token');
-              await axios.delete(
-                `${API_URL}/product/delete/${product.product_id}`,
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-              setProducts((prev) =>
-                prev.filter((p) => p.product_id !== product.product_id)
-              );
+              await axios.delete(`${API_URL}/product/delete/${product.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              setProducts((prev) => prev.filter((p) => p.id !== product.id));
               Alert.alert('Deleted', 'Product has been removed successfully.');
             } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.message || 'Failed to delete product. Please try again.');
+              Alert.alert('Error', error.response?.data?.error || 'Failed to delete product.');
             }
           },
         },
@@ -223,11 +206,8 @@ const MyProductsScreen: React.FC = () => {
   };
 
   const getProductImageUrl = (product: Product): string | null => {
-    if (product.images && product.images.length > 0) {
-      const sorted = [...product.images].sort(
-        (a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number
-      );
-      return getImageUri(sorted[0].product_image_url);
+    if (product.product_images && product.product_images.length > 0) {
+      return getImageUri(product.product_images[0].image);
     }
     return null;
   };
@@ -237,38 +217,31 @@ const MyProductsScreen: React.FC = () => {
 
   const filteredActiveProducts = activeProducts.filter(
     (product) =>
-      product.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.product_description?.toLowerCase().includes(searchQuery.toLowerCase())
+      product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const filteredInactiveProducts = inactiveProducts.filter(
     (product) =>
-      product.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.product_description?.toLowerCase().includes(searchQuery.toLowerCase())
+      product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const renderProductCard = (product: Product) => {
     const imageUrl = getProductImageUrl(product);
-    const isToggling = togglingStatus === product.product_id;
+    const isToggling = togglingStatus === product.id;
 
     return (
       <View
-        key={product.product_id}
-        style={[
-          styles.productCard,
-          !product.is_product_active && styles.productCardInactive,
-        ]}
+        key={product.id}
+        style={[styles.productCard, !product.is_product_active && styles.productCardInactive]}
       >
         <View style={styles.cardContent}>
-          {/* Product Image */}
           <View style={styles.imageWrapper}>
             {imageUrl ? (
               <Image
                 source={{ uri: imageUrl }}
-                style={[
-                  styles.productImage,
-                  !product.is_product_active && styles.productImageInactive,
-                ]}
+                style={[styles.productImage, !product.is_product_active && styles.productImageInactive]}
                 resizeMode="cover"
               />
             ) : (
@@ -279,28 +252,20 @@ const MyProductsScreen: React.FC = () => {
             {!product.is_product_active && <View style={styles.imageOverlay} />}
           </View>
 
-          {/* Product Info */}
           <View style={styles.productInfo}>
-            <Text
-              style={[styles.productName, !product.is_product_active && styles.textInactive]}
-              numberOfLines={1}
-            >
-              {product.product_name}
+            <Text style={[styles.productName, !product.is_product_active && styles.textInactive]} numberOfLines={1}>
+              {product.name}
             </Text>
-            <Text
-              style={[styles.productQty, !product.is_product_active && styles.textInactive]}
-              numberOfLines={1}
-            >
-              Qty: {product.product_quantity}
+            <Text style={[styles.productQty, !product.is_product_active && styles.textInactive]} numberOfLines={1}>
+              Qty: {product.quantity} {product.unit}
             </Text>
-            <Text
-              style={[styles.productPrice, !product.is_product_active && styles.textInactive]}
-              numberOfLines={1}
-            >
-              Price: {product.product_price}
+            <Text style={[styles.productPrice, !product.is_product_active && styles.textInactive]} numberOfLines={1}>
+              Rs {product.price}/{product.unit}
+            </Text>
+            <Text style={[styles.productMoq, !product.is_product_active && styles.textInactive]} numberOfLines={1}>
+              MOQ: {product.moq}
             </Text>
 
-            {/* Toggle Status */}
             <View style={styles.statusToggle}>
               <Text style={styles.statusLabel}>
                 {product.is_product_active ? 'Active' : 'Inactive'}
@@ -318,18 +283,14 @@ const MyProductsScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Actions */}
           <View style={styles.actionsColumn}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => handleEditProduct(product)}
-            >
+            <TouchableOpacity style={styles.actionButton} onPress={() => handleViewProduct(product)}>
               <Ionicons name="eye-outline" size={20} color="#0078D7" />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => handleDeleteProduct(product)}
-            >
+            <TouchableOpacity style={styles.actionButton} onPress={() => handleEditProduct(product)}>
+              <Ionicons name="create-outline" size={20} color="#28A745" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton} onPress={() => handleDeleteProduct(product)}>
               <Ionicons name="trash-outline" size={20} color="#DC3545" />
             </TouchableOpacity>
           </View>
@@ -342,7 +303,6 @@ const MyProductsScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" translucent={false} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
@@ -353,7 +313,6 @@ const MyProductsScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
@@ -370,7 +329,6 @@ const MyProductsScreen: React.FC = () => {
         )}
       </View>
 
-      {/* Content */}
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#177DDF" />
@@ -388,11 +346,8 @@ const MyProductsScreen: React.FC = () => {
         <ScrollView
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#177DDF']} tintColor="#177DDF" />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#177DDF']} tintColor="#177DDF" />}
         >
-          {/* Active Products */}
           {filteredActiveProducts.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -405,30 +360,24 @@ const MyProductsScreen: React.FC = () => {
             </View>
           )}
 
-          {/* Inactive Products */}
           {filteredInactiveProducts.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={[styles.sectionTitle, { color: '#999' }]}>Inactive</Text>
                 <View style={[styles.sectionBadge, { backgroundColor: '#F0F0F0' }]}>
-                  <Text style={[styles.sectionBadgeText, { color: '#999' }]}>
-                    {filteredInactiveProducts.length}
-                  </Text>
+                  <Text style={[styles.sectionBadgeText, { color: '#999' }]}>{filteredInactiveProducts.length}</Text>
                 </View>
               </View>
               {filteredInactiveProducts.map((product) => renderProductCard(product))}
             </View>
           )}
 
-          {/* Empty State */}
           {filteredActiveProducts.length === 0 && filteredInactiveProducts.length === 0 && (
             <View style={styles.emptyContainer}>
               <Ionicons name="cube-outline" size={64} color="#CCC" />
               <Text style={styles.emptyText}>No products found</Text>
               <Text style={styles.emptySubtext}>
-                {searchQuery.length > 0
-                  ? 'Try adjusting your search'
-                  : 'Add your first product to start selling'}
+                {searchQuery.length > 0 ? 'Try adjusting your search' : 'Add your first product to start selling'}
               </Text>
               {searchQuery.length === 0 && (
                 <TouchableOpacity style={styles.addFirstButton} onPress={handleAddProduct}>
@@ -443,7 +392,6 @@ const MyProductsScreen: React.FC = () => {
         </ScrollView>
       )}
 
-      {/* Floating Add Button */}
       <TouchableOpacity style={styles.floatingButton} onPress={handleAddProduct}>
         <Ionicons name="add" size={30} color="#FFFFFF" />
       </TouchableOpacity>
@@ -454,36 +402,17 @@ const MyProductsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: {
-    backgroundColor: '#177DDF',
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: '#177DDF', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center',
   },
   backButton: { marginRight: 16 },
   headerTitle: { flex: 1, fontSize: 20, fontWeight: '600', color: '#FFFFFF' },
-  headerBadge: {
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
+  headerBadge: { backgroundColor: 'rgba(255,255,255,0.25)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   headerBadgeText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   searchContainer: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 16,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginTop: 16, marginBottom: 16,
+    borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12,
+    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2,
   },
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, paddingVertical: 12, fontSize: 15, color: '#333' },
@@ -494,31 +423,13 @@ const styles = StyleSheet.create({
   retryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
   scrollView: { flex: 1 },
   section: { marginBottom: 20 },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    gap: 8,
-  },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12, gap: 8 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#000' },
-  sectionBadge: {
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
+  sectionBadge: { backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 2, borderRadius: 10 },
   sectionBadgeText: { fontSize: 13, fontWeight: '700', color: '#0078D7' },
   productCard: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 12,
+    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3,
   },
   productCardInactive: { backgroundColor: '#FAFAFA', borderWidth: 1, borderColor: '#F0F0F0' },
   cardContent: { flexDirection: 'row', padding: 12, alignItems: 'center' },
@@ -527,63 +438,35 @@ const styles = StyleSheet.create({
   productImageInactive: { opacity: 0.5 },
   imagePlaceholder: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F8F8' },
   imageOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-    borderRadius: 10,
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)', borderRadius: 10,
   },
   productInfo: { flex: 1, marginLeft: 12, marginRight: 8 },
   productName: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 4 },
   productQty: { fontSize: 13, color: '#666', marginBottom: 2 },
-  productPrice: { fontSize: 13, color: '#28A745', fontWeight: '600', marginBottom: 6 },
+  productPrice: { fontSize: 13, color: '#28A745', fontWeight: '600', marginBottom: 2 },
+  productMoq: { fontSize: 12, color: '#888', marginBottom: 6 },
   textInactive: { color: '#AAAAAA' },
   statusToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   statusLabel: { fontSize: 12, color: '#888' },
   actionsColumn: { gap: 8 },
   actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 36, height: 36, borderRadius: 18, backgroundColor: '#F5F5F5',
+    justifyContent: 'center', alignItems: 'center',
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
-  },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
   emptyText: { fontSize: 18, fontWeight: '600', color: '#666', marginTop: 16 },
   emptySubtext: { fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center' },
   addFirstButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#177DDF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 20,
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#177DDF',
+    paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, marginTop: 20, gap: 8,
   },
   addFirstButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
   bottomPadding: { height: 100 },
   floatingButton: {
-    position: 'absolute',
-    bottom: 40,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#177DDF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    position: 'absolute', bottom: 40, right: 20, width: 56, height: 56, borderRadius: 28,
+    backgroundColor: '#177DDF', justifyContent: 'center', alignItems: 'center',
+    elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 4,
   },
 });
 
