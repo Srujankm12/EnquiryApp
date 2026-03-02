@@ -1,23 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useState, useCallback } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import Constants from "expo-constants";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
   FlatList,
   Image,
+  RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  RefreshControl,
-  StatusBar,
 } from "react-native";
-import { useRouter, useFocusEffect } from "expo-router";
-import Constants from "expo-constants";
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
@@ -44,14 +44,21 @@ interface Product {
   id: string;
   name: string;
   description: string;
+  product_description?: string;
   quantity: number;
   unit: string;
   price: number;
   moq: string;
+  business_name?: string;
+  category_name?: string;
+  city?: string;
+  state?: string;
   product_images?: any[];
   created_at: string;
   updated_at: string;
 }
+
+const CARD_WIDTH = (width - 36) / 2;
 
 const SellerTab: React.FC = () => {
   const router = useRouter();
@@ -62,6 +69,7 @@ const SellerTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
   const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -70,7 +78,7 @@ const SellerTab: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [])
+    }, []),
   );
 
   const loadData = async () => {
@@ -81,7 +89,6 @@ const SellerTab: React.FC = () => {
       if (!token) return;
       const headers = { Authorization: `Bearer ${token}` };
 
-      // Check seller status
       let status = await AsyncStorage.getItem("sellerStatus");
       const normalizedStatus = status?.toLowerCase()?.trim() || null;
       const isApproved =
@@ -90,10 +97,8 @@ const SellerTab: React.FC = () => {
         normalizedStatus === "active";
       setSellerStatus(isApproved ? "approved" : normalizedStatus);
 
-      // Fetch categories and all products in parallel
       const [catRes, productsRes] = await Promise.allSettled([
         axios.get(`${API_URL}/category/get/all`, { headers }),
-        // Backend: GET /product/get/all - returns all active products
         axios.get(`${API_URL}/product/get/all`, { headers }),
       ]);
 
@@ -106,7 +111,6 @@ const SellerTab: React.FC = () => {
         setAllProducts(Array.isArray(productsData) ? productsData : []);
       }
     } catch (err: any) {
-      console.error("Error loading data:", err);
       setError("Unable to load data. Please try again.");
     } finally {
       setLoading(false);
@@ -119,13 +123,6 @@ const SellerTab: React.FC = () => {
     setRefreshing(false);
   }, []);
 
-  const handleCategoryPress = (category: Category) => {
-    router.push({
-      pathname: "/pages/specificCategory" as any,
-      params: { id: category.id, name: category.name },
-    });
-  };
-
   const getProductImageUrl = (product: Product): string | null => {
     if (product.product_images && product.product_images.length > 0) {
       return getImageUri(product.product_images[0].image);
@@ -135,71 +132,133 @@ const SellerTab: React.FC = () => {
 
   const isApproved = sellerStatus === "approved";
 
-  // Filter products by search
   const filteredProducts = allProducts.filter((p) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      p.name?.toLowerCase().includes(q) ||
-      p.description?.toLowerCase().includes(q)
-    );
+    const matchesSearch = !searchQuery
+      ? true
+      : p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.product_description
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase());
+    const matchesCategory = !selectedCategory
+      ? true
+      : (p as any).category_id === selectedCategory;
+    return matchesSearch && matchesCategory;
   });
 
-  const renderCategoryItem = ({ item }: { item: Category }) => (
-    <TouchableOpacity
-      style={styles.categoryChip}
-      onPress={() => handleCategoryPress(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.categoryChipIcon}>
-        {item.category_image ? (
-          <Image
-            source={{ uri: getImageUri(item.category_image)! }}
-            style={styles.categoryChipImage}
-          />
-        ) : (
-          <Ionicons name="leaf-outline" size={18} color="#1E90FF" />
-        )}
-      </View>
-      <Text style={styles.categoryChipText} numberOfLines={1}>
-        {item.name}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  const renderProductCard = (item: Product) => {
-    const imageUrl = getProductImageUrl(item);
+  // ── Premium Product Card ──
+  const PremiumCard = ({ item }: { item: Product }) => {
+    const img = getProductImageUrl(item);
+    const desc = (item as any).product_description || item.description;
     return (
       <TouchableOpacity
-        key={item.id}
-        style={styles.productGridCard}
+        style={styles.premiumCard}
+        activeOpacity={0.91}
         onPress={() =>
           router.push({
             pathname: "/pages/productDetail" as any,
             params: { product_id: item.id },
           })
         }
-        activeOpacity={0.7}
       >
-        {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.productGridImage} />
-        ) : (
-          <View style={[styles.productGridImage, styles.productImagePlaceholder]}>
-            <Ionicons name="cube-outline" size={28} color="#CCC" />
+        {/* ── Image area ── */}
+        <View style={styles.cardImgWrap}>
+          {img ? (
+            <Image
+              source={{ uri: img }}
+              style={styles.cardImg}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.cardImgPlaceholder}>
+              <Ionicons name="cube-outline" size={36} color="#C2D4E8" />
+              <Text style={styles.cardImgPlaceholderText}>No Image</Text>
+            </View>
+          )}
+
+          {/* Active badge */}
+          <View style={styles.activeBadge}>
+            <View style={styles.activeDot} />
+            <Text style={styles.activeBadgeText}>Active</Text>
           </View>
-        )}
-        <View style={styles.productGridInfo}>
-          <Text style={styles.productGridName} numberOfLines={1}>
+
+          {/* Category tag overlay */}
+          {(item as any).category_name && (
+            <View style={styles.categoryOverlay}>
+              <Text style={styles.categoryOverlayText} numberOfLines={1}>
+                {(item as any).category_name}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* ── Content area ── */}
+        <View style={styles.cardBody}>
+          {/* Product name */}
+          <Text style={styles.cardName} numberOfLines={2}>
             {item.name}
           </Text>
-          <Text style={styles.productGridPrice} numberOfLines={1}>
-            Rs {item.price}/{item.unit}
-          </Text>
-          {item.moq && (
-            <Text style={styles.productMoq} numberOfLines={1}>
-              MOQ: {item.moq}
-            </Text>
+
+          {/* Business + location row */}
+          {(item as any).business_name && (
+            <View style={styles.cardBizRow}>
+              <Ionicons name="storefront-outline" size={10} color="#64748B" />
+              <Text style={styles.cardBizName} numberOfLines={1}>
+                {(item as any).business_name}
+              </Text>
+              {(item as any).city && (
+                <>
+                  <Text style={styles.cardBizDot}>·</Text>
+                  <Ionicons name="location-outline" size={9} color="#94A3B8" />
+                  <Text style={styles.cardBizCity} numberOfLines={1}>
+                    {(item as any).city}
+                  </Text>
+                </>
+              )}
+            </View>
           )}
+
+          {/* Description */}
+          {desc ? (
+            <Text style={styles.cardDesc} numberOfLines={2}>
+              {desc}
+            </Text>
+          ) : null}
+
+          {/* Qty + MOQ chips */}
+          <View style={styles.cardChipsRow}>
+            <View style={styles.cardChip}>
+              <Ionicons name="cube-outline" size={9} color="#0078D7" />
+              <Text style={styles.cardChipText}>
+                {item.quantity} {item.unit}
+              </Text>
+            </View>
+            {item.moq ? (
+              <View style={[styles.cardChip, styles.cardChipMuted]}>
+                <Ionicons name="layers-outline" size={9} color="#64748B" />
+                <Text style={[styles.cardChipText, { color: "#64748B" }]}>
+                  MOQ: {item.moq}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Divider */}
+          <View style={styles.cardDivider} />
+
+          {/* Price + CTA */}
+          <View style={styles.cardFooter}>
+            <View>
+              <Text style={styles.cardPriceLabel}>PRICE</Text>
+              <Text style={styles.cardPrice}>
+                ₹{item.price}
+                <Text style={styles.cardUnit}>/{item.unit}</Text>
+              </Text>
+            </View>
+            <View style={styles.cardEnquireBtn}>
+              <Ionicons name="arrow-forward" size={13} color="#fff" />
+            </View>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -209,44 +268,49 @@ const SellerTab: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
 
-      {/* Header */}
+      {/* ── Header ── */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          {isApproved ? "Seller" : "Products"}
-        </Text>
+        <View>
+          <Text style={styles.headerTitle}>
+            {isApproved ? "Seller Hub" : "Products"}
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            {filteredProducts.length} products available
+          </Text>
+        </View>
         {isApproved && (
           <View style={styles.headerActions}>
             <TouchableOpacity
               onPress={() => router.push("/pages/myProducts" as any)}
               style={styles.headerMyProductsBtn}
             >
-              <Ionicons name="cube" size={16} color="#FFFFFF" />
+              <Ionicons name="cube" size={15} color="#fff" />
               <Text style={styles.headerMyProductsText}>My Products</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/pages/addProduct" as any)}
               style={styles.headerAddBtn}
             >
-              <Ionicons name="add" size={20} color="#1E90FF" />
+              <Ionicons name="add" size={22} color="#1E90FF" />
             </TouchableOpacity>
           </View>
         )}
       </View>
 
-      {/* Search Bar */}
+      {/* ── Search Bar ── */}
       <View style={styles.searchWrapper}>
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#999" />
+          <Ionicons name="search" size={18} color="#94A3B8" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search products..."
+            placeholder="Search products, businesses..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor="#999"
+            placeholderTextColor="#94A3B8"
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery("")}>
-              <Ionicons name="close-circle" size={20} color="#999" />
+              <Ionicons name="close-circle" size={18} color="#94A3B8" />
             </TouchableOpacity>
           )}
         </View>
@@ -255,7 +319,7 @@ const SellerTab: React.FC = () => {
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#1E90FF" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={styles.loadingText}>Loading products...</Text>
         </View>
       ) : error ? (
         <View style={styles.loaderContainer}>
@@ -263,7 +327,7 @@ const SellerTab: React.FC = () => {
           <Text style={styles.errorTitle}>Connection Error</Text>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={loadData}>
-            <Ionicons name="refresh" size={18} color="#FFFFFF" />
+            <Ionicons name="refresh" size={18} color="#fff" />
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
@@ -276,68 +340,143 @@ const SellerTab: React.FC = () => {
               refreshing={refreshing}
               onRefresh={onRefresh}
               colors={["#1E90FF"]}
+              tintColor="#1E90FF"
             />
           }
         >
-          {/* Categories Row */}
+          {/* ── Categories horizontal scroll ── */}
           {categories.length > 0 && (
-            <View style={styles.categoriesSection}>
-              <Text style={styles.sectionTitle}>Browse by Category</Text>
+            <View style={styles.catSection}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>Categories</Text>
+                <Text style={styles.sectionCount}>
+                  {categories.length} total
+                </Text>
+              </View>
               <FlatList
-                data={categories}
+                data={[
+                  {
+                    id: "all",
+                    name: "All",
+                    category_image: null,
+                    description: "",
+                  },
+                  ...categories,
+                ]}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={(item) => item.id}
-                renderItem={renderCategoryItem}
-                contentContainerStyle={styles.categoriesRow}
+                contentContainerStyle={styles.catRow}
+                renderItem={({ item }) => {
+                  const isSelected =
+                    item.id === "all"
+                      ? selectedCategory === null
+                      : selectedCategory === item.id;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.catChip,
+                        isSelected && styles.catChipActive,
+                      ]}
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        setSelectedCategory(item.id === "all" ? null : item.id)
+                      }
+                    >
+                      <View
+                        style={[
+                          styles.catChipIcon,
+                          isSelected && styles.catChipIconActive,
+                        ]}
+                      >
+                        {item.id !== "all" && item.category_image ? (
+                          <Image
+                            source={{ uri: getImageUri(item.category_image)! }}
+                            style={styles.catChipImage}
+                          />
+                        ) : (
+                          <Ionicons
+                            name={
+                              item.id === "all"
+                                ? "apps-outline"
+                                : "leaf-outline"
+                            }
+                            size={14}
+                            color={isSelected ? "#fff" : "#0078D7"}
+                          />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.catChipText,
+                          isSelected && styles.catChipTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
               />
             </View>
           )}
 
-          {/* All Products */}
+          {/* ── Products grid ── */}
           {filteredProducts.length > 0 ? (
-            <View style={styles.productCategorySection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>All Products</Text>
-                <Text style={styles.productCountText}>
-                  {filteredProducts.length} products
+            <View style={styles.productsSection}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>
+                  {selectedCategory
+                    ? categories.find((c) => c.id === selectedCategory)?.name ||
+                      "Category"
+                    : "All Products"}
+                </Text>
+                <Text style={styles.sectionCount}>
+                  {filteredProducts.length} items
                 </Text>
               </View>
-              <View style={styles.productsGrid}>
-                {filteredProducts.map((product) => renderProductCard(product))}
+              <View style={styles.grid}>
+                {filteredProducts.map((product) => (
+                  <PremiumCard key={product.id} item={product} />
+                ))}
               </View>
             </View>
           ) : (
             <View style={styles.emptyState}>
-              <Ionicons name="cube-outline" size={48} color="#CCC" />
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="cube-outline" size={40} color="#94A3B8" />
+              </View>
               <Text style={styles.emptyTitle}>
-                {searchQuery ? "No products found" : "No products yet"}
+                {searchQuery ? "No results found" : "No products yet"}
               </Text>
               <Text style={styles.emptySubtext}>
                 {searchQuery
-                  ? "Try a different search term"
+                  ? `No products match "${searchQuery}"`
                   : "Products will appear here once sellers post them"}
               </Text>
             </View>
           )}
 
-          {/* Become Seller prompt for non-sellers */}
+          {/* ── Become Seller banner ── */}
           {!isApproved && (
             <TouchableOpacity
               style={styles.becomeSellerBanner}
               onPress={() => router.push("/pages/becomeSellerForm" as any)}
-              activeOpacity={0.7}
+              activeOpacity={0.85}
             >
-              <View style={styles.becomeSellerIcon}>
-                <Ionicons name="storefront" size={24} color="#FFFFFF" />
+              <View style={styles.becomeSellerIconWrap}>
+                <Ionicons name="storefront" size={22} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.becomeSellerTitle}>Become a Seller</Text>
-                <Text style={styles.becomeSellerSubtitle}>
+                <Text style={styles.becomeSellerSub}>
                   Register your business and start selling
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+              <View style={styles.becomeSellerArrow}>
+                <Ionicons name="chevron-forward" size={16} color="#0078D7" />
+              </View>
             </TouchableOpacity>
           )}
 
@@ -349,84 +488,402 @@ const SellerTab: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F8F9FA" },
+  container: { flex: 1, backgroundColor: "#F0F4F8" },
+
+  /* Header */
   header: {
-    backgroundColor: "#1E90FF", paddingTop: 50, paddingBottom: 12, paddingHorizontal: 16,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: "#1E90FF",
+    paddingTop: 52,
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  headerTitle: { fontSize: 22, fontWeight: "700", color: "#FFFFFF" },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.4,
+  },
+  headerSubtitle: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.72)",
+    marginTop: 2,
+    fontWeight: "500",
+  },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerMyProductsBtn: {
-    flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, gap: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    gap: 5,
   },
-  headerMyProductsText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
+  headerMyProductsText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   headerAddBtn: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: "#FFFFFF",
-    justifyContent: "center", alignItems: "center",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  searchWrapper: { backgroundColor: "#1E90FF", paddingHorizontal: 16, paddingBottom: 14 },
+
+  /* Search */
+  searchWrapper: {
+    backgroundColor: "#F0F4F8",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
   searchContainer: {
-    backgroundColor: "#FFFFFF", borderRadius: 10, flexDirection: "row",
-    alignItems: "center", paddingHorizontal: 12, height: 44,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    height: 44,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  searchInput: { flex: 1, marginLeft: 8, fontSize: 15, color: "#333" },
-  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 40 },
-  loadingText: { marginTop: 12, fontSize: 15, color: "#666" },
-  errorTitle: { fontSize: 18, fontWeight: "600", color: "#333", marginTop: 16 },
-  errorText: { fontSize: 14, color: "#666", textAlign: "center", marginTop: 8 },
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: "#1A1A1A" },
+
+  /* Loader / Error */
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+  },
+  loadingText: { marginTop: 12, fontSize: 14, color: "#94A3B8" },
+  errorTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginTop: 16,
+  },
+  errorText: {
+    fontSize: 13,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 6,
+  },
   retryButton: {
-    marginTop: 20, backgroundColor: "#1E90FF", paddingHorizontal: 28, paddingVertical: 12,
-    borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 20,
+    backgroundColor: "#0078D7",
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  retryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  retryButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+
   scrollView: { flex: 1 },
-  categoriesSection: { paddingTop: 16, paddingBottom: 8 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: "#1A1A1A", marginBottom: 12, paddingHorizontal: 16 },
-  categoriesRow: { paddingHorizontal: 16, gap: 10 },
-  categoryChip: {
-    flexDirection: "row", alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 20,
-    paddingVertical: 8, paddingHorizontal: 14, elevation: 1, shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2,
-    borderWidth: 1, borderColor: "#F0F0F0",
+
+  /* Section headers */
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
-  categoryChipIcon: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: "#EBF5FF",
-    justifyContent: "center", alignItems: "center", marginRight: 8, overflow: "hidden",
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
-  categoryChipImage: { width: 28, height: 28, borderRadius: 14 },
-  categoryChipText: { fontSize: 13, fontWeight: "600", color: "#333", maxWidth: 100 },
-  productCategorySection: { marginTop: 16, marginBottom: 4 },
-  sectionHeader: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 16, marginBottom: 12,
+  sectionCount: { fontSize: 12, color: "#94A3B8", fontWeight: "600" },
+
+  /* Categories */
+  catSection: { paddingTop: 18, paddingBottom: 6 },
+  catRow: { paddingHorizontal: 16, gap: 8 },
+  catChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 22,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    gap: 7,
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  productCountText: { fontSize: 13, color: "#888", paddingHorizontal: 16 },
-  productsGrid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, justifyContent: "space-between" },
-  productGridCard: {
-    width: (width - 36) / 2, backgroundColor: "#FFFFFF", borderRadius: 12, marginBottom: 12,
-    overflow: "hidden", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08, shadowRadius: 4,
+  catChipActive: {
+    backgroundColor: "#0078D7",
+    borderColor: "#0078D7",
   },
-  productGridImage: { width: "100%", height: 120, backgroundColor: "#F0F0F0" },
-  productImagePlaceholder: { justifyContent: "center", alignItems: "center" },
-  productGridInfo: { padding: 10 },
-  productGridName: { fontSize: 14, fontWeight: "600", color: "#1A1A1A", marginBottom: 4 },
-  productGridPrice: { fontSize: 14, fontWeight: "700", color: "#28A745", marginBottom: 4 },
-  productMoq: { fontSize: 11, color: "#888" },
-  emptyState: { alignItems: "center", paddingVertical: 40, paddingHorizontal: 40 },
-  emptyTitle: { fontSize: 16, fontWeight: "600", color: "#333", marginTop: 12 },
-  emptySubtext: { fontSize: 13, color: "#999", marginTop: 6, textAlign: "center" },
+  catChipIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  catChipIconActive: { backgroundColor: "rgba(255,255,255,0.25)" },
+  catChipImage: { width: 24, height: 24, borderRadius: 12 },
+  catChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#334155",
+    maxWidth: 90,
+  },
+  catChipTextActive: { color: "#fff" },
+
+  /* Products grid */
+  productsSection: { paddingTop: 18 },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 12,
+    justifyContent: "space-between",
+  },
+
+  /* ── Premium Card ── */
+  premiumCard: {
+    width: CARD_WIDTH,
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    marginBottom: 14,
+    overflow: "hidden",
+    shadowColor: "#1B4FBF",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: "rgba(0,120,215,0.07)",
+  },
+  cardImgWrap: {
+    width: "100%",
+    height: 140,
+    backgroundColor: "#EEF4FB",
+    position: "relative",
+  },
+  cardImg: { width: "100%", height: "100%" },
+  cardImgPlaceholder: {
+    width: "100%",
+    height: 140,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F1F7FD",
+    gap: 6,
+  },
+  cardImgPlaceholderText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  activeBadge: {
+    position: "absolute",
+    top: 9,
+    left: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#16A34A",
+  },
+  activeBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#16A34A",
+    letterSpacing: 0.3,
+  },
+  categoryOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.42)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  categoryOverlayText: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+
+  /* Card body */
+  cardBody: { padding: 11 },
+  cardName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
+    lineHeight: 18,
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  cardBizRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginBottom: 5,
+  },
+  cardBizName: { fontSize: 10, color: "#64748B", fontWeight: "600", flex: 1 },
+  cardBizDot: { fontSize: 10, color: "#CBD5E1", marginHorizontal: 1 },
+  cardBizCity: {
+    fontSize: 10,
+    color: "#94A3B8",
+    fontWeight: "500",
+    maxWidth: 55,
+  },
+  cardDesc: {
+    fontSize: 11,
+    color: "#64748B",
+    lineHeight: 15,
+    marginBottom: 7,
+    fontWeight: "400",
+  },
+  cardChipsRow: {
+    flexDirection: "row",
+    gap: 5,
+    flexWrap: "wrap",
+    marginBottom: 8,
+  },
+  cardChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#EBF5FF",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  cardChipMuted: { backgroundColor: "#F1F5F9" },
+  cardChipText: { fontSize: 9, fontWeight: "700", color: "#0078D7" },
+  cardDivider: { height: 1, backgroundColor: "#F1F5F9", marginBottom: 8 },
+  cardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  cardPriceLabel: {
+    fontSize: 8,
+    color: "#94A3B8",
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    marginBottom: 1,
+  },
+  cardPrice: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#0078D7",
+    letterSpacing: -0.3,
+  },
+  cardUnit: { fontSize: 10, fontWeight: "500", color: "#94A3B8" },
+  cardEnquireBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#0078D7",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+
+  /* Empty */
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 52,
+    paddingHorizontal: 40,
+  },
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: "#334155" },
+  emptySubtext: {
+    fontSize: 13,
+    color: "#94A3B8",
+    marginTop: 6,
+    textAlign: "center",
+    lineHeight: 19,
+  },
+
+  /* Become Seller banner */
   becomeSellerBanner: {
-    flexDirection: "row", alignItems: "center", backgroundColor: "#0078D7", marginHorizontal: 16,
-    marginTop: 16, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#DBEAFE",
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
   },
-  becomeSellerIcon: {
-    width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center", alignItems: "center", marginRight: 12,
+  becomeSellerIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: "#0078D7",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
   },
-  becomeSellerTitle: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
-  becomeSellerSubtitle: { fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 2 },
+  becomeSellerTitle: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+  becomeSellerSub: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  becomeSellerArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });
 
 export default SellerTab;

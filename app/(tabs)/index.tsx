@@ -1,23 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
 import { jwtDecode } from "jwt-decode";
-import React, { useCallback, useEffect, useState } from "react";
-import Constants from "expo-constants";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   FlatList,
   Image,
-  ScrollView,
+  RefreshControl,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BecomeSellerToaster from "../../components/BecomeSellerToaster";
-import axios from "axios";
 
 const { width } = Dimensions.get("window");
 
@@ -27,23 +30,15 @@ const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const path = url.startsWith('/') ? url : `/${url}`;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const path = url.startsWith("/") ? url : `/${url}`;
   if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
   return `${S3_URL}${path}`;
 };
 
 const BANNERS = [
-  {
-    id: "1",
-    image: require("../../assets/banners/banner1.png"),
-    title: "South Canara Agro Mart",
-  },
-  {
-    id: "2",
-    image: require("../../assets/banners/banner2.png"),
-    title: "Premium Quality",
-  },
+  { id: "1", image: require("../../assets/banners/banner1.png") },
+  { id: "2", image: require("../../assets/banners/banner2.png") },
 ];
 
 const QUICK_ACTIONS = [
@@ -74,179 +69,114 @@ const QUICK_ACTIONS = [
 ];
 
 const HomeScreen = () => {
+  const insets = useSafeAreaInsets();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [jwtUserName, setJwtUserName] = useState<string>("");
   const [categories, setCategories] = useState<any[]>([]);
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [followerProducts, setFollowerProducts] = useState<any[]>([]);
+
   const [showToaster, setShowToaster] = useState(true);
   const [toasterKey, setToasterKey] = useState(0);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
+  const [activeBanner, setActiveBanner] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
 
   useEffect(() => {
     loadData();
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       setShowToaster(true);
-      setToasterKey((prev) => prev + 1);
+      setToasterKey((p) => p + 1);
       checkSellerStatus();
-    }, [])
+      refreshProducts();
+    }, []),
   );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchAllProducts(),
+      fetchFollowerProducts(),
+      fetchCategories(),
+      checkSellerStatus(),
+    ]);
+    setRefreshing(false);
+  }, []);
+
+  const refreshProducts = async () => {
+    await Promise.all([fetchAllProducts(), fetchFollowerProducts()]);
+  };
 
   const checkSellerStatus = async () => {
     try {
-      const status = await AsyncStorage.getItem("sellerStatus");
-      const normalizedStored = status?.toLowerCase()?.trim() || null;
-
-      // If already approved, no need for API calls
-      if (normalizedStored === "approved" || normalizedStored === "accepted" || normalizedStored === "active") {
+      const s = await AsyncStorage.getItem("sellerStatus");
+      const n = s?.toLowerCase()?.trim() || null;
+      if (n === "approved" || n === "accepted" || n === "active") {
         setSellerStatus("approved");
         return;
       }
-
-      setSellerStatus(normalizedStored);
-
-      // Refresh from API to keep in sync
+      setSellerStatus(n);
       const token = await AsyncStorage.getItem("token");
       if (token) {
-        const decoded: any = jwtDecode(token);
-
-        // Use business_id from token if available
-        let businessId = decoded.business_id;
-
-        if (!businessId) {
-          // Fallback: try fetching business by user_id
+        const dec: any = jwtDecode(token);
+        const bId = dec.business_id;
+        if (bId) {
+          await AsyncStorage.setItem("companyId", bId);
           try {
-            const bizRes = await fetch(`${API_URL}/business/get/user/${decoded.user_id}`, {
+            const r = await fetch(`${API_URL}/business/status/${bId}`, {
               headers: { "Content-Type": "application/json" },
             });
-            if (bizRes.ok) {
-              const bizData = await bizRes.json();
-              businessId = bizData.business_id || bizData.details?.business_id || bizData.id;
-            }
-          } catch {
-            // No business found
-          }
-        }
-
-        if (businessId) {
-          await AsyncStorage.setItem("companyId", businessId);
-
-          // First check business status endpoint (simple check)
-          try {
-            const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, {
-              headers: { "Content-Type": "application/json" },
-            });
-            if (statusRes.ok) {
-              const statusData = await statusRes.json();
-              if (
-                statusData?.is_approved === true ||
-                statusData?.details?.is_approved === true ||
-                statusData?.is_business_approved === true ||
-                statusData?.details?.is_business_approved === true
-              ) {
+            if (r.ok) {
+              const d = await r.json();
+              if (d?.is_approved === true || d?.is_business_approved === true) {
                 await AsyncStorage.setItem("sellerStatus", "approved");
                 setSellerStatus("approved");
-                return;
               }
             }
-          } catch {
-            // Status endpoint not available
-          }
-
-          // Check application status
-          try {
-            const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
-              headers: { "Content-Type": "application/json" },
-            });
-            if (appRes.ok) {
-              const appData = await appRes.json();
-              const appStatus = (
-                appData.details?.status ||
-                appData.application?.status ||
-                appData.status ||
-                ""
-              ).toLowerCase().trim();
-
-              if (appStatus === "approved" || appStatus === "accepted" || appStatus === "active") {
-                await AsyncStorage.setItem("sellerStatus", "approved");
-                setSellerStatus("approved");
-              } else if (appStatus === "applied" || appStatus === "pending" || appStatus === "under_review") {
-                await AsyncStorage.setItem("sellerStatus", "pending");
-                setSellerStatus("pending");
-              } else if (appStatus === "rejected" || appStatus === "declined") {
-                await AsyncStorage.setItem("sellerStatus", "rejected");
-                setSellerStatus("rejected");
-              } else if (appStatus) {
-                await AsyncStorage.setItem("sellerStatus", appStatus);
-                setSellerStatus(appStatus);
-              }
-            }
-          } catch {
-            // Check if business itself is approved
-            try {
-              const bizDetailRes = await fetch(`${API_URL}/business/get/${businessId}`, {
-                headers: { "Content-Type": "application/json" },
-              });
-              if (bizDetailRes.ok) {
-                const bizDetail = await bizDetailRes.json();
-                const biz = bizDetail.details || bizDetail.business;
-                if (biz?.is_business_approved || biz?.is_approved) {
-                  await AsyncStorage.setItem("sellerStatus", "approved");
-                  setSellerStatus("approved");
-                }
-              }
-            } catch {
-              // Business not accessible
-            }
-          }
+          } catch {}
         }
       }
-    } catch (error) {
-      console.error("Error checking seller status:", error);
-    }
+    } catch {}
   };
 
   const loadData = async () => {
-    try {
-      setLoading(true);
-      await Promise.all([getProfile(), fetchCategories(), fetchCompanies(), fetchProducts()]);
-    } catch (error) {
-      console.error("Error loading data:", error);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true);
+    await Promise.all([
+      getProfile(),
+      fetchCategories(),
+      fetchAllProducts(),
+      fetchFollowerProducts(),
+    ]);
+    setLoading(false);
   };
 
   const getProfile = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
-      if (token) {
-        const decodedToken: any = jwtDecode(token);
-        // Show name from JWT immediately without waiting for API
-        if (decodedToken.user_name) {
-          setJwtUserName(decodedToken.user_name);
-        }
-        try {
-          const res = await axios.get(
-            `${API_URL}/user/get/user/${decodedToken?.user_id}`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          // Backend returns: { message: "...", user: { id, first_name, last_name, email, phone, profile_image, ... } }
-          const details = res.data?.user || res.data;
-          setUserDetails(details);
-        } catch {
-          // API error - rely on token data
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching profile:", error);
-    }
+      if (!token) return;
+      const dec: any = jwtDecode(token);
+      if (dec.user_name) setJwtUserName(dec.user_name);
+      setCurrentUserId(dec.user_id || "");
+      try {
+        const res = await axios.get(`${API_URL}/user/get/user/${dec.user_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setUserDetails(res.data?.user || res.data);
+      } catch {}
+    } catch {}
   };
 
   const fetchCategories = async () => {
@@ -255,120 +185,46 @@ const HomeScreen = () => {
       const res = await axios.get(`${API_URL}/category/get/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.data?.categories) {
-        setCategories(res.data.categories);
-      }
-    } catch (error) {
-      console.error("Error fetching categories:", error);
-    }
+      setCategories(res.data?.categories || []);
+    } catch {}
   };
 
-  const fetchCompanies = async () => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      // Normalize company fields from any API response
-      const normalizeCompany = (c: any) => ({
-        company_id: c.company_id || c.id || c.business_id,
-        company_name: c.company_name || c.name || c.business_name || "",
-        company_profile_url: c.company_profile_url || c.profile_image || null,
-        company_city: c.company_city || c.city || "",
-        company_state: c.company_state || c.state || "",
-        company_phone: c.company_phone || c.phone || "",
-        company_email: c.company_email || c.email || "",
-        is_verified: c.is_verified || c.is_business_verified || false,
-        is_approved: c.is_approved !== undefined ? c.is_approved : (c.is_business_approved !== false),
-        name: c.company_name || c.name || c.business_name || "",
-      });
-
-      // Try fetching approved companies
-      let fetchedCompanies: any[] = [];
-      try {
-        const res = await axios.get(`${API_URL}/company/get/approved/all`, { headers });
-        let raw: any[] = [];
-        if (res.data?.data?.companies) {
-          raw = res.data.data.companies;
-        } else if (res.data?.data && Array.isArray(res.data.data)) {
-          raw = res.data.data;
-        }
-        fetchedCompanies = raw.map(normalizeCompany);
-      } catch {}
-
-      // Fallback: try all companies and filter approved
-      if (fetchedCompanies.length === 0) {
-        try {
-          const res = await axios.get(`${API_URL}/company/get/all`, { headers });
-          const data = res.data?.data?.companies || res.data?.data || [];
-          fetchedCompanies = (Array.isArray(data) ? data : [])
-            .filter((c: any) => c.is_approved)
-            .map(normalizeCompany);
-        } catch {}
-      }
-
-      // Fallback: try business endpoint
-      if (fetchedCompanies.length === 0) {
-        try {
-          const res = await axios.get(`${API_URL}/business/get/all`, { headers });
-          const data = res.data?.data?.businesses || res.data?.businesses || res.data?.data || [];
-          fetchedCompanies = (Array.isArray(data) ? data : []).map((b: any) => {
-            const biz = b.business_details || b;
-            return {
-              company_id: biz.id || b.id,
-              company_name: biz.name || b.name || "",
-              company_profile_url: biz.profile_image || b.profile_image || null,
-              company_city: biz.city || b.city || "",
-              company_state: biz.state || b.state || "",
-              company_phone: biz.phone || b.phone || "",
-              company_email: biz.email || b.email || "",
-              is_verified: biz.is_business_verified || b.is_business_verified || false,
-              is_approved: biz.is_business_approved !== false,
-              user_id: biz.user_id || b.user_id || "",
-            };
-          }).filter((c: any) => c.is_approved);
-        } catch {}
-      }
-
-      setCompanies(fetchedCompanies);
-    } catch (error) {
-      console.error("Error fetching companies:", error);
-    }
-  };
-
-  const fetchProducts = async () => {
+  const fetchAllProducts = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-      const decoded: any = jwtDecode(token);
-      const userId = decoded.user_id;
+      const res = await axios.get(`${API_URL}/product/get/all`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const raw: any[] = res.data?.products || [];
+      const activeOnly = raw.filter((p) => p.is_product_active !== false);
+      setAllProducts(activeOnly.slice(0, 10));
+    } catch {
+      setAllProducts([]);
+    }
+  };
 
-      // Backend: GET /product/get/followers/{id} - returns products from followed businesses
+  const fetchFollowerProducts = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+      const dec: any = jwtDecode(token);
       const res = await axios.get(
-        `${API_URL}/product/get/followers/${userId}`,
-        { headers }
+        `${API_URL}/product/get/followers/${dec.user_id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
       );
-      const productsData = res.data?.products || [];
-      const productsList = Array.isArray(productsData) ? productsData.slice(0, 6) : [];
-      setProducts(productsList);
-    } catch (error) {
-      console.error("Error fetching products:", error);
-      setProducts([]);
+      const raw: any[] = res.data?.products || [];
+      const activeOnly = raw.filter((p) => p.is_product_active !== false);
+      setFollowerProducts(activeOnly.slice(0, 10));
+    } catch {
+      setFollowerProducts([]);
     }
   };
 
-  const getProductImageUrl = (product: any): string | null => {
-    if (product.product_images && product.product_images.length > 0) {
+  const getProductImage = (product: any): string | null => {
+    if (product.product_images?.length > 0)
       return getImageUri(product.product_images[0].image);
-    }
     return null;
-  };
-
-  const handleCategoryPress = (category: any) => {
-    router.push({
-      pathname: "/pages/specificCategory",
-      params: { id: category.id, name: category.name },
-    });
   };
 
   if (loading) {
@@ -380,556 +236,707 @@ const HomeScreen = () => {
     );
   }
 
+  const displayName =
+    jwtUserName ||
+    (userDetails?.first_name
+      ? `${userDetails.first_name}${userDetails.last_name ? " " + userDetails.last_name : ""}`
+      : "Welcome");
+
+  const hasAnyProducts = allProducts.length > 0 || followerProducts.length > 0;
+
+  // ── Premium Product Card ──
+  const PremiumProductCard = ({
+    item,
+    onPress,
+  }: {
+    item: any;
+    onPress: () => void;
+  }) => {
+    const img = getProductImage(item);
+    return (
+      <TouchableOpacity style={styles.premiumCard} activeOpacity={0.92} onPress={onPress}>
+        {/* Image */}
+        <View style={styles.premiumImgWrap}>
+          {img ? (
+            <Image source={{ uri: img }} style={styles.premiumImg} resizeMode="cover" />
+          ) : (
+            <View style={styles.premiumImgPlaceholder}>
+              <Ionicons name="cube-outline" size={34} color="#C8D8E8" />
+            </View>
+          )}
+          {/* Active badge */}
+          <View style={styles.premiumBadge}>
+            <View style={styles.premiumBadgeDot} />
+            <Text style={styles.premiumBadgeText}>Active</Text>
+          </View>
+        </View>
+
+        {/* Content */}
+        <View style={styles.premiumContent}>
+          <Text style={styles.premiumName} numberOfLines={2}>
+            {item.name}
+          </Text>
+
+          {item.business_name ? (
+            <View style={styles.premiumBizRow}>
+              <Ionicons name="storefront-outline" size={10} color="#94A3B8" />
+              <Text style={styles.premiumBizName} numberOfLines={1}>
+                {item.business_name}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ height: 2 }} />
+          )}
+
+          {item.product_description ? (
+            <Text style={styles.premiumDesc} numberOfLines={2}>
+              {item.product_description}
+            </Text>
+          ) : item.category_name ? (
+            <View style={styles.premiumCategoryChip}>
+              <Ionicons name="pricetag-outline" size={9} color="#0078D7" />
+              <Text style={styles.premiumCategoryText} numberOfLines={1}>
+                {item.category_name}
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.premiumDivider} />
+
+          <View style={styles.premiumFooter}>
+            <View>
+              <Text style={styles.premiumPriceLabel}>PRICE</Text>
+              <Text style={styles.premiumPrice}>
+                ₹{item.price}
+                <Text style={styles.premiumUnit}>/{item.unit}</Text>
+              </Text>
+            </View>
+            <View style={styles.premiumEnquireBtn}>
+              <Ionicons name="arrow-forward" size={14} color="#fff" />
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      {/* Become Seller Toaster - only show if not approved */}
-      {sellerStatus !== "approved" && sellerStatus !== "accepted" && sellerStatus !== "active" && (
-        <BecomeSellerToaster
-          key={toasterKey}
-          visible={showToaster}
-          onClose={() => setShowToaster(false)}
-        />
-      )}
+      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.locationContainer}>
-          <Ionicons name="person-circle-outline" size={24} color="#FFFFFF" />
-          <View style={styles.locationText}>
-            <Text style={styles.locationName}>
-              {jwtUserName || (userDetails?.first_name ? `${userDetails.first_name}${userDetails.last_name ? ' ' + userDetails.last_name : ''}` : "Welcome")}
+      {sellerStatus !== "approved" &&
+        sellerStatus !== "accepted" &&
+        sellerStatus !== "active" && (
+          <BecomeSellerToaster
+            key={toasterKey}
+            visible={showToaster}
+            onClose={() => setShowToaster(false)}
+          />
+        )}
+
+      {/* ── Header ── */}
+      <View style={[styles.header, { paddingTop: 14 + insets.top }]}>
+        <View style={styles.headerLeft}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>
+              {displayName.charAt(0).toUpperCase()}
             </Text>
-            <Text style={styles.locationAddress}>
-              {userDetails?.email || ""}
+          </View>
+          <View>
+            <Text style={styles.headerGreeting}>Hello 👋</Text>
+            <Text style={styles.headerName} numberOfLines={1}>
+              {displayName}
             </Text>
           </View>
         </View>
-        <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.headerIconBtn}>
+            <Ionicons name="notifications-outline" size={21} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="chatbox-outline" size={24} color="#FFFFFF" />
+          <TouchableOpacity style={styles.headerIconBtn}>
+            <Ionicons name="chatbox-outline" size={21} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
+      <Animated.ScrollView
+        style={{ opacity: fadeAnim }}
         showsVerticalScrollIndicator={false}
-        bounces={true}
+        contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#0078D7"]}
+            tintColor="#0078D7"
+            title="Refreshing..."
+            titleColor="#0078D7"
+          />
+        }
       >
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={20} color="#999" />
+        {/* ── Search ── */}
+        <View style={styles.searchWrap}>
+          <Ionicons name="search-outline" size={17} color="#BDBDBD" />
           <TextInput
             style={styles.searchInput}
             placeholder="Search products, categories..."
-            placeholderTextColor="#999"
+            placeholderTextColor="#BDBDBD"
           />
         </View>
 
-        {/* Banner Carousel */}
+        {/* ── Banners ── */}
         <FlatList
           data={BANNERS}
           horizontal
-          showsHorizontalScrollIndicator={false}
           pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={width - 32}
           decelerationRate="fast"
-          snapToInterval={width - 40}
-          contentContainerStyle={styles.bannerContainer}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+          onMomentumScrollEnd={(e) =>
+            setActiveBanner(
+              Math.round(e.nativeEvent.contentOffset.x / (width - 32)),
+            )
+          }
           renderItem={({ item }) => (
             <View style={styles.bannerCard}>
-              <Image source={item.image} style={styles.bannerImage} />
+              <Image source={item.image} style={styles.bannerImg} resizeMode="cover" />
             </View>
           )}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(i) => i.id}
         />
+        <View style={styles.dotsRow}>
+          {BANNERS.map((_, i) => (
+            <View key={i} style={[styles.dot, i === activeBanner && styles.dotActive]} />
+          ))}
+        </View>
 
-        {/* Quick Actions */}
-        <View style={styles.quickActionsContainer}>
-          {QUICK_ACTIONS.map((action) => (
+        {/* ── Quick Actions ── */}
+        <View style={styles.quickCard}>
+          {QUICK_ACTIONS.map((a) => (
             <TouchableOpacity
-              key={action.id}
-              style={styles.quickActionItem}
-              onPress={() => router.push(action.route as any)}
+              key={a.id}
+              style={styles.quickItem}
+              activeOpacity={0.7}
+              onPress={() => router.push(a.route as any)}
             >
-              <View style={styles.quickActionIcon}>
-                <Ionicons name={action.icon} size={28} color="#0078D7" />
+              <View style={styles.quickIconWrap}>
+                <Ionicons name={a.icon} size={24} color="#0078D7" />
               </View>
-              <Text style={styles.quickActionLabel}>{action.label}</Text>
+              <Text style={styles.quickLabel}>{a.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Categories from API */}
+        {/* ── Categories ── */}
         {categories.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Categories</Text>
-              <TouchableOpacity onPress={() => router.push("/(tabs)/catgories" as any)}>
-                <Text style={styles.viewAllText}>View All</Text>
+              <TouchableOpacity
+                style={styles.viewAllBtn}
+                onPress={() => router.push("/(tabs)/catgories" as any)}
+              >
+                <Text style={styles.seeAll}>View All</Text>
+                <Ionicons name="chevron-forward" size={13} color="#0078D7" />
               </TouchableOpacity>
             </View>
             <FlatList
               data={categories}
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalList}
+              contentContainerStyle={styles.hList}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.categoryCard}
-                  onPress={() => handleCategoryPress(item)}
+                  style={styles.catCard}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/pages/specificCategory",
+                      params: { id: item.id, name: item.name },
+                    })
+                  }
                 >
                   {item.category_image ? (
                     <Image
                       source={{ uri: getImageUri(item.category_image)! }}
-                      style={styles.categoryImage}
+                      style={styles.catImg}
+                      resizeMode="cover"
                     />
                   ) : (
-                    <View style={[styles.categoryImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#EBF5FF' }]}>
-                      <Ionicons name="leaf-outline" size={24} color="#0078D7" />
+                    <View style={[styles.catImg, styles.catImgPlaceholder]}>
+                      <Ionicons name="leaf-outline" size={22} color="#0078D7" />
                     </View>
                   )}
-                  <Text style={styles.categoryName}>{item.name}</Text>
+                  <View style={styles.catLabelWrap}>
+                    <Text style={styles.catLabel} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               )}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(i) => i.id}
             />
           </View>
         )}
 
-        {/* Products */}
-        {products.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Products</Text>
-              <TouchableOpacity onPress={() => router.push("/(tabs)/listing" as any)}>
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
+        {/* ── SECTION 1: All Products ── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>All Products</Text>
+              <Text style={styles.sectionSubtitle}>Discover what's available</Text>
             </View>
-            <FlatList
-              data={products}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalList}
-              renderItem={({ item }) => {
-                const imageUrl = getProductImageUrl(item);
-                return (
-                  <TouchableOpacity
-                    style={styles.productCard}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/pages/productDetail" as any,
-                        params: { product_id: item.id },
-                      })
-                    }
-                  >
-                    <View style={styles.productImageContainer}>
-                      {imageUrl ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          style={styles.productImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={styles.productImagePlaceholder}>
-                          <Ionicons name="cube-outline" size={28} color="#CCC" />
-                        </View>
-                      )}
-                    </View>
-                    <View style={styles.productInfo}>
-                      <Text style={styles.productName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Text style={styles.productPrice} numberOfLines={1}>
-                        Rs {item.price}/{item.unit}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-              keyExtractor={(item) => item.id}
-            />
-          </View>
-        )}
-
-        {/* All Sellers / Top Sellers */}
-        {/* <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Top Sellers</Text>
             <TouchableOpacity
-              onPress={() => router.push("/pages/sellerDirectory" as any)}
+              style={styles.viewAllBtn}
+              onPress={() => router.push("/(tabs)/listing" as any)}
             >
-              <Text style={styles.viewAllText}>View All</Text>
+              <Text style={styles.seeAll}>View All</Text>
+              <Ionicons name="chevron-forward" size={13} color="#0078D7" />
             </TouchableOpacity>
           </View>
-          {companies.length > 0 ? (
+          {allProducts.length > 0 ? (
             <FlatList
-              data={companies}
+              data={allProducts}
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.horizontalList}
-              renderItem={({ item }) => {
-                const logoUri = getImageUri(item.company_profile_url);
-                const displayName = item.company_name || item.name || "Business";
-                return (
-                  <TouchableOpacity
-                    style={styles.companyCard}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/pages/bussinesProfile" as any,
-                        params: { business_id: item.company_id },
-                      })
-                    }
-                  >
-                    <View style={styles.companyImageContainer}>
-                      {logoUri ? (
-                        <Image
-                          source={{ uri: `${logoUri}?t=${Date.now()}` }}
-                          style={styles.companyImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={styles.companyImagePlaceholder}>
-                          <Ionicons
-                            name="business"
-                            size={32}
-                            color="#0078D7"
-                          />
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.companyName} numberOfLines={2}>
-                      {displayName}
-                    </Text>
-                    <Text style={styles.companyLocation} numberOfLines={1}>
-                      {item.company_city}, {item.company_state}
-                    </Text>
-                    {item.is_verified ? (
-                      <View style={styles.verifiedBadge}>
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={12}
-                          color="#28A745"
-                        />
-                        <Text style={styles.verifiedText}>Verified</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.notVerifiedBadge}>
-                        <Ionicons
-                          name="alert-circle"
-                          size={12}
-                          color="#DC3545"
-                        />
-                        <Text style={styles.notVerifiedText}>Not Verified</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-              keyExtractor={(item, index) => item.company_id || `company-${index}`}
+              contentContainerStyle={styles.hList}
+              renderItem={({ item }) => (
+                <PremiumProductCard
+                  item={item}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/pages/productDetail" as any,
+                      params: { product_id: item.id },
+                    })
+                  }
+                />
+              )}
+              keyExtractor={(i) => i.id}
             />
           ) : (
-            <View style={{ paddingVertical: 30, alignItems: "center" }}>
-              <Ionicons name="people-outline" size={40} color="#CCC" />
-              <Text style={{ color: "#999", marginTop: 8, fontSize: 14 }}>
-                No sellers available
-              </Text>
+            <View style={styles.emptySection}>
+              <Ionicons name="cube-outline" size={32} color="#E0E0E0" />
+              <Text style={styles.emptySectionText}>No products available</Text>
             </View>
           )}
-        </View> */}
+        </View>
 
-        {/* Bottom Spacing for tab bar */}
-        <View style={{ height: 20 }} />
-      </ScrollView>
+        {/* ── SECTION 2: From Sellers You Follow ── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>From Sellers You Follow</Text>
+              <Text style={styles.sectionSubtitle}>Curated for you</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.viewAllBtn}
+              onPress={() => router.push("/(tabs)/listing" as any)}
+            >
+              <Text style={styles.seeAll}>View All</Text>
+              <Ionicons name="chevron-forward" size={13} color="#0078D7" />
+            </TouchableOpacity>
+          </View>
+          {followerProducts.length > 0 ? (
+            <FlatList
+              data={followerProducts}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hList}
+              renderItem={({ item }) => (
+                <PremiumProductCard
+                  item={item}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/pages/productDetail" as any,
+                      params: { product_id: item.id },
+                    })
+                  }
+                />
+              )}
+              keyExtractor={(i, idx) => `${i.id}-${idx}`}
+            />
+          ) : (
+            <View style={styles.emptySection}>
+              <Ionicons name="people-outline" size={32} color="#E0E0E0" />
+              <Text style={styles.emptySectionText}>
+                Follow sellers to see their products here
+              </Text>
+              <TouchableOpacity
+                style={styles.followSellersBtn}
+                onPress={() => router.push("/pages/sellerDirectory" as any)}
+              >
+                <Text style={styles.followSellersBtnText}>Browse Sellers</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* ── Global empty ── */}
+        {!hasAnyProducts && !refreshing && (
+          <View style={styles.emptyWrap}>
+            <Ionicons name="cube-outline" size={44} color="#E0E0E0" />
+            <Text style={styles.emptyTitle}>No active products yet</Text>
+            <Text style={styles.emptySub}>Pull down to refresh</Text>
+          </View>
+        )}
+      </Animated.ScrollView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F5F5F5",
-  },
+  container: { flex: 1, backgroundColor: "#F0F4F8" },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F0F4F8",
   },
-  loaderText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666",
-  },
+  loaderText: { marginTop: 10, fontSize: 14, color: "#999" },
+
+  /* Header */
   header: {
     backgroundColor: "#1E90FF",
-    paddingTop: 50,
-    paddingBottom: 15,
     paddingHorizontal: 16,
+    paddingBottom: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 12,
   },
-  locationContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  locationText: {
-    marginLeft: 8,
-    flex: 1,
-  },
-  locationName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  locationAddress: {
-    fontSize: 12,
-    color: "#FFFFFF",
-    opacity: 0.9,
-  },
-  headerIcons: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconButton: {
-    padding: 4,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#000",
-  },
-  bannerContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  bannerCard: {
-    width: width - 40,
-    marginRight: 12,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  bannerImage: {
-    width: "100%",
-    height: 180,
-    borderRadius: 12,
-  },
-  quickActionsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginVertical: 12,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  quickActionItem: {
-    alignItems: "center",
-  },
-  quickActionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: "#F0F8FF",
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  avatarCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.22)",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
   },
-  quickActionLabel: {
-    fontSize: 12,
-    color: "#333",
-    fontWeight: "500",
+  avatarText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  headerGreeting: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.75)",
+    marginBottom: 1,
   },
-  section: {
-    marginTop: 20,
-    marginBottom: 8,
+  headerName: { fontSize: 14, fontWeight: "700", color: "#fff", maxWidth: 180 },
+  headerRight: { flexDirection: "row", gap: 6 },
+  headerIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  sectionHeaderRow: {
+
+  /* Search */
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 13, color: "#333" },
+
+  /* Banner */
+  bannerCard: {
+    width: width - 32,
+    height: 155,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginRight: 12,
+  },
+  bannerImg: { width: "100%", height: "100%" },
+  dotsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#C0DCFF" },
+  dotActive: { width: 16, backgroundColor: "#0078D7" },
+
+  /* Quick Actions */
+  quickCard: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 16,
+    paddingVertical: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  quickItem: { alignItems: "center", gap: 6 },
+  quickIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  quickLabel: { fontSize: 11, fontWeight: "600", color: "#333" },
+
+  /* Section */
+  section: { marginTop: 22 },
+  sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginHorizontal: 16,
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
+  },
+  sectionSubtitle: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 1,
+    fontWeight: "500",
+  },
+  viewAllBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
+  seeAll: { fontSize: 13, fontWeight: "600", color: "#0078D7" },
+  hList: { paddingHorizontal: 16, paddingBottom: 6 },
+
+  /* Category Cards */
+  catCard: {
+    width: 115,
+    height: 115,
+    borderRadius: 14,
+    marginRight: 10,
+    overflow: "hidden",
+    backgroundColor: "#EBF5FF",
+  },
+  catImg: { width: "100%", height: "100%" },
+  catImgPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#EBF5FF",
+  },
+  catLabelWrap: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingVertical: 5,
+  },
+  catLabel: {
+    fontSize: 11,
     fontWeight: "700",
-    color: "#000",
+    color: "#fff",
+    textAlign: "center",
   },
-  viewAllText: {
-    fontSize: 14,
-    fontWeight: "600",
+
+  /* ── PREMIUM Product Card ── */
+  premiumCard: {
+    width: 235,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    marginRight: 14,
+    overflow: "hidden",
+    shadowColor: "#1B4FBF",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 7,
+    borderWidth: 1,
+    borderColor: "rgba(0,120,215,0.08)",
+  },
+  premiumImgWrap: {
+    width: "100%",
+    height: 118,
+    backgroundColor: "#EEF4FB",
+    position: "relative",
+  },
+  premiumImg: { width: "100%", height: "100%" },
+  premiumImgPlaceholder: {
+    width: "100%",
+    height: 118,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F1F7FD",
+  },
+  premiumBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderRadius: 20,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  premiumBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#16A34A",
+  },
+  premiumBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#16A34A",
+    letterSpacing: 0.4,
+  },
+  premiumContent: {
+    padding: 10,
+    paddingTop: 9,
+  },
+  premiumName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
+    lineHeight: 18,
+    letterSpacing: -0.2,
+    marginBottom: 3,
+  },
+  premiumBizRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 5,
+  },
+  premiumBizName: {
+    fontSize: 10,
+    color: "#94A3B8",
+    fontWeight: "500",
+    flex: 1,
+  },
+  premiumDesc: {
+    fontSize: 11,
+    color: "#64748B",
+    lineHeight: 16,
+    marginBottom: 6,
+    fontWeight: "400",
+  },
+  premiumCategoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#EBF5FF",
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginBottom: 6,
+  },
+  premiumCategoryText: {
+    fontSize: 10,
     color: "#0078D7",
+    fontWeight: "600",
   },
-  horizontalList: {
+  premiumDivider: {
+    height: 1,
+    backgroundColor: "#F1F5F9",
+    marginBottom: 8,
+  },
+  premiumFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  premiumPriceLabel: {
+    fontSize: 9,
+    color: "#94A3B8",
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  premiumPrice: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0078D7",
+    letterSpacing: -0.4,
+  },
+  premiumUnit: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#94A3B8",
+  },
+  premiumEnquireBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: "#0078D7",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+
+  /* Empty section */
+  emptySection: {
+    alignItems: "center",
+    paddingVertical: 28,
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E8F0F8",
+    borderStyle: "dashed",
+  },
+  emptySectionText: {
+    fontSize: 13,
+    color: "#BDBDBD",
+    marginTop: 8,
+    textAlign: "center",
     paddingHorizontal: 16,
   },
-  categoryCard: {
-    width: 110,
-    marginRight: 12,
-    alignItems: "center",
-  },
-  categoryImage: {
-    width: 110,
-    height: 80,
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: "#F0F0F0",
-  },
-  categoryName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    textAlign: "center",
-  },
-  companyCard: {
-    width: 150,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginRight: 12,
-    padding: 12,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  companyImageContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    marginBottom: 8,
-    overflow: "hidden",
-  },
-  companyImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-  },
-  companyImagePlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#F0F8FF",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  companyName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1A1A1A",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  companyLocation: {
-    fontSize: 11,
-    color: "#888",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  verifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+  followSellersBtn: {
+    marginTop: 12,
+    backgroundColor: "#0078D7",
+    paddingHorizontal: 20,
+    paddingVertical: 9,
     borderRadius: 10,
   },
-  verifiedText: {
-    fontSize: 10,
+  followSellersBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+
+  /* Global empty */
+  emptyWrap: { alignItems: "center", paddingVertical: 40 },
+  emptyTitle: {
+    fontSize: 15,
     fontWeight: "600",
-    color: "#28A745",
+    color: "#BDBDBD",
+    marginTop: 10,
   },
-  notVerifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#FFF5F5",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#FFDDDD",
-  },
-  notVerifiedText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#DC3545",
-  },
-  productCard: {
-    width: 150,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginRight: 12,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  productImageContainer: {
-    width: "100%",
-    height: 110,
-    backgroundColor: "#F0F0F0",
-  },
-  productImage: {
-    width: "100%",
-    height: 110,
-  },
-  productImagePlaceholder: {
-    width: "100%",
-    height: 110,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F8F8F8",
-  },
-  productInfo: {
-    padding: 10,
-  },
-  productName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1A1A1A",
-    marginBottom: 4,
-  },
-  productPrice: {
-    fontSize: 13,
-    color: "#28A745",
-    fontWeight: "600",
+  emptySub: {
+    fontSize: 12,
+    color: "#DEDEDE",
+    marginTop: 4,
+    textAlign: "center",
+    paddingHorizontal: 32,
   },
 });
 

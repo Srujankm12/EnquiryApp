@@ -14,12 +14,14 @@ import {
   Linking,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   addFollowToCache,
   fetchFollowedCompanyIds,
@@ -39,101 +41,116 @@ const getImageUri = (url: string | null | undefined): string | null => {
   return `${S3_URL}${path}`;
 };
 
-const ProductDetailScreen = () => {
+export default function ProductDetailScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { product_id } = useLocalSearchParams();
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [productDetails, setProductDetails] = useState<any>(null);
+  const [product, setProduct] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
-  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [activeImg, setActiveImg] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [myBusinessId, setMyBusinessId] = useState("");
 
-  // Follow state
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
 
-  // Rating state
   const [ratings, setRatings] = useState<any[]>([]);
   const [ratingInfo, setRatingInfo] = useState<any>(null);
   const [showRatingForm, setShowRatingForm] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
-  const [submittingRating, setSubmittingRating] = useState(false);
-  const [existingUserRating, setExistingUserRating] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [existingRating, setExistingRating] = useState<any>(null);
+
+  const [similarProducts, setSimilarProducts] = useState<any[]>([]);
+  const [descExpanded, setDescExpanded] = useState(false);
 
   useEffect(() => {
-    fetchProductDetails();
+    load();
   }, [product_id]);
 
-  const fetchProductDetails = async () => {
+  const load = async () => {
     try {
       setLoading(true);
       setError(null);
       const token = await AsyncStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
+      const h = { Authorization: `Bearer ${token}` };
 
       if (token) {
-        try {
-          const decoded: any = jwtDecode(token);
-          setCurrentUserId(decoded.user_id || "");
-        } catch {}
+        const dec: any = jwtDecode(token);
+        setCurrentUserId(dec.user_id || "");
+        const storedBiz = await AsyncStorage.getItem("companyId");
+        setMyBusinessId(dec.business_id || storedBiz || "");
       }
 
-      // Backend: GET /product/get/{id} - returns CompleteProduct with business/category info
       const res = await axios.get(`${API_URL}/product/get/${product_id}`, {
-        headers,
+        headers: h,
       });
       const data = res.data?.product_details;
+      if (!data) throw new Error("Not found");
+      setProduct(data);
 
-      if (data) {
-        setProductDetails(data);
-
-        // Check follow status for business
-        if (data.business_id && token) {
+      // Follow check
+      if (token) {
+        const dec: any = jwtDecode(token);
+        const storedBiz = await AsyncStorage.getItem("companyId");
+        const ownBiz = dec.business_id || storedBiz || "";
+        if (data.business_id && String(data.business_id) !== String(ownBiz)) {
           try {
-            const decoded: any = jwtDecode(token);
-            const followedIds = await fetchFollowedCompanyIds(
-              decoded.user_id,
-              token,
-            );
-            setIsFollowing(followedIds.has(String(data.business_id)));
+            const ids = await fetchFollowedCompanyIds(dec.user_id, token);
+            setIsFollowing(ids.has(String(data.business_id)));
           } catch {}
         }
       }
 
-      // Try to fetch product images (optional endpoint)
+      // Similar products
+      if (data.category_id) {
+        try {
+          const sim = await axios.get(
+            `${API_URL}/product/get/category/${data.category_id}`,
+            { headers: h },
+          );
+          const raw: any[] = sim.data?.products || [];
+          setSimilarProducts(
+            raw
+              .filter((p) => p.id !== data.id && p.is_product_active !== false)
+              .slice(0, 6),
+          );
+        } catch {
+          setSimilarProducts([]);
+        }
+      }
+
+      // Images
       try {
-        const imgRes = await axios.get(
+        const ir = await axios.get(
           `${API_URL}/product/image/get/${product_id}`,
-          { headers },
+          { headers: h },
         );
-        setImages(imgRes.data?.images || imgRes.data?.data?.images || []);
+        setImages(ir.data?.images || ir.data?.data?.images || []);
       } catch {
         setImages([]);
       }
 
-      // Try to fetch product ratings (optional endpoint)
+      // Ratings
       try {
-        const ratingsRes = await axios.get(
+        const rr = await axios.get(
           `${API_URL}/product/rating/get/${product_id}`,
-          { headers },
+          { headers: h },
         );
-        const ratingsData =
-          ratingsRes.data?.ratings || ratingsRes.data?.data?.ratings || [];
-        const ratingsList = Array.isArray(ratingsData) ? ratingsData : [];
-        setRatings(ratingsList);
-
+        const list = Array.isArray(rr.data?.ratings) ? rr.data.ratings : [];
+        setRatings(list);
         if (token) {
-          const decoded: any = jwtDecode(token);
-          const existing = ratingsList.find(
-            (r: any) => r.user_id === decoded.user_id,
-          );
-          if (existing) {
-            setExistingUserRating(existing);
-            setUserRating(existing.rating);
-            setReviewText(existing.remarks || "");
+          const dec: any = jwtDecode(token);
+          const mine = list.find((r: any) => r.user_id === dec.user_id);
+          if (mine) {
+            setExistingRating(mine);
+            setUserRating(mine.rating);
+            setReviewText(mine.remarks || "");
           }
         }
       } catch {
@@ -141,220 +158,156 @@ const ProductDetailScreen = () => {
       }
 
       try {
-        const avgRes = await axios.get(
+        const ar = await axios.get(
           `${API_URL}/product/rating/get/average/${product_id}`,
-          { headers },
+          { headers: h },
         );
-        setRatingInfo(
-          avgRes.data?.rating_info || avgRes.data?.data?.rating_info || null,
-        );
+        setRatingInfo(ar.data?.rating_info || null);
       } catch {
         setRatingInfo(null);
       }
-    } catch (error: any) {
-      console.error("Error fetching product details:", error);
-      setError("Unable to load product details. Please try again.");
+    } catch {
+      setError("Unable to load product. Please try again.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchProductDetails();
-  };
+  const isOwnBusiness =
+    product?.business_id &&
+    myBusinessId &&
+    String(product.business_id) === String(myBusinessId);
 
-  const handleSubmitRating = async () => {
-    if (userRating === 0) {
-      Alert.alert("Error", "Please select a rating");
-      return;
-    }
-    try {
-      setSubmittingRating(true);
-      const token = await AsyncStorage.getItem("token");
-      if (!token) return;
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      };
-
-      if (existingUserRating) {
-        await axios.put(
-          `${API_URL}/product/rating/update`,
-          {
-            product_id: product_id as string,
-            user_id: currentUserId,
-            rating: userRating,
-            remarks: reviewText.trim() || undefined,
-          },
-          { headers },
-        );
-        Alert.alert("Success", "Your rating has been updated");
-      } else {
-        await axios.post(
-          `${API_URL}/product/rating/create`,
-          {
-            product_id: product_id as string,
-            user_id: currentUserId,
-            rating: userRating,
-            remarks: reviewText.trim() || undefined,
-          },
-          { headers },
-        );
-        Alert.alert("Success", "Thank you for your rating!");
-      }
-      setShowRatingForm(false);
-      fetchProductDetails();
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to submit rating.",
-      );
-    } finally {
-      setSubmittingRating(false);
-    }
-  };
-
-  const handleDeleteRating = async () => {
-    if (!existingUserRating) return;
-    Alert.alert(
-      "Delete Rating",
-      "Are you sure you want to delete your rating?",
-      [
+  const handleFollow = () => {
+    if (isOwnBusiness || followLoading) return;
+    if (isFollowing) {
+      Alert.alert("Unfollow", `Unfollow ${product.business_name}?`, [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: "Unfollow",
           style: "destructive",
-          onPress: async () => {
-            try {
-              const token = await AsyncStorage.getItem("token");
-              if (!token) return;
-              await axios.delete(
-                `${API_URL}/product/rating/delete/${product_id}`,
-                {
-                  headers: { Authorization: `Bearer ${token}` },
-                },
-              );
-              setExistingUserRating(null);
-              setUserRating(0);
-              setReviewText("");
-              Alert.alert("Success", "Rating deleted");
-              fetchProductDetails();
-            } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error?.response?.data?.message || "Failed to delete rating",
-              );
-            }
-          },
+          onPress: () => doFollow(true),
         },
-      ],
-    );
+      ]);
+    } else {
+      doFollow(false);
+    }
   };
 
-  const performFollowAction = async (shouldUnfollow: boolean) => {
-    if (!productDetails?.business_id) return;
+  const doFollow = async (unfollow: boolean) => {
     try {
       setFollowLoading(true);
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
-      const headers = {
+      const dec: any = jwtDecode(token);
+      const h = {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       };
-      const decoded: any = jwtDecode(token);
-
-      if (shouldUnfollow) {
+      if (unfollow) {
         await axios.post(
           `${API_URL}/follower/unfollow`,
-          {
-            user_id: decoded.user_id,
-            business_id: productDetails.business_id,
-          },
-          { headers },
+          { user_id: dec.user_id, business_id: product.business_id },
+          { headers: h },
         );
         setIsFollowing(false);
-        await removeFollowFromCache(productDetails.business_id);
+        await removeFollowFromCache(product.business_id);
       } else {
         await axios.post(
           `${API_URL}/follower/follow`,
-          {
-            user_id: decoded.user_id,
-            business_id: productDetails.business_id,
-          },
-          { headers },
+          { user_id: dec.user_id, business_id: product.business_id },
+          { headers: h },
         );
         setIsFollowing(true);
-        await addFollowToCache(productDetails.business_id);
+        await addFollowToCache(product.business_id);
       }
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to update follow status",
-      );
+    } catch (e: any) {
+      Alert.alert("Error", e?.response?.data?.message || "Failed");
     } finally {
       setFollowLoading(false);
     }
   };
 
-  const handleFollowCompany = () => {
-    if (!productDetails?.business_id || followLoading) return;
-    if (isFollowing) {
-      Alert.alert(
-        "Unfollow",
-        `Are you sure you want to unfollow ${productDetails.business_name || "this business"}?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Unfollow",
-            style: "destructive",
-            onPress: () => performFollowAction(true),
-          },
-        ],
-      );
-    } else {
-      performFollowAction(false);
+  const submitRating = async () => {
+    if (!userRating) {
+      Alert.alert("Error", "Please select a rating");
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+      const h = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      const body = {
+        product_id: product_id as string,
+        user_id: currentUserId,
+        rating: userRating,
+        remarks: reviewText.trim() || undefined,
+      };
+      if (existingRating) {
+        await axios.put(`${API_URL}/product/rating/update`, body, {
+          headers: h,
+        });
+        Alert.alert("Success", "Rating updated");
+      } else {
+        await axios.post(`${API_URL}/product/rating/create`, body, {
+          headers: h,
+        });
+        Alert.alert("Success", "Thank you!");
+      }
+      setShowRatingForm(false);
+      load();
+    } catch (e: any) {
+      Alert.alert("Error", e.response?.data?.message || "Failed");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const renderStars = (rating: number, size: number = 16) => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalf = rating % 1 >= 0.5;
-    for (let i = 0; i < fullStars; i++) {
-      stars.push(
-        <Ionicons key={`full-${i}`} name="star" size={size} color="#FFB800" />,
-      );
-    }
-    if (hasHalf)
-      stars.push(
-        <Ionicons key="half" name="star-half" size={size} color="#FFB800" />,
-      );
-    for (let i = 0; i < 5 - Math.ceil(rating); i++) {
-      stars.push(
+  const deleteRating = async () => {
+    Alert.alert("Delete", "Delete your rating?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const token = await AsyncStorage.getItem("token");
+            await axios.delete(
+              `${API_URL}/product/rating/delete/${product_id}`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            setExistingRating(null);
+            setUserRating(0);
+            setReviewText("");
+            load();
+          } catch (e: any) {
+            Alert.alert("Error", e?.response?.data?.message || "Failed");
+          }
+        },
+      },
+    ]);
+  };
+
+  const Stars = ({ rating, size = 14 }: { rating: number; size?: number }) => (
+    <View style={{ flexDirection: "row" }}>
+      {[1, 2, 3, 4, 5].map((i) => (
         <Ionicons
-          key={`empty-${i}`}
-          name="star-outline"
+          key={i}
+          name={
+            i <= Math.floor(rating)
+              ? "star"
+              : i - 0.5 <= rating
+                ? "star-half"
+                : "star-outline"
+          }
           size={size}
           color="#FFB800"
-        />,
-      );
-    }
-    return stars;
-  };
-
-  const renderSelectableStars = () => (
-    <View style={styles.selectableStarsRow}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <TouchableOpacity key={star} onPress={() => setUserRating(star)}>
-          <Ionicons
-            name={star <= userRating ? "star" : "star-outline"}
-            size={36}
-            color="#FFB800"
-            style={{ marginHorizontal: 4 }}
-          />
-        </TouchableOpacity>
+        />
       ))}
     </View>
   );
@@ -365,382 +318,552 @@ const ProductDetailScreen = () => {
       (b.product_image_sequence_number || 0),
   );
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Product Details</Text>
-          <View style={styles.backButton} />
-        </View>
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#0078D7" />
-          <Text style={styles.loaderText}>Loading product...</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (error || !productDetails) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Product Details</Text>
-          <View style={styles.backButton} />
-        </View>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color="#CCC" />
-          <Text style={styles.errorText}>{error || "Product not found"}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={fetchProductDetails}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
+  const hasImages = sortedImages.length > 0;
   const avgRating = ratingInfo?.average_rating || 0;
   const totalRatings = ratingInfo?.total_ratings || 0;
 
+  // ── Loading ──
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="arrow-back" size={22} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Product Details</Text>
+          <View style={styles.headerBtn} />
+        </View>
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
+          <ActivityIndicator size="large" color="#0078D7" />
+          <Text style={{ color: "#999", marginTop: 10 }}>Loading...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error || !product) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="arrow-back" size={22} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Product Details</Text>
+          <View style={styles.headerBtn} />
+        </View>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 32,
+          }}
+        >
+          <Ionicons name="alert-circle-outline" size={56} color="#CCC" />
+          <Text style={{ color: "#888", marginTop: 12, textAlign: "center" }}>
+            {error || "Product not found"}
+          </Text>
+          <TouchableOpacity
+            onPress={load}
+            style={{
+              marginTop: 16,
+              backgroundColor: "#0078D7",
+              paddingHorizontal: 28,
+              paddingVertical: 11,
+              borderRadius: 8,
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
+
+      {/* ── Header ── */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity
-          style={styles.backButton}
           onPress={() => router.back()}
+          style={styles.headerBtn}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
           Product Details
         </Text>
-        <View style={styles.backButton} />
+        <View style={styles.headerBtn} />
       </View>
 
       <ScrollView
-        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={onRefresh}
+            onRefresh={() => {
+              setRefreshing(true);
+              load();
+            }}
             colors={["#0078D7"]}
+            tintColor="#0078D7"
           />
         }
+        contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
       >
-        {/* Image Carousel */}
-        {sortedImages.length > 0 ? (
-          <View>
-            <FlatList
-              data={sortedImages}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e) =>
-                setActiveImageIndex(
-                  Math.round(e.nativeEvent.contentOffset.x / width),
-                )
-              }
-              renderItem={({ item }) => (
-                <Image
-                  source={{
-                    uri: getImageUri(item.product_image_url || item.image)!,
-                  }}
-                  style={styles.carouselImage}
-                  resizeMode="cover"
-                />
-              )}
-              keyExtractor={(item, index) => item.id || `img-${index}`}
-            />
-            <View style={styles.imageCountBadge}>
-              <Ionicons name="images-outline" size={14} color="#FFFFFF" />
-              <Text style={styles.imageCountText}>
-                {activeImageIndex + 1}/{sortedImages.length}
-              </Text>
+        {/* ── SECTION 1: Business header ── */}
+        <View style={styles.bizHeaderCard}>
+          <View style={styles.bizHeaderLeft}>
+            <View style={styles.bizLogoLarge}>
+              <Ionicons name="business" size={28} color="#0078D7" />
             </View>
-            {sortedImages.length > 1 && (
-              <View style={styles.dotsContainer}>
-                {sortedImages.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.dot,
-                      index === activeImageIndex && styles.dotActive,
-                    ]}
-                  />
-                ))}
-              </View>
-            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bizHeaderName}>{product.business_name}</Text>
+              <Text style={styles.bizLocation}>
+                {product.city}
+                {product.state ? `, ${product.state}` : ""}
+              </Text>
+              {totalRatings > 0 && (
+                <View style={{ marginTop: 3 }}>
+                  <Stars rating={avgRating} size={13} />
+                </View>
+              )}
+            </View>
           </View>
-        ) : (
-          <View style={styles.noImageContainer}>
-            <Ionicons name="image-outline" size={64} color="#CCC" />
-            <Text style={styles.noImageText}>No images available</Text>
-          </View>
-        )}
-
-        {/* Product Info Card */}
-        <View style={styles.productInfoCard}>
-          <View style={styles.productNameRow}>
-            <Text style={styles.productName}>
-              {productDetails.product_name}
-            </Text>
-            <View
-              style={[
-                styles.statusBadge,
-                {
-                  backgroundColor: productDetails.is_product_active
-                    ? "#E8F5E9"
-                    : "#FFEBEE",
-                },
-              ]}
-            >
+          {isOwnBusiness ? (
+            <View style={styles.ownBizPill}>
               <Ionicons
-                name={
-                  productDetails.is_product_active
-                    ? "checkmark-circle"
-                    : "close-circle"
-                }
-                size={14}
-                color={productDetails.is_product_active ? "#28A745" : "#DC3545"}
+                name="shield-checkmark-outline"
+                size={13}
+                color="#0078D7"
               />
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "600",
-                  color: productDetails.is_product_active
-                    ? "#28A745"
-                    : "#DC3545",
-                }}
-              >
-                {productDetails.is_product_active ? "Active" : "Inactive"}
-              </Text>
+              <Text style={styles.ownBizPillText}>Your Business</Text>
             </View>
-          </View>
-
-          {totalRatings > 0 && (
-            <View style={styles.ratingRow}>
-              <View style={styles.starsRow}>{renderStars(avgRating)}</View>
-              <Text style={styles.ratingText}>{avgRating.toFixed(1)}</Text>
-              <Text style={styles.ratingCount}>
-                ({totalRatings} {totalRatings === 1 ? "review" : "reviews"})
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.priceQtyRow}>
-            <View style={styles.priceBox}>
-              <Ionicons name="pricetag-outline" size={18} color="#28A745" />
-              <Text style={styles.priceLabel}>Price</Text>
-              <Text style={styles.priceValue}>
-                Rs {productDetails.price}/{productDetails.unit}
-              </Text>
-            </View>
-            <View style={styles.qtyBox}>
-              <Ionicons name="cube-outline" size={18} color="#0078D7" />
-              <Text style={styles.priceLabel}>Quantity</Text>
-              <Text style={styles.qtyValue}>
-                {productDetails.quantity} {productDetails.unit}
-              </Text>
-            </View>
-          </View>
-
-          {productDetails.moq && (
-            <View style={styles.moqRow}>
-              <Ionicons name="layers-outline" size={16} color="#666" />
-              <Text style={styles.moqLabel}>Minimum Order:</Text>
-              <Text style={styles.moqValue}>{productDetails.moq}</Text>
-            </View>
-          )}
-
-          <View style={styles.detailsGrid}>
-            {productDetails.category_name && (
-              <View style={styles.detailItem}>
-                <Ionicons name="grid-outline" size={16} color="#666" />
-                <Text style={styles.detailLabel}>Category</Text>
-                <Text style={styles.detailValue}>
-                  {productDetails.category_name}
-                </Text>
-              </View>
-            )}
-            {productDetails.sub_category_name && (
-              <View style={styles.detailItem}>
-                <Ionicons name="layers-outline" size={16} color="#666" />
-                <Text style={styles.detailLabel}>Sub-Category</Text>
-                <Text style={styles.detailValue}>
-                  {productDetails.sub_category_name}
-                </Text>
-              </View>
-            )}
-            {productDetails.created_at && (
-              <View style={styles.detailItem}>
-                <Ionicons name="calendar-outline" size={16} color="#666" />
-                <Text style={styles.detailLabel}>Listed</Text>
-                <Text style={styles.detailValue}>
-                  {new Date(productDetails.created_at).toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Seller Info */}
-        {productDetails.business_id && (
-          <View style={styles.sellerCard}>
-            <Text style={styles.sellerCardTitle}>Sold By</Text>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() =>
-                router.push({
-                  pathname: "/pages/bussinesProfile" as any,
-                  params: { business_id: productDetails.business_id },
-                })
-              }
-            >
-              <View style={styles.sellerHeader}>
-                <View style={[styles.sellerLogo, styles.sellerLogoPlaceholder]}>
-                  <Ionicons name="business" size={28} color="#0078D7" />
-                </View>
-                <View style={styles.sellerInfo}>
-                  <Text style={styles.sellerName}>
-                    {productDetails.business_name}
-                  </Text>
-                  <Text style={styles.sellerLocation}>
-                    <Ionicons name="location-outline" size={12} color="#888" />{" "}
-                    {productDetails.city}, {productDetails.state}
-                    {productDetails.pincode
-                      ? ` - ${productDetails.pincode}`
-                      : ""}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#999" />
-              </View>
-            </TouchableOpacity>
-
-            <View style={styles.companyContactRow}>
-              {productDetails.business_phone && (
-                <TouchableOpacity
-                  style={styles.contactButton}
-                  onPress={() =>
-                    Linking.openURL(`tel:${productDetails.business_phone}`)
-                  }
-                >
-                  <Ionicons name="call-outline" size={18} color="#0078D7" />
-                  <Text style={styles.contactButtonText}>Call</Text>
-                </TouchableOpacity>
-              )}
-              {productDetails.business_email && (
-                <TouchableOpacity
-                  style={styles.contactButton}
-                  onPress={() =>
-                    Linking.openURL(`mailto:${productDetails.business_email}`)
-                  }
-                >
-                  <Ionicons name="mail-outline" size={18} color="#0078D7" />
-                  <Text style={styles.contactButtonText}>Email</Text>
-                </TouchableOpacity>
-              )}
-              {productDetails.business_phone && (
-                <TouchableOpacity
-                  style={styles.contactButton}
-                  onPress={() =>
-                    Linking.openURL(
-                      `whatsapp://send?phone=${productDetails.business_phone}`,
-                    )
-                  }
-                >
-                  <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
-                  <Text style={styles.contactButtonText}>WhatsApp</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
+          ) : (
             <TouchableOpacity
               style={[
-                styles.followCompanyButton,
-                isFollowing && styles.followingCompanyButton,
+                styles.topFollowBtn,
+                isFollowing && styles.topFollowBtnActive,
               ]}
-              onPress={handleFollowCompany}
+              onPress={handleFollow}
               disabled={followLoading}
             >
               {followLoading ? (
                 <ActivityIndicator
                   size="small"
-                  color={isFollowing ? "#0078D7" : "#FFFFFF"}
+                  color={isFollowing ? "#0078D7" : "#fff"}
                 />
               ) : (
-                <>
-                  <Ionicons
-                    name={
-                      isFollowing ? "checkmark-circle" : "add-circle-outline"
-                    }
-                    size={18}
-                    color={isFollowing ? "#0078D7" : "#FFFFFF"}
-                  />
-                  <Text
-                    style={[
-                      styles.followCompanyText,
-                      isFollowing && styles.followingCompanyText,
-                    ]}
-                  >
-                    {isFollowing ? "Following" : "Follow Business"}
-                  </Text>
-                </>
+                <Text
+                  style={[
+                    styles.topFollowText,
+                    isFollowing && styles.topFollowTextActive,
+                  ]}
+                >
+                  {isFollowing ? "Following" : "Follow"}
+                </Text>
               )}
             </TouchableOpacity>
+          )}
+        </View>
 
-            {productDetails.address && (
-              <View style={styles.companyAddressRow}>
-                <Ionicons name="location" size={16} color="#666" />
-                <Text style={styles.companyAddressText}>
-                  {productDetails.address}, {productDetails.city},{" "}
-                  {productDetails.state}
-                  {productDetails.pincode ? ` - ${productDetails.pincode}` : ""}
+        {/* ── SECTION 2: Image carousel OR No Image placeholder ── */}
+        <View style={styles.imageSection}>
+          {!hasImages ? (
+            /* ── No images state ── */
+            <View style={styles.noImageContainer}>
+              <Ionicons name="image-outline" size={60} color="#C8C8C8" />
+              <Text style={styles.noImageTitle}>No Images Available</Text>
+              <Text style={styles.noImageSubtitle}>
+                This product has no images yet
+              </Text>
+            </View>
+          ) : (
+            <>
+              <FlatList
+                data={sortedImages}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(e) =>
+                  setActiveImg(
+                    Math.round(e.nativeEvent.contentOffset.x / width),
+                  )
+                }
+                renderItem={({ item }) => (
+                  <Image
+                    source={{
+                      uri: getImageUri(
+                        item.product_image_url || item.image,
+                      )!,
+                    }}
+                    style={styles.mainImage}
+                    resizeMode="cover"
+                  />
+                )}
+                keyExtractor={(item, i) => item.id || `img-${i}`}
+              />
+              {/* Dots */}
+              <View style={styles.dotsRow}>
+                {sortedImages.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[styles.dot, i === activeImg && styles.dotActive]}
+                  />
+                ))}
+              </View>
+              {/* Counter badge */}
+              {sortedImages.length > 1 && (
+                <View style={styles.imgCountBadge}>
+                  <Text style={styles.imgCountText}>
+                    {activeImg + 1}/{sortedImages.length}
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* ── SECTION 3: Product name + price ── */}
+        <View style={styles.productHeaderCard}>
+          <View style={styles.productNameRow}>
+            <Text style={styles.productName} numberOfLines={2}>
+              {product.product_name}
+            </Text>
+            <View
+              style={[
+                styles.statusChip,
+                {
+                  backgroundColor: product.is_product_active
+                    ? "#E8F5E9"
+                    : "#FFEBEE",
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.statusDot,
+                  {
+                    backgroundColor: product.is_product_active
+                      ? "#28A745"
+                      : "#DC3545",
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.statusChipText,
+                  { color: product.is_product_active ? "#28A745" : "#DC3545" },
+                ]}
+              >
+                {product.is_product_active ? "Active" : "Inactive"}
+              </Text>
+            </View>
+          </View>
+
+          {product.category_name && (
+            <Text style={styles.productSubline}>{product.category_name}</Text>
+          )}
+
+          <Text style={styles.priceText}>
+            Rs {product.price}
+            <Text style={styles.pricePerUnit}>/{product.unit}</Text>
+          </Text>
+
+          {totalRatings > 0 && (
+            <View style={styles.starsRow}>
+              <Stars rating={avgRating} size={15} />
+              <Text style={styles.ratingNumText}>{avgRating.toFixed(1)}</Text>
+              <Text style={styles.ratingCountText}>({totalRatings})</Text>
+            </View>
+          )}
+
+          <View style={styles.qtyInfoRow}>
+            <View style={styles.qtyInfoChip}>
+              <Ionicons name="cube-outline" size={14} color="#0078D7" />
+              <Text style={styles.qtyInfoText}>
+                Qty: {product.quantity} {product.unit}
+              </Text>
+            </View>
+            {product.moq && (
+              <View style={styles.qtyInfoChip}>
+                <Ionicons name="layers-outline" size={14} color="#888" />
+                <Text style={styles.qtyInfoText}>
+                  Min. Order: {product.moq}
                 </Text>
               </View>
             )}
           </View>
+        </View>
+
+        {/* ── SECTION 4: Product details ── */}
+        <View style={styles.detailsSection}>
+          <Text style={styles.sectionTitle}>Product details</Text>
+
+          {product.product_description ? (
+            <View style={styles.descBlock}>
+              <Text style={styles.detailRowLabel}>Description</Text>
+              <Text
+                style={styles.descText}
+                numberOfLines={descExpanded ? undefined : 3}
+              >
+                {product.product_description}
+              </Text>
+              {product.product_description.length > 120 && (
+                <TouchableOpacity
+                  onPress={() => setDescExpanded(!descExpanded)}
+                >
+                  <Text style={styles.moreText}>
+                    {descExpanded ? "less" : "more"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null}
+
+          {[
+            { label: "Category", value: product.category_name },
+            {
+              label: "Quantity",
+              value: product.quantity
+                ? `${product.quantity} ${product.unit}`
+                : null,
+            },
+            { label: "Price", value: `Rs ${product.price}/${product.unit}` },
+            { label: "Min. Order", value: product.moq },
+            {
+              label: "Listed on",
+              value: product.created_at
+                ? new Date(product.created_at).toLocaleDateString()
+                : null,
+            },
+          ]
+            .filter((r) => r.value)
+            .map((row, i, arr) => (
+              <View
+                key={row.label}
+                style={[
+                  styles.detailRow,
+                  i === arr.length - 1 && { borderBottomWidth: 0 },
+                ]}
+              >
+                <Text style={styles.detailRowLabel}>{row.label}</Text>
+                <Text style={styles.detailRowValue}>{row.value}</Text>
+              </View>
+            ))}
+        </View>
+
+        {/* ── SECTION 5: Enquiry ── */}
+        <View style={styles.detailsSection}>
+          <Text style={styles.sectionTitle}>Enquiry</Text>
+          <View style={styles.enquiryCard}>
+            <View style={styles.enquiryTop}>
+              <View style={styles.enquiryLogo}>
+                <Ionicons name="business" size={22} color="#0078D7" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.enquiryBizName}>
+                  {product.business_name}
+                </Text>
+                {totalRatings > 0 && <Stars rating={avgRating} size={12} />}
+                <Text style={styles.enquiryLocation}>
+                  {product.city}
+                  {product.state ? `, ${product.state}` : ""}
+                </Text>
+              </View>
+              {isOwnBusiness ? (
+                <View style={styles.ownBizSmall}>
+                  <Text style={styles.ownBizSmallText}>Your Business</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.enquiryFollowBtn,
+                    isFollowing && styles.enquiryFollowingBtn,
+                  ]}
+                  onPress={handleFollow}
+                  disabled={followLoading}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#0078D7" : "#fff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.enquiryFollowText,
+                        isFollowing && styles.enquiryFollowingText,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() =>
+                  router.push({
+                    pathname: "/pages/bussinesProfile" as any,
+                    params: { business_id: product.business_id },
+                  })
+                }
+              >
+                <Ionicons name="person-outline" size={17} color="#444" />
+                <Text style={styles.actionBtnLabel}>Profile</Text>
+              </TouchableOpacity>
+
+              {product.business_phone && (
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() =>
+                    Linking.openURL(`tel:${product.business_phone}`)
+                  }
+                >
+                  <Ionicons name="call-outline" size={17} color="#444" />
+                  <Text style={styles.actionBtnLabel}>Contact</Text>
+                </TouchableOpacity>
+              )}
+
+              {product.business_email && (
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() =>
+                    Linking.openURL(`mailto:${product.business_email}`)
+                  }
+                >
+                  <Ionicons name="chatbubble-outline" size={17} color="#444" />
+                  <Text style={styles.actionBtnLabel}>Message</Text>
+                </TouchableOpacity>
+              )}
+
+              {product.business_phone && (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { borderRightWidth: 0 }]}
+                  onPress={() =>
+                    Linking.openURL(
+                      `whatsapp://send?phone=${product.business_phone}`,
+                    )
+                  }
+                >
+                  <Ionicons name="logo-whatsapp" size={17} color="#25D366" />
+                  <Text style={[styles.actionBtnLabel, { color: "#25D366" }]}>
+                    WhatsApp
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* ── SECTION 6: Similar Products ── */}
+        {similarProducts.length > 0 && (
+          <View style={styles.detailsSection}>
+            <Text style={styles.sectionTitle}>Similar Products</Text>
+            <View style={styles.similarGrid}>
+              {similarProducts.map((item) => {
+                const img =
+                  item.product_images?.length > 0
+                    ? getImageUri(item.product_images[0].image)
+                    : null;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.similarCard}
+                    activeOpacity={0.85}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/pages/productDetail" as any,
+                        params: { product_id: item.id },
+                      })
+                    }
+                  >
+                    {img ? (
+                      <Image
+                        source={{ uri: img }}
+                        style={styles.similarImg}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.similarImg,
+                          {
+                            backgroundColor: "#F0F0F0",
+                            justifyContent: "center",
+                            alignItems: "center",
+                          },
+                        ]}
+                      >
+                        <Ionicons name="cube-outline" size={28} color="#CCC" />
+                      </View>
+                    )}
+                    <View style={styles.similarCardBody}>
+                      <Text style={styles.similarName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.similarMeta}>
+                        Qty: {item.quantity} {item.unit}
+                      </Text>
+                      <View style={styles.similarFooter}>
+                        <Text style={styles.similarPrice}>
+                          Price: {item.price}rs/{item.unit}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.enquireChip}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/pages/productDetail" as any,
+                              params: { product_id: item.id },
+                            })
+                          }
+                        >
+                          <Text style={styles.enquireChipText}>Enquire</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
         )}
 
-        {/* Ratings */}
-        <View style={styles.rateSection}>
-          <View style={styles.rateSectionHeader}>
+        {/* ── SECTION 7: Ratings & Reviews ── */}
+        <View style={styles.detailsSection}>
+          <View style={styles.ratingsTitleRow}>
             <Text style={styles.sectionTitle}>Ratings & Reviews</Text>
             <TouchableOpacity
-              style={styles.rateButton}
+              style={styles.rateChip}
               onPress={() => setShowRatingForm(!showRatingForm)}
             >
-              <Ionicons name="star" size={16} color="#FFB800" />
-              <Text style={styles.rateButtonText}>
-                {existingUserRating ? "Edit Rating" : "Rate Product"}
+              <Ionicons name="star" size={13} color="#FFB800" />
+              <Text style={styles.rateChipText}>
+                {existingRating ? "Edit" : "Rate"}
               </Text>
             </TouchableOpacity>
           </View>
 
           {totalRatings > 0 && (
-            <View style={styles.ratingsSummaryCard}>
-              <View style={styles.avgRatingBox}>
-                <Text style={styles.avgRatingNumber}>
-                  {avgRating.toFixed(1)}
-                </Text>
-                <View style={styles.avgRatingStars}>
-                  {renderStars(avgRating, 16)}
-                </View>
-                <Text style={styles.avgRatingCount}>
+            <View style={styles.avgRatingCard}>
+              <Text style={styles.avgBigNum}>{avgRating.toFixed(1)}</Text>
+              <View>
+                <Stars rating={avgRating} size={20} />
+                <Text style={styles.avgSubText}>
                   {totalRatings} {totalRatings === 1 ? "review" : "reviews"}
                 </Text>
               </View>
@@ -748,17 +871,32 @@ const ProductDetailScreen = () => {
           )}
 
           {showRatingForm && (
-            <View style={styles.ratingFormCard}>
+            <View style={styles.ratingFormBox}>
               <Text style={styles.ratingFormTitle}>
-                {existingUserRating
-                  ? "Update Your Rating"
-                  : "Rate This Product"}
+                {existingRating ? "Update Rating" : "Rate This Product"}
               </Text>
-              {renderSelectableStars()}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  marginBottom: 14,
+                }}
+              >
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <TouchableOpacity key={s} onPress={() => setUserRating(s)}>
+                    <Ionicons
+                      name={s <= userRating ? "star" : "star-outline"}
+                      size={36}
+                      color="#FFB800"
+                      style={{ marginHorizontal: 4 }}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
               <TextInput
                 style={styles.reviewInput}
                 placeholder="Write a review (optional)"
-                placeholderTextColor="#999"
+                placeholderTextColor="#BBB"
                 multiline
                 numberOfLines={3}
                 textAlignVertical="top"
@@ -766,457 +904,519 @@ const ProductDetailScreen = () => {
                 onChangeText={setReviewText}
                 maxLength={1000}
               />
-              <View style={styles.ratingFormActions}>
+              <View style={styles.formBtnRow}>
                 <TouchableOpacity
-                  style={styles.submitRatingButton}
-                  onPress={handleSubmitRating}
-                  disabled={submittingRating}
+                  style={styles.submitBtn}
+                  onPress={submitRating}
+                  disabled={submitting}
                 >
-                  {submittingRating ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={styles.submitRatingText}>
-                      {existingUserRating ? "Update" : "Submit"}
+                    <Text style={styles.submitBtnText}>
+                      {existingRating ? "Update" : "Submit"}
                     </Text>
                   )}
                 </TouchableOpacity>
-                {existingUserRating && (
+                {existingRating && (
                   <TouchableOpacity
-                    style={styles.deleteRatingButton}
-                    onPress={handleDeleteRating}
+                    style={styles.deleteBtn}
+                    onPress={deleteRating}
                   >
-                    <Text style={styles.deleteRatingText}>Delete</Text>
+                    <Text style={styles.deleteBtnText}>Delete</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
-                  style={styles.cancelRatingButton}
+                  style={styles.cancelBtn}
                   onPress={() => setShowRatingForm(false)}
                 >
-                  <Text style={styles.cancelRatingText}>Cancel</Text>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
 
           {ratings.length > 0 ? (
-            <View style={styles.reviewsList}>
-              {ratings.slice(0, 10).map((review: any, index: number) => (
+            <View style={{ gap: 8, marginTop: 12 }}>
+              {ratings.slice(0, 10).map((r: any, i: number) => (
                 <View
-                  key={(review.rating_id || review.product_id) + "-" + index}
+                  key={`${r.rating_id || r.product_id}-${i}`}
                   style={styles.reviewCard}
                 >
-                  <View style={styles.reviewHeader}>
-                    <View style={styles.starsRow}>
-                      {renderStars(review.rating, 14)}
-                    </View>
-                    <Text style={styles.reviewDate}>
-                      {new Date(review.created_at).toLocaleDateString()}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      marginBottom: 5,
+                    }}
+                  >
+                    <Stars rating={r.rating} size={13} />
+                    <Text style={{ fontSize: 11, color: "#BBB" }}>
+                      {new Date(r.created_at).toLocaleDateString()}
                     </Text>
                   </View>
-                  {review.remarks && (
-                    <Text style={styles.reviewText}>{review.remarks}</Text>
+                  {r.remarks && (
+                    <Text
+                      style={{ fontSize: 13, color: "#444", lineHeight: 19 }}
+                    >
+                      {r.remarks}
+                    </Text>
                   )}
-                  {review.user_id === currentUserId && (
-                    <Text style={styles.yourReviewBadge}>Your review</Text>
+                  {r.user_id === currentUserId && (
+                    <View
+                      style={{
+                        marginTop: 5,
+                        backgroundColor: "#EBF5FF",
+                        paddingHorizontal: 7,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        alignSelf: "flex-start",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "700",
+                          color: "#0078D7",
+                        }}
+                      >
+                        Your review
+                      </Text>
+                    </View>
                   )}
                 </View>
               ))}
             </View>
           ) : (
-            <View style={styles.noReviewsContainer}>
-              <Ionicons name="chatbubble-outline" size={32} color="#CCC" />
-              <Text style={styles.noReviewsText}>
-                No reviews yet. Be the first to rate!
-              </Text>
-            </View>
+            !showRatingForm && (
+              <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                <Ionicons name="chatbubble-outline" size={30} color="#DDD" />
+                <Text style={{ fontSize: 13, color: "#CCC", marginTop: 8 }}>
+                  No reviews yet. Be the first!
+                </Text>
+              </View>
+            )
           )}
         </View>
-
-        <View style={{ height: 100 }} />
       </ScrollView>
-
-      {/* <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.enquireButton} onPress={() => {
-          router.push({ pathname: '/pages/requestQutation' as any, params: { product_id: productDetails.id, product_name: productDetails.product_name, company_id: productDetails.business_id } });
-        }}>
-          <Ionicons name="chatbubble-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.enquireButtonText}>Enquire Now</Text>
-        </TouchableOpacity>
-      </View> */}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F5F5F5" },
+  container: { flex: 1, backgroundColor: "#F2F3F5" },
+
+  /* Header */
   header: {
     backgroundColor: "#1E90FF",
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
-  backButton: {
-    width: 40,
-    height: 40,
+  headerBtn: {
+    width: 36,
+    height: 36,
     justifyContent: "center",
     alignItems: "center",
   },
   headerTitle: {
     flex: 1,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: "#fff",
     textAlign: "center",
   },
-  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loaderText: { marginTop: 12, fontSize: 16, color: "#666" },
-  errorContainer: {
-    flex: 1,
-    justifyContent: "center",
+
+  /* Business header */
+  bizHeaderCard: {
+    backgroundColor: "#fff",
+    flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 40,
-  },
-  errorText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginTop: 16,
-  },
-  retryButton: {
-    marginTop: 16,
-    backgroundColor: "#0078D7",
-    paddingHorizontal: 32,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
   },
-  retryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
-  scrollView: { flex: 1 },
-  carouselImage: { width: width, height: 320, backgroundColor: "#F0F0F0" },
-  imageCountBadge: {
-    position: "absolute",
-    top: 16,
-    right: 16,
-    backgroundColor: "rgba(0,0,0,0.6)",
+  bizHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 16,
-    gap: 4,
-  },
-  imageCountText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
-  dotsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    position: "absolute",
-    bottom: 16,
-    left: 0,
-    right: 0,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.5)",
-    marginHorizontal: 4,
-  },
-  dotActive: { backgroundColor: "#FFFFFF", width: 24 },
-  noImageContainer: {
-    width: "100%",
-    height: 200,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F8F8F8",
-  },
-  noImageText: { fontSize: 14, color: "#999", marginTop: 8 },
-  productInfoCard: {
-    backgroundColor: "#FFFFFF",
-    margin: 16,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-  },
-  productNameRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 8,
-  },
-  productName: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#1A1A1A",
     flex: 1,
-    marginRight: 8,
+    gap: 10,
   },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  ratingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-    gap: 6,
-  },
-  starsRow: { flexDirection: "row", alignItems: "center" },
-  ratingText: { fontSize: 14, fontWeight: "700", color: "#333" },
-  ratingCount: { fontSize: 13, color: "#888" },
-  priceQtyRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
-  priceBox: {
-    flex: 1,
-    backgroundColor: "#F0FFF4",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#D4EDDA",
-  },
-  qtyBox: {
-    flex: 1,
+  bizLogoLarge: {
+    width: 46,
+    height: 46,
+    borderRadius: 10,
     backgroundColor: "#EBF5FF",
-    borderRadius: 12,
-    padding: 14,
+    justifyContent: "center",
     alignItems: "center",
+  },
+  bizHeaderName: { fontSize: 15, fontWeight: "700", color: "#1A1A1A" },
+  bizLocation: { fontSize: 11, color: "#999", marginTop: 2 },
+  ownBizPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#EBF5FF",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: "#D0E8FF",
   },
-  priceLabel: { fontSize: 12, color: "#666", marginTop: 4 },
-  priceValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#28A745",
-    marginTop: 2,
+  ownBizPillText: { fontSize: 11, fontWeight: "700", color: "#0078D7" },
+  topFollowBtn: {
+    backgroundColor: "#0078D7",
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 7,
   },
-  qtyValue: { fontSize: 18, fontWeight: "700", color: "#0078D7", marginTop: 2 },
-  moqRow: {
-    flexDirection: "row",
+  topFollowBtnActive: {
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#0078D7",
+  },
+  topFollowText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  topFollowTextActive: { color: "#0078D7" },
+
+  /* Image section */
+  imageSection: { position: "relative" },
+  mainImage: { width, height: 290, backgroundColor: "#F0F0F0" },
+
+  /* ── No images state ── */
+  noImageContainer: {
+    width,
+    height: 290,
+    backgroundColor: "#F7F8FA",
+    justifyContent: "center",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 16,
-    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ECECEC",
   },
-  moqLabel: { fontSize: 14, color: "#666" },
-  moqValue: { fontSize: 14, fontWeight: "600", color: "#333" },
-  detailsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 16,
-  },
-  detailItem: {
-    backgroundColor: "#F8F9FA",
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-    minWidth: (width - 96) / 3,
-    flex: 1,
-  },
-  detailLabel: { fontSize: 11, color: "#888", marginTop: 4 },
-  detailValue: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 2,
-    textAlign: "center",
-  },
-  sellerCard: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-  },
-  sellerCardTitle: {
+  noImageTitle: {
     fontSize: 16,
+    fontWeight: "700",
+    color: "#AAAAAA",
+    marginTop: 14,
+  },
+  noImageSubtitle: {
+    fontSize: 12,
+    color: "#C8C8C8",
+    marginTop: 4,
+  },
+
+  dotsRow: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(0,0,0,0.18)",
+    marginHorizontal: 3,
+  },
+  dotActive: { backgroundColor: "#0078D7", width: 18 },
+  imgCountBadge: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "rgba(0,0,0,0.48)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  imgCountText: { color: "#fff", fontSize: 11, fontWeight: "600" },
+
+  /* Product header */
+  productHeaderCard: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  productNameRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  productName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    flex: 1,
+    marginRight: 10,
+    lineHeight: 26,
+  },
+  statusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    gap: 5,
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusChipText: { fontSize: 11, fontWeight: "700" },
+  productSubline: { fontSize: 12, color: "#888", marginBottom: 8 },
+
+  priceText: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#28A745",
+    marginBottom: 8,
+  },
+  pricePerUnit: { fontSize: 16, fontWeight: "500", color: "#4CAF50" },
+
+  starsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 12,
+  },
+  ratingNumText: { fontSize: 13, fontWeight: "700", color: "#333" },
+  ratingCountText: { fontSize: 12, color: "#999" },
+
+  qtyInfoRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  qtyInfoChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#F4F6FB",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#E8E8E8",
+  },
+  qtyInfoText: { fontSize: 13, color: "#444", fontWeight: "500" },
+
+  /* Details section */
+  detailsSection: {
+    backgroundColor: "#fff",
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 17,
     fontWeight: "700",
     color: "#1A1A1A",
     marginBottom: 12,
   },
-  sellerHeader: {
+  descBlock: { marginBottom: 4 },
+  descText: { fontSize: 13, color: "#444", lineHeight: 20, marginTop: 4 },
+  moreText: { fontSize: 13, fontWeight: "700", color: "#0078D7", marginTop: 2 },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F4F4F4",
+  },
+  detailRowLabel: { fontSize: 13, color: "#888", fontWeight: "500" },
+  detailRowValue: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#222",
+    textAlign: "right",
+    flex: 1,
+    marginLeft: 16,
+  },
+
+  /* Enquiry card */
+  enquiryCard: {
+    borderWidth: 1,
+    borderColor: "#E8E8E8",
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  enquiryTop: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    padding: 12,
+    gap: 10,
   },
-  sellerLogo: { width: 56, height: 56, borderRadius: 28 },
-  sellerLogoPlaceholder: {
-    backgroundColor: "#F0F8FF",
+  enquiryLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#EBF5FF",
     justifyContent: "center",
     alignItems: "center",
   },
-  sellerInfo: { flex: 1, marginLeft: 12 },
-  sellerName: { fontSize: 16, fontWeight: "700", color: "#1A1A1A" },
-  sellerLocation: { fontSize: 13, color: "#888", marginTop: 4 },
-  companyContactRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  contactButton: {
+  enquiryBizName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
+  },
+  enquiryLocation: { fontSize: 11, color: "#999", marginTop: 2 },
+  enquiryFollowBtn: {
+    backgroundColor: "#0078D7",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 7,
+  },
+  enquiryFollowingBtn: {
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#0078D7",
+  },
+  enquiryFollowText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  enquiryFollowingText: { color: "#0078D7" },
+  ownBizSmall: {
+    backgroundColor: "#EBF5FF",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#D0E8FF",
+  },
+  ownBizSmallText: { fontSize: 11, fontWeight: "700", color: "#0078D7" },
+  actionRow: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
+  },
+  actionBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: "#F0F8FF",
-    gap: 4,
+    paddingVertical: 12,
+    gap: 5,
+    borderRightWidth: 1,
+    borderRightColor: "#F0F0F0",
   },
-  contactButtonText: { fontSize: 12, fontWeight: "600", color: "#0078D7" },
-  followCompanyButton: {
+  actionBtnLabel: { fontSize: 11, fontWeight: "600", color: "#444" },
+
+  /* Similar */
+  similarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 8,
+  },
+  similarCard: {
+    width: (width - 42) / 2,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#ECECEC",
+  },
+  similarImg: { width: "100%", height: 130 },
+  similarCardBody: { padding: 10 },
+  similarName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 3,
+  },
+  similarMeta: { fontSize: 12, color: "#666", marginBottom: 2 },
+  similarFooter: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 10,
+    justifyContent: "space-between",
+    marginTop: 5,
+  },
+  similarPrice: { fontSize: 11, color: "#555", flex: 1 },
+  enquireChip: {
     backgroundColor: "#0078D7",
-    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
-  followingCompanyButton: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#0078D7",
-  },
-  followCompanyText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
-  followingCompanyText: { color: "#0078D7" },
-  companyAddressRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  companyAddressText: { fontSize: 13, color: "#666", flex: 1, lineHeight: 18 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: "#1A1A1A" },
-  rateSection: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-  },
-  rateSectionHeader: {
+  enquireChipText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+
+  /* Ratings */
+  ratingsTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
-  },
-  rateButton: { flexDirection: "row", alignItems: "center", gap: 4 },
-  rateButtonText: { fontSize: 14, fontWeight: "600", color: "#0078D7" },
-  ratingsSummaryCard: { marginBottom: 16, alignItems: "center" },
-  avgRatingBox: { alignItems: "center" },
-  avgRatingNumber: { fontSize: 36, fontWeight: "800", color: "#1A1A1A" },
-  avgRatingStars: { flexDirection: "row", marginTop: 4 },
-  avgRatingCount: { fontSize: 13, color: "#888", marginTop: 4 },
-  selectableStarsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
     marginBottom: 12,
   },
-  ratingFormCard: {
+  rateChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFF8E1",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  rateChipText: { fontSize: 13, fontWeight: "600", color: "#F59E0B" },
+  avgRatingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
     backgroundColor: "#F8F9FA",
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    marginBottom: 4,
+  },
+  avgBigNum: { fontSize: 42, fontWeight: "800", color: "#1A1A1A" },
+  avgSubText: { fontSize: 12, color: "#999", marginTop: 4 },
+  ratingFormBox: {
+    backgroundColor: "#F8F9FA",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
   },
   ratingFormTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
     color: "#333",
     marginBottom: 12,
     textAlign: "center",
   },
   reviewInput: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
     borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
+    padding: 11,
+    fontSize: 13,
     color: "#333",
     borderWidth: 1,
-    borderColor: "#E0E0E0",
-    minHeight: 80,
+    borderColor: "#E8E8E8",
+    minHeight: 75,
     textAlignVertical: "top",
   },
-  ratingFormActions: { flexDirection: "row", gap: 8, marginTop: 12 },
-  submitRatingButton: {
+  formBtnRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  submitBtn: {
     flex: 1,
     backgroundColor: "#0078D7",
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 8,
     alignItems: "center",
   },
-  submitRatingText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
-  deleteRatingButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+  submitBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  deleteBtn: {
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     borderRadius: 8,
     backgroundColor: "#FFEBEE",
     alignItems: "center",
   },
-  deleteRatingText: { color: "#DC3545", fontSize: 15, fontWeight: "600" },
-  cancelRatingButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+  deleteBtnText: { color: "#DC3545", fontSize: 14, fontWeight: "600" },
+  cancelBtn: {
+    paddingVertical: 11,
+    paddingHorizontal: 12,
     borderRadius: 8,
     alignItems: "center",
   },
-  cancelRatingText: { color: "#666", fontSize: 15 },
-  reviewsList: { gap: 8 },
-  reviewCard: { backgroundColor: "#F8F9FA", borderRadius: 10, padding: 14 },
-  reviewHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  reviewDate: { fontSize: 12, color: "#999" },
-  reviewText: { fontSize: 14, color: "#333", lineHeight: 20 },
-  yourReviewBadge: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#0078D7",
-    marginTop: 8,
-    backgroundColor: "#EBF5FF",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: "flex-start",
-  },
-  noReviewsContainer: { alignItems: "center", paddingVertical: 20 },
-  noReviewsText: { fontSize: 14, color: "#999", marginTop: 8 },
-  bottomBar: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  enquireButton: {
-    backgroundColor: "#0078D7",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  enquireButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  cancelBtnText: { color: "#999", fontSize: 14 },
+  reviewCard: { backgroundColor: "#F8F9FA", borderRadius: 10, padding: 12 },
 });
-
-export default ProductDetailScreen;
