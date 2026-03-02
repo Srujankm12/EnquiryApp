@@ -1,24 +1,24 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
+import { jwtDecode } from "jwt-decode";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
-  Dimensions,
-  Alert,
   ActivityIndicator,
+  Alert,
+  Dimensions,
   Image,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { router, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
-import Constants from 'expo-constants';
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 const TILE_SIZE = (width - 48 - 12) / 2;
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
@@ -27,8 +27,8 @@ const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const path = url.startsWith('/') ? url : `/${url}`;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const path = url.startsWith("/") ? url : `/${url}`;
   if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
   return `${S3_URL}${path}`;
 };
@@ -49,17 +49,17 @@ interface GridItem {
   color: string;
   bgColor: string;
   route?: string;
-  condition?: 'always' | 'seller' | 'not-seller' | 'has-application';
+  condition?: "always" | "seller" | "not-seller" | "has-application";
 }
 
 const MenuScreen: React.FC = () => {
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState<string>('');
-  const [userEmail, setUserEmail] = useState<string>('');
+  const [userName, setUserName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [businessId, setBusinessId] = useState<string>('');
+  const [businessId, setBusinessId] = useState<string>("");
 
   useEffect(() => {
     loadData();
@@ -68,20 +68,20 @@ const MenuScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [])
+    }, []),
   );
 
   const loadData = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem("token");
       if (!token) return;
 
       const decoded = jwtDecode<DecodedToken>(token);
-      setUserName(decoded.user_name || '');
-      setBusinessId(decoded.business_id || '');
+      setUserName(decoded.user_name || "");
+      setBusinessId(decoded.business_id || "");
 
-      let status = await AsyncStorage.getItem('sellerStatus');
-      const storedCompanyId = await AsyncStorage.getItem('companyId');
+      let status = await AsyncStorage.getItem("sellerStatus");
+      const storedCompanyId = await AsyncStorage.getItem("companyId");
       const bId = storedCompanyId || decoded.business_id;
       setCompanyId(bId);
 
@@ -89,9 +89,9 @@ const MenuScreen: React.FC = () => {
       const normalizeStatus = (s: string | null): string | null => {
         if (!s) return null;
         const lower = s.toLowerCase().trim();
-        if (lower === 'accepted' || lower === 'active') return 'approved';
-        if (lower === 'applied' || lower === 'under_review') return 'pending';
-        if (lower === 'declined') return 'rejected';
+        if (lower === "accepted" || lower === "active") return "approved";
+        if (lower === "applied" || lower === "under_review") return "pending";
+        if (lower === "declined") return "rejected";
         return lower;
       };
 
@@ -100,45 +100,58 @@ const MenuScreen: React.FC = () => {
       // Sync seller status from API if we have a business_id
       if (bId) {
         try {
-          const appRes = await fetch(`${API_URL}/business/application/get/${bId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          });
+          const appRes = await fetch(
+            `${API_URL}/business/application/get/${bId}`,
+            {
+              headers: { "Content-Type": "application/json" },
+            },
+          );
           if (appRes.ok) {
             const appData = await appRes.json();
-            const appStatus = appData.details?.status || appData.application?.status || appData.status;
+            const appStatus =
+              appData.details?.status ||
+              appData.application?.status ||
+              appData.status;
             if (appStatus) {
               status = normalizeStatus(appStatus);
-              await AsyncStorage.setItem('sellerStatus', status || '');
+              await AsyncStorage.setItem("sellerStatus", status || "");
             }
           }
         } catch {
           // Check if business is approved directly
           try {
             const bizRes = await fetch(`${API_URL}/business/get/${bId}`, {
-              headers: { 'Content-Type': 'application/json' },
+              headers: { "Content-Type": "application/json" },
             });
             if (bizRes.ok) {
               const bizData = await bizRes.json();
-              if (bizData.details?.is_business_approved || bizData.business?.is_business_approved) {
-                status = 'approved';
-                await AsyncStorage.setItem('sellerStatus', 'approved');
+              if (
+                bizData.details?.is_business_approved ||
+                bizData.business?.is_business_approved
+              ) {
+                status = "approved";
+                await AsyncStorage.setItem("sellerStatus", "approved");
               }
             }
           } catch {}
         }
 
         // Also check the simple status endpoint
-        if (status !== 'approved') {
+        if (status !== "approved") {
           try {
             const statusRes = await fetch(`${API_URL}/business/status/${bId}`, {
-              headers: { 'Content-Type': 'application/json' },
+              headers: { "Content-Type": "application/json" },
             });
             if (statusRes.ok) {
               const statusData = await statusRes.json();
-              if (statusData?.is_approved === true || statusData?.details?.is_approved === true ||
-                  statusData?.is_business_approved === true || statusData?.details?.is_business_approved === true) {
-                status = 'approved';
-                await AsyncStorage.setItem('sellerStatus', 'approved');
+              if (
+                statusData?.is_approved === true ||
+                statusData?.details?.is_approved === true ||
+                statusData?.is_business_approved === true ||
+                statusData?.details?.is_business_approved === true
+              ) {
+                status = "approved";
+                await AsyncStorage.setItem("sellerStatus", "approved");
               }
             }
           } catch {}
@@ -154,9 +167,11 @@ const MenuScreen: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           const details = data.user || data;
-          setUserEmail(details.email || '');
+          setUserEmail(details.email || "");
           if (details.first_name) {
-            setUserName(`${details.first_name}${details.last_name ? ' ' + details.last_name : ''}`);
+            setUserName(
+              `${details.first_name}${details.last_name ? " " + details.last_name : ""}`,
+            );
           }
           const profileUrl = details.profile_image;
           if (profileUrl) {
@@ -167,7 +182,7 @@ const MenuScreen: React.FC = () => {
         // Use token data as fallback
       }
     } catch (error) {
-      console.error('Error loading menu data:', error);
+      console.error("Error loading menu data:", error);
     } finally {
       setLoading(false);
     }
@@ -175,32 +190,90 @@ const MenuScreen: React.FC = () => {
 
   const gridItems: GridItem[] = [
     // Seller-specific items
-    { id: 'business-mgmt', title: 'Business', icon: 'business', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/businessManagement', condition: 'seller' },
-    { id: 'my-products', title: 'My\nProducts', icon: 'cube', color: '#177DDF', bgColor: '#E3F2FD', route: 'pages/myProducts', condition: 'seller' },
-    { id: 'my-rfqs', title: 'My\nRFQs', icon: 'document-text', color: '#FF5722', bgColor: '#FBE9E7', route: 'pages/myRfqs', condition: 'seller' },
+    {
+      id: "business-mgmt",
+      title: "Business",
+      icon: "business",
+      color: "#0078D7",
+      bgColor: "#E3F2FD",
+      route: "pages/businessManagement",
+      condition: "seller",
+    },
+    {
+      id: "my-products",
+      title: "My\nProducts",
+      icon: "cube",
+      color: "#177DDF",
+      bgColor: "#E3F2FD",
+      route: "pages/myProducts",
+      condition: "seller",
+    },
+    {
+      id: "my-rfqs",
+      title: "My\nRFQs",
+      icon: "document-text",
+      color: "#177DDF",
+      bgColor: "#E3F2FD",
+      route: "pages/myRfqs",
+      condition: "seller",
+    },
     // Non-seller items
-    { id: 'become-seller', title: 'Become\nSeller', icon: 'storefront', color: '#34C759', bgColor: '#E8F5E9', route: 'pages/becomeSellerForm', condition: 'not-seller' },
-    { id: 'edit-details-pending', title: 'Edit\nDetails', icon: 'create', color: '#FF9500', bgColor: '#FFF3E0', route: 'pages/sellerApplicationStatus', condition: 'has-application' },
+    {
+      id: "become-seller",
+      title: "Become\nSeller",
+      icon: "storefront",
+      color: "#34C759",
+      bgColor: "#E8F5E9",
+      route: "pages/becomeSellerForm",
+      condition: "not-seller",
+    },
+    {
+      id: "edit-details-pending",
+      title: "Edit\nDetails",
+      icon: "create",
+      color: "#FF9500",
+      bgColor: "#FFF3E0",
+      route: "pages/sellerApplicationStatus",
+      condition: "has-application",
+    },
     // Common items
-    { id: 'followers', title: 'Followers &\nFollowing', icon: 'people-outline', color: '#0078D7', bgColor: '#E3F2FD', route: 'pages/followers', condition: 'always' },
+    {
+      id: "followers",
+      title: "Followers &\nFollowing",
+      icon: "people-outline",
+      color: "#0078D7",
+      bgColor: "#E3F2FD",
+      route: "pages/followers",
+      condition: "always",
+    },
   ];
 
   const tagItems = [
-    { id: 'share', label: 'App Share', icon: 'share-social-outline' as keyof typeof Ionicons.glyphMap, color: '#9C27B0' },
+    {
+      id: "share",
+      label: "App Share",
+      icon: "share-social-outline" as keyof typeof Ionicons.glyphMap,
+      color: "#9C27B0",
+    },
   ];
 
-  const isApproved = sellerStatus === 'approved';
-  const isPending = sellerStatus === 'pending';
-  const isRejected = sellerStatus === 'rejected';
+  const isApproved = sellerStatus === "approved";
+  const isPending = sellerStatus === "pending";
+  const isRejected = sellerStatus === "rejected";
 
   const getVisibleGridItems = (): GridItem[] => {
     return gridItems.filter((item) => {
       switch (item.condition) {
-        case 'always': return true;
-        case 'seller': return isApproved;
-        case 'not-seller': return !isApproved && !isPending;
-        case 'has-application': return isPending || isRejected;
-        default: return true;
+        case "always":
+          return true;
+        case "seller":
+          return isApproved;
+        case "not-seller":
+          return !isApproved && !isPending;
+        case "has-application":
+          return isPending || isRejected;
+        default:
+          return true;
       }
     });
   };
@@ -214,22 +287,32 @@ const MenuScreen: React.FC = () => {
 
   const performLogout = async () => {
     await AsyncStorage.multiRemove([
-      'token', 'accessToken', 'refreshToken', 'user',
-      'companyId', 'sellerStatus', 'applicationId',
+      "token",
+      "accessToken",
+      "refreshToken",
+      "user",
+      "companyId",
+      "sellerStatus",
+      "applicationId",
     ]);
-    router.replace('/pages/loginMail');
+    router.replace("/pages/loginMail");
   };
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', onPress: () => performLogout() },
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Logout", onPress: () => performLogout() },
     ]);
   };
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         <ActivityIndicator size="large" color="#177DDF" />
       </View>
     );
@@ -242,7 +325,7 @@ const MenuScreen: React.FC = () => {
       <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
 
       <LinearGradient
-        colors={['#177DDF', '#1567BF']}
+        colors={["#177DDF", "#1567BF"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.header}
@@ -259,12 +342,15 @@ const MenuScreen: React.FC = () => {
         <TouchableOpacity
           style={styles.profileCard}
           activeOpacity={0.7}
-          onPress={() => router.push('/pages/profileSetting' as any)}
+          onPress={() => router.push("/pages/profileSetting" as any)}
         >
           <View style={styles.profileCardRow}>
             <View style={styles.profileImageContainer}>
               {profileImage ? (
-                <Image source={{ uri: profileImage }} style={styles.profileImage} />
+                <Image
+                  source={{ uri: profileImage }}
+                  style={styles.profileImage}
+                />
               ) : (
                 <View style={styles.profileImagePlaceholder}>
                   <Ionicons name="person" size={32} color="#0078D7" />
@@ -272,8 +358,10 @@ const MenuScreen: React.FC = () => {
               )}
             </View>
             <View style={styles.profileTextContainer}>
-              <Text style={styles.profileName}>{userName || 'User'}</Text>
-              {userEmail ? <Text style={styles.profileEmail}>{userEmail}</Text> : null}
+              <Text style={styles.profileName}>{userName || "User"}</Text>
+              {userEmail ? (
+                <Text style={styles.profileEmail}>{userEmail}</Text>
+              ) : null}
               <Text style={styles.profileLink}>View Profile</Text>
             </View>
             <Ionicons name="chevron-forward" size={22} color="#0078D7" />
@@ -299,10 +387,17 @@ const MenuScreen: React.FC = () => {
                 activeOpacity={0.7}
                 onPress={() => handleGridItemPress(item)}
               >
-                <View style={[styles.gridIconContainer, { backgroundColor: item.bgColor }]}>
+                <View
+                  style={[
+                    styles.gridIconContainer,
+                    { backgroundColor: item.bgColor },
+                  ]}
+                >
                   <Ionicons name={item.icon} size={28} color={item.color} />
                 </View>
-                <Text style={styles.gridItemTitle} numberOfLines={2}>{item.title}</Text>
+                <Text style={styles.gridItemTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -313,8 +408,17 @@ const MenuScreen: React.FC = () => {
           <Text style={styles.sectionLabel}>Explore</Text>
           <View style={styles.tagsRow}>
             {tagItems.map((tag) => (
-              <TouchableOpacity key={tag.id} style={styles.tagItem} activeOpacity={0.7}>
-                <View style={[styles.tagIconContainer, { backgroundColor: `${tag.color}15` }]}>
+              <TouchableOpacity
+                key={tag.id}
+                style={styles.tagItem}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.tagIconContainer,
+                    { backgroundColor: `${tag.color}15` },
+                  ]}
+                >
                   <Ionicons name={tag.icon} size={18} color={tag.color} />
                 </View>
                 <Text style={styles.tagLabel}>{tag.label}</Text>
@@ -333,7 +437,7 @@ const MenuScreen: React.FC = () => {
                 const bId = companyId || businessId;
                 if (bId) {
                   router.push({
-                    pathname: '/pages/sellerProfile' as any,
+                    pathname: "/pages/sellerProfile" as any,
                     params: { business_id: bId },
                   });
                 }
@@ -346,7 +450,7 @@ const MenuScreen: React.FC = () => {
           )}
           <TouchableOpacity
             style={styles.quickAction}
-            onPress={() => router.push('/pages/updateUserProfileScreen' as any)}
+            onPress={() => router.push("/pages/updateUserProfileScreen" as any)}
           >
             <Ionicons name="person-outline" size={22} color="#0078D7" />
             <Text style={styles.quickActionText}>Update Profile</Text>
@@ -354,7 +458,7 @@ const MenuScreen: React.FC = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.quickAction}
-            onPress={() => router.push('/pages/upadetPasswordScreen' as any)}
+            onPress={() => router.push("/pages/upadetPasswordScreen" as any)}
           >
             <Ionicons name="key-outline" size={22} color="#0078D7" />
             <Text style={styles.quickActionText}>Update Password</Text>
@@ -362,7 +466,7 @@ const MenuScreen: React.FC = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.quickAction}
-            onPress={() => router.push('/pages/profileSetting' as any)}
+            onPress={() => router.push("/pages/profileSetting" as any)}
           >
             <Ionicons name="settings-outline" size={22} color="#0078D7" />
             <Text style={styles.quickActionText}>Settings</Text>
@@ -371,7 +475,11 @@ const MenuScreen: React.FC = () => {
         </View>
 
         {/* Logout */}
-        <TouchableOpacity style={styles.logoutButton} activeOpacity={0.7} onPress={handleLogout}>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          activeOpacity={0.7}
+          onPress={handleLogout}
+        >
           <Ionicons name="log-out-outline" size={22} color="#DC3545" />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
@@ -383,72 +491,165 @@ const MenuScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  container: { flex: 1, backgroundColor: "#F5F5F5" },
   header: {
-    paddingTop: 50, paddingBottom: 16, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center',
+    paddingTop: 50,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
   },
-  headerTitle: { fontSize: 22, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 22, fontWeight: "700", color: "#FFFFFF" },
   scrollView: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
   profileCard: {
-    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginTop: 16, marginBottom: 12,
-    borderRadius: 16, padding: 16, elevation: 2,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8,
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 12,
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
   },
-  profileCardRow: { flexDirection: 'row', alignItems: 'center' },
-  profileImageContainer: { width: 56, height: 56, borderRadius: 28, overflow: 'hidden', marginRight: 14 },
+  profileCardRow: { flexDirection: "row", alignItems: "center" },
+  profileImageContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: "hidden",
+    marginRight: 14,
+  },
   profileImage: { width: 56, height: 56, borderRadius: 28 },
   profileImagePlaceholder: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: '#E3F2FD',
-    justifyContent: 'center', alignItems: 'center',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#E3F2FD",
+    justifyContent: "center",
+    alignItems: "center",
   },
   profileTextContainer: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
-  profileEmail: { fontSize: 13, color: '#888', marginBottom: 4 },
-  profileLink: { fontSize: 13, fontWeight: '600', color: '#0078D7' },
-  sellerStatusBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#E3F2FD', marginHorizontal: 16, marginBottom: 16,
-    paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12,
+  profileName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 2,
   },
-  sellerStatusText: { fontSize: 14, fontWeight: '600', color: '#0078D7' },
+  profileEmail: { fontSize: 13, color: "#888", marginBottom: 4 },
+  profileLink: { fontSize: 13, fontWeight: "600", color: "#0078D7" },
+  sellerStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E3F2FD",
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
+  sellerStatusText: { fontSize: 14, fontWeight: "600", color: "#0078D7" },
   sectionLabel: {
-    fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 14, paddingHorizontal: 4,
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 14,
+    paddingHorizontal: 4,
   },
   gridContainer: { paddingHorizontal: 16, marginBottom: 16 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   gridItem: {
-    width: TILE_SIZE, backgroundColor: '#FFFFFF', borderRadius: 14, paddingVertical: 18,
-    paddingHorizontal: 12, alignItems: 'center', elevation: 2,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4,
+    width: TILE_SIZE,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
   },
   gridIconContainer: {
-    width: 56, height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 10,
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
   },
-  gridItemTitle: { fontSize: 13, fontWeight: '600', color: '#1A1A1A', textAlign: 'center', lineHeight: 18 },
+  gridItemTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1A1A1A",
+    textAlign: "center",
+    lineHeight: 18,
+  },
   tagsContainer: { paddingHorizontal: 16, marginBottom: 16 },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   tagItem: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 20,
-    paddingVertical: 10, paddingHorizontal: 14, elevation: 1,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
-  tagIconContainer: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-  tagLabel: { fontSize: 13, fontWeight: '600', color: '#333' },
+  tagIconContainer: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 8,
+  },
+  tagLabel: { fontSize: 13, fontWeight: "600", color: "#333" },
   quickActionsContainer: { paddingHorizontal: 16, marginBottom: 16 },
   quickAction: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12,
-    paddingVertical: 16, paddingHorizontal: 16, marginBottom: 8, elevation: 1,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
-  quickActionText: { flex: 1, fontSize: 15, fontWeight: '500', color: '#1A1A1A', marginLeft: 14 },
+  quickActionText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#1A1A1A",
+    marginLeft: 14,
+  },
   logoutButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    marginHorizontal: 16, marginTop: 4, backgroundColor: '#FFFFFF', borderRadius: 12,
-    paddingVertical: 16, borderWidth: 1.5, borderColor: '#FFE5E5', gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 16,
+    marginTop: 4,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingVertical: 16,
+    borderWidth: 1.5,
+    borderColor: "#FFE5E5",
+    gap: 8,
   },
-  logoutText: { fontSize: 16, fontWeight: '600', color: '#DC3545' },
+  logoutText: { fontSize: 16, fontWeight: "600", color: "#DC3545" },
 });
 
 export default MenuScreen;
