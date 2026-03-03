@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { jwtDecode } from 'jwt-decode';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Dimensions,
@@ -56,25 +55,33 @@ const ProductsByCategoryScreen = () => {
       setLoading(true); setError(null);
       const token = await AsyncStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const dec: any = token ? jwtDecode(token) : {};
-      const myUserId = String(dec.user_id || "");
-      const myBizId = String(dec.business_id || "");
-      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
+      const companyId = await AsyncStorage.getItem("companyId");
       let endpoint = '';
       if (sub_category_id) endpoint = `${API_URL}/product/get/sub/category/${sub_category_id}`;
       else if (category_id) endpoint = `${API_URL}/product/get/category/${category_id}`;
       else endpoint = `${API_URL}/product/get/all`;
-      const res = await axios.get(endpoint, { headers });
-      const data = res.data?.products || [];
+      const fetches: Promise<any>[] = [
+        axios.get(endpoint, { headers }),
+      ];
+      if (companyId) {
+        fetches.push(axios.get(`${API_URL}/product/get/business/${companyId}`, { headers }).catch(() => ({ data: { products: [] } })));
+      }
+      const [prodRes, ownRes] = await Promise.all(fetches);
+      const ownIds = new Set<string>();
+      if (ownRes) {
+        const ownList = ownRes.data?.products || [];
+        (Array.isArray(ownList) ? ownList : []).forEach((p: any) => {
+          if (p.id) ownIds.add(String(p.id));
+          if (p.product_id) ownIds.add(String(p.product_id));
+        });
+      }
+      const data = prodRes.data?.products || [];
       const raw = Array.isArray(data) ? data : [];
       setProducts(
         raw.filter((p: any) => {
           if (p.is_product_active === false) return false;
-          const pUid = String(p.user_id || "");
-          const pBid = String(p.business_id || "");
-          if (myUserId && pUid === myUserId) return false;
-          if (myBizId && pBid === myBizId) return false;
-          if (storedBizId && pBid === storedBizId) return false;
+          if (ownIds.has(String(p.id))) return false;
+          if (p.product_id && ownIds.has(String(p.product_id))) return false;
           return true;
         })
       );
