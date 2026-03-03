@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 
-interface CompanyBasicInfoStepProps {
+interface Props {
   businessId: string | null;
   userId: string;
   isEditMode: boolean;
@@ -20,449 +20,193 @@ interface CompanyBasicInfoStepProps {
 }
 
 interface BasicInfo {
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  state: string;
-  pincode: string;
-  businessType: string;
+  name: string; email: string; phone: string; address: string;
+  city: string; state: string; pincode: string; businessType: string;
 }
 
-const BUSINESS_TYPES = [
-  "Agriculture",
-  "Wholesale",
-  "Retail",
-  "Export",
-  "Import",
-  "Manufacturing",
-  "Trading",
-  "Other",
-];
+const BUSINESS_TYPES = ["Agriculture", "Wholesale", "Retail", "Export", "Import", "Manufacturing", "Trading", "Other"];
+const API_URL = Constants.expoConfig?.extra?.API_URL;
 
-const CompanyBasicInfoStep: React.FC<CompanyBasicInfoStepProps> = ({
-  businessId,
-  userId,
-  isEditMode,
-  onComplete,
-  onBack,
-}) => {
+const CompanyBasicInfoStep: React.FC<Props> = ({ businessId, userId, isEditMode, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [isExisting, setIsExisting] = useState(false);
-  const [formData, setFormData] = useState<BasicInfo>({
-    name: "",
-    email: "",
-    phone: "",
-    address: "",
-    city: "",
-    state: "",
-    pincode: "",
-    businessType: "",
-  });
+  const [focused, setFocused] = useState<string | null>(null);
+  const [formData, setFormData] = useState<BasicInfo>({ name: "", email: "", phone: "", address: "", city: "", state: "", pincode: "", businessType: "" });
   const [errors, setErrors] = useState<any>({});
 
-  const API_URL = Constants.expoConfig?.extra?.API_URL;
+  useEffect(() => { businessId ? fetchData() : setFetching(false); }, [businessId]);
 
-  useEffect(() => {
-    if (businessId) {
-      fetchBusinessData();
-    } else {
-      setFetching(false);
-    }
-  }, [businessId]);
-
-  const fetchBusinessData = async () => {
+  const fetchData = async () => {
     try {
-      setFetching(true);
-      const response = await fetch(`${API_URL}/business/get/${businessId}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        const business = result.details;
+      const res = await fetch(`${API_URL}/business/get/${businessId}`, { headers: { "Content-Type": "application/json" } });
+      if (res.ok) {
+        const { details } = await res.json();
         setIsExisting(true);
-        setFormData({
-          name: business.name || "",
-          email: business.email || "",
-          phone: business.phone || "",
-          address: business.address || "",
-          city: business.city || "",
-          state: business.state || "",
-          pincode: business.pincode || "",
-          businessType: business.business_type || "",
-        });
+        setFormData({ name: details.name || "", email: details.email || "", phone: details.phone || "", address: details.address || "", city: details.city || "", state: details.state || "", pincode: details.pincode || "", businessType: details.business_type || "" });
       }
-    } catch (error) {
-      console.error("Error fetching business data:", error);
-    } finally {
-      setFetching(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setFetching(false); }
   };
 
-  const handleInputChange = (field: keyof BasicInfo, value: string) => {
-    setFormData({ ...formData, [field]: value });
-    if (errors[field]) {
-      setErrors({ ...errors, [field]: "" });
-    }
+  const set = (field: keyof BasicInfo, value: string) => {
+    setFormData(p => ({ ...p, [field]: value }));
+    if (errors[field]) setErrors((p: any) => ({ ...p, [field]: "" }));
   };
 
-  const validateForm = (): boolean => {
-    const newErrors: any = {};
-
-    if (!formData.name.trim()) newErrors.name = "Business name is required";
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required";
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = "Invalid email format";
-    }
-    if (!formData.phone.trim()) {
-      newErrors.phone = "Phone number is required";
-    } else if (!/^\d{10}$/.test(formData.phone)) {
-      newErrors.phone = "Invalid phone number (10 digits required)";
-    }
-    if (!formData.address.trim()) newErrors.address = "Address is required";
-    if (!formData.city.trim()) newErrors.city = "City is required";
-    if (!formData.state.trim()) newErrors.state = "State is required";
-    if (!formData.pincode.trim()) {
-      newErrors.pincode = "Pincode is required";
-    } else if (!/^\d{6}$/.test(formData.pincode)) {
-      newErrors.pincode = "Invalid pincode (6 digits required)";
-    }
-    if (!formData.businessType.trim())
-      newErrors.businessType = "Business type is required";
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const validate = () => {
+    const e: any = {};
+    if (!formData.name.trim()) e.name = "Business name is required";
+    if (!formData.email.trim()) e.email = "Email is required";
+    else if (!/\S+@\S+\.\S+/.test(formData.email)) e.email = "Invalid email format";
+    if (!formData.phone.trim()) e.phone = "Phone is required";
+    else if (!/^\d{10}$/.test(formData.phone)) e.phone = "Must be 10 digits";
+    if (!formData.address.trim()) e.address = "Address is required";
+    if (!formData.city.trim()) e.city = "City is required";
+    if (!formData.state.trim()) e.state = "State is required";
+    if (!formData.pincode.trim()) e.pincode = "Pincode is required";
+    else if (!/^\d{6}$/.test(formData.pincode)) e.pincode = "Must be 6 digits";
+    if (!formData.businessType) e.businessType = "Select a business type";
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) {
-      Alert.alert(
-        "Validation Error",
-        "Please fill all required fields correctly",
-      );
-      return;
-    }
-
+    if (!validate()) { Alert.alert("Validation Error", "Please fill all required fields correctly"); return; }
     try {
       setLoading(true);
-
+      const payload = { name: formData.name, email: formData.email, phone: formData.phone, address: formData.address, city: formData.city, state: formData.state, pincode: formData.pincode, business_type: formData.businessType };
       if (businessId && (isEditMode || isExisting)) {
-        // Update existing business
-        const response = await fetch(
-          `${API_URL}/business/update/${businessId}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: formData.name,
-              email: formData.email,
-              phone: formData.phone,
-              address: formData.address,
-              city: formData.city,
-              state: formData.state,
-              pincode: formData.pincode,
-              business_type: formData.businessType,
-            }),
-          },
-        );
-
-        if (!response.ok) throw new Error("Failed to update business");
+        const res = await fetch(`${API_URL}/business/update/${businessId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error("Failed to update");
         onComplete(1, { businessId });
       } else {
-        // Create new business
-        const response = await fetch(`${API_URL}/business/create`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: userId,
-            name: formData.name,
-            email: formData.email,
-            phone: formData.phone,
-            address: formData.address,
-            city: formData.city,
-            state: formData.state,
-            pincode: formData.pincode,
-            business_type: formData.businessType,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || "Failed to create business");
-        }
-
-        const result = await response.json();
-        const newBusinessId = result.business_id;
-        onComplete(1, { businessId: newBusinessId });
+        const res = await fetch(`${API_URL}/business/create`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId, ...payload }) });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.error || "Failed to create"); }
+        const { business_id } = await res.json();
+        onComplete(1, { businessId: business_id });
       }
-    } catch (error: any) {
-      console.error("Error submitting basic info:", error);
-      Alert.alert(
-        "Error",
-        error.message || "Failed to save business information",
-      );
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { Alert.alert("Error", e.message || "Failed to save"); }
+    finally { setLoading(false); }
   };
 
-  if (fetching) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0078D7" />
-        <Text style={styles.loadingText}>Loading business information...</Text>
-      </View>
-    );
-  }
+  if (fetching) return <View style={s.center}><ActivityIndicator size="large" color="#0078D7" /><Text style={s.loadingTxt}>Loading...</Text></View>;
+
+  const inp = (field: keyof BasicInfo) => ({
+    style: [s.input, focused === field && s.inputFocused, !!errors[field] && s.inputError],
+    value: formData[field],
+    onChangeText: (v: string) => set(field, v),
+    onFocus: () => setFocused(field),
+    onBlur: () => setFocused(null),
+    placeholderTextColor: "#CBD5E1",
+  });
 
   return (
-    <View style={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Business Information</Text>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Business Name *</Text>
-          <TextInput
-            style={[styles.input, errors.name && styles.inputError]}
-            placeholder="Enter business name"
-            placeholderTextColor="#999"
-            value={formData.name}
-            onChangeText={(text) => handleInputChange("name", text)}
-          />
-          {errors.name && <Text style={styles.errorText}>{errors.name}</Text>}
+    <View style={s.container}>
+      {/* Business Info Card */}
+      <View style={s.card}>
+        <View style={s.cardHeader}>
+          <View style={s.cardIcon}><Ionicons name="business-outline" size={16} color="#0078D7" /></View>
+          <Text style={s.cardTitle}>Business Information</Text>
         </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email *</Text>
-          <TextInput
-            style={[styles.input, errors.email && styles.inputError]}
-            placeholder="business@example.com"
-            placeholderTextColor="#999"
-            value={formData.email}
-            onChangeText={(text) => handleInputChange("email", text)}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-        </View>
+        <Text style={s.label}>Business Name <Text style={s.req}>*</Text></Text>
+        <TextInput {...inp("name")} placeholder="Enter business name" />
+        {errors.name && <Text style={s.err}>{errors.name}</Text>}
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Phone Number *</Text>
-          <TextInput
-            style={[styles.input, errors.phone && styles.inputError]}
-            placeholder="10-digit phone number"
-            placeholderTextColor="#999"
-            value={formData.phone}
-            onChangeText={(text) => handleInputChange("phone", text)}
-            keyboardType="phone-pad"
-            maxLength={10}
-          />
-          {errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
-        </View>
+        <Text style={s.label}>Business Email <Text style={s.req}>*</Text></Text>
+        <TextInput {...inp("email")} placeholder="business@example.com" keyboardType="email-address" autoCapitalize="none" />
+        {errors.email && <Text style={s.err}>{errors.email}</Text>}
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Business Type *</Text>
-          <View style={styles.businessTypeContainer}>
-            {BUSINESS_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[
-                  styles.businessTypeChip,
-                  formData.businessType === type &&
-                    styles.businessTypeChipActive,
-                ]}
-                onPress={() => handleInputChange("businessType", type)}
-              >
-                <Text
-                  style={[
-                    styles.businessTypeText,
-                    formData.businessType === type &&
-                      styles.businessTypeTextActive,
-                  ]}
-                >
-                  {type}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {errors.businessType && (
-            <Text style={styles.errorText}>{errors.businessType}</Text>
-          )}
+        <Text style={s.label}>Phone Number <Text style={s.req}>*</Text></Text>
+        <TextInput {...inp("phone")} placeholder="10-digit number" keyboardType="phone-pad" maxLength={10} />
+        {errors.phone && <Text style={s.err}>{errors.phone}</Text>}
+
+        <Text style={s.label}>Business Type <Text style={s.req}>*</Text></Text>
+        <View style={s.chipWrap}>
+          {BUSINESS_TYPES.map(type => (
+            <TouchableOpacity key={type} style={[s.chip, formData.businessType === type && s.chipActive]} onPress={() => set("businessType", type)}>
+              <Text style={[s.chipText, formData.businessType === type && s.chipTextActive]}>{type}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
+        {errors.businessType && <Text style={s.err}>{errors.businessType}</Text>}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Address Information</Text>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Address *</Text>
-          <TextInput
-            style={[
-              styles.input,
-              styles.textArea,
-              errors.address && styles.inputError,
-            ]}
-            placeholder="Enter full address"
-            placeholderTextColor="#999"
-            value={formData.address}
-            onChangeText={(text) => handleInputChange("address", text)}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-          />
-          {errors.address && (
-            <Text style={styles.errorText}>{errors.address}</Text>
-          )}
+      {/* Address Card */}
+      <View style={s.card}>
+        <View style={s.cardHeader}>
+          <View style={[s.cardIcon, { backgroundColor: "#F0FFF4" }]}><Ionicons name="location-outline" size={16} color="#10B981" /></View>
+          <Text style={s.cardTitle}>Address Information</Text>
         </View>
 
-        <View style={styles.row}>
-          <View style={[styles.inputGroup, styles.halfWidth]}>
-            <Text style={styles.label}>City *</Text>
-            <TextInput
-              style={[styles.input, errors.city && styles.inputError]}
-              placeholder="City"
-              placeholderTextColor="#999"
-              value={formData.city}
-              onChangeText={(text) => handleInputChange("city", text)}
-            />
-            {errors.city && (
-              <Text style={styles.errorText}>{errors.city}</Text>
-            )}
-          </View>
+        <Text style={s.label}>Full Address <Text style={s.req}>*</Text></Text>
+        <TextInput {...inp("address")} placeholder="Street / Area / Locality" multiline numberOfLines={3} style={[inp("address").style, s.textarea]} textAlignVertical="top" />
+        {errors.address && <Text style={s.err}>{errors.address}</Text>}
 
-          <View style={[styles.inputGroup, styles.halfWidth]}>
-            <Text style={styles.label}>State *</Text>
-            <TextInput
-              style={[styles.input, errors.state && styles.inputError]}
-              placeholder="State"
-              placeholderTextColor="#999"
-              value={formData.state}
-              onChangeText={(text) => handleInputChange("state", text)}
-            />
-            {errors.state && (
-              <Text style={styles.errorText}>{errors.state}</Text>
-            )}
+        <View style={s.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.label}>City <Text style={s.req}>*</Text></Text>
+            <TextInput {...inp("city")} placeholder="City" />
+            {errors.city && <Text style={s.err}>{errors.city}</Text>}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.label}>State <Text style={s.req}>*</Text></Text>
+            <TextInput {...inp("state")} placeholder="State" />
+            {errors.state && <Text style={s.err}>{errors.state}</Text>}
           </View>
         </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Pincode *</Text>
-          <TextInput
-            style={[styles.input, errors.pincode && styles.inputError]}
-            placeholder="6-digit pincode"
-            placeholderTextColor="#999"
-            value={formData.pincode}
-            onChangeText={(text) => handleInputChange("pincode", text)}
-            keyboardType="number-pad"
-            maxLength={6}
-          />
-          {errors.pincode && (
-            <Text style={styles.errorText}>{errors.pincode}</Text>
-          )}
-        </View>
+        <Text style={s.label}>Pincode <Text style={s.req}>*</Text></Text>
+        <TextInput {...inp("pincode")} placeholder="6-digit pincode" keyboardType="number-pad" maxLength={6} />
+        {errors.pincode && <Text style={s.err}>{errors.pincode}</Text>}
       </View>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[
-            styles.button,
-            styles.primaryButton,
-            loading && styles.buttonDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={styles.primaryButtonText}>Save & Continue</Text>
-              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-            </>
+      {/* CTA */}
+      <View style={s.cta}>
+        <TouchableOpacity style={[s.ctaBtn, loading && { opacity: 0.7 }]} onPress={handleSubmit} disabled={loading} activeOpacity={0.88}>
+          {loading ? <ActivityIndicator color="#fff" /> : (
+            <View style={s.ctaInner}>
+              <Text style={s.ctaTxt}>Save & Continue</Text>
+              <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={15} color="#0078D7" /></View>
+            </View>
           )}
         </TouchableOpacity>
       </View>
-
-      <View style={{ height: 40 }} />
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  loadingText: { marginTop: 12, fontSize: 14, color: "#666" },
-  section: { backgroundColor: "#FFFFFF", padding: 16, marginBottom: 8 },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 16,
-  },
-  inputGroup: { marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: "600", color: "#333", marginBottom: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#000",
-    backgroundColor: "#FAFAFA",
-  },
-  inputError: { borderColor: "#FF3B30" },
-  textArea: { height: 80, paddingTop: 10 },
-  errorText: { fontSize: 12, color: "#FF3B30", marginTop: 4 },
-  row: { flexDirection: "row", justifyContent: "space-between" },
-  halfWidth: { width: "48%" },
-  businessTypeContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  businessTypeChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    backgroundColor: "#FAFAFA",
-  },
-  businessTypeChipActive: {
-    backgroundColor: "#0078D7",
-    borderColor: "#0078D7",
-  },
-  businessTypeText: {
-    fontSize: 13,
-    color: "#666",
-    fontWeight: "500",
-  },
-  businessTypeTextActive: {
-    color: "#FFFFFF",
-  },
-  buttonContainer: { paddingHorizontal: 16, marginTop: 8 },
-  button: {
-    paddingVertical: 16,
-    borderRadius: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  primaryButton: { backgroundColor: "#0078D7" },
-  buttonDisabled: { opacity: 0.6 },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
+  loadingTxt: { marginTop: 12, fontSize: 14, color: "#64748B" },
+
+  card: { backgroundColor: "#fff", marginHorizontal: 16, marginTop: 16, borderRadius: 20, padding: 18, shadowColor: "#0078D7", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: "#F1F5F9" },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: "#F1F5F9" },
+  cardIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#EBF5FF", justifyContent: "center", alignItems: "center" },
+  cardTitle: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+
+  label: { fontSize: 12, fontWeight: "700", color: "#374151", marginBottom: 7, marginTop: 14, textTransform: "uppercase", letterSpacing: 0.2 },
+  req: { color: "#EF4444" },
+  input: { borderWidth: 1.5, borderColor: "#E2E8F0", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: "#0F172A", backgroundColor: "#F8FAFC", fontWeight: "500" },
+  inputFocused: { borderColor: "#0078D7", backgroundColor: "#EFF6FF" },
+  inputError: { borderColor: "#EF4444", backgroundColor: "#FFF5F5" },
+  textarea: { height: 80, paddingTop: 12, textAlignVertical: "top" },
+  err: { fontSize: 11, color: "#EF4444", fontWeight: "600", marginTop: 4 },
+  row: { flexDirection: "row", gap: 12 },
+
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1.5, borderColor: "#E2E8F0", backgroundColor: "#F8FAFC" },
+  chipActive: { backgroundColor: "#0078D7", borderColor: "#0078D7" },
+  chipText: { fontSize: 13, color: "#64748B", fontWeight: "600" },
+  chipTextActive: { color: "#fff" },
+
+  cta: { paddingHorizontal: 16, paddingTop: 20 },
+  ctaBtn: { backgroundColor: "#0078D7", borderRadius: 16, height: 56, justifyContent: "center", alignItems: "center", shadowColor: "#0060B8", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 8 },
+  ctaInner: { flexDirection: "row", alignItems: "center", gap: 12 },
+  ctaTxt: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  ctaArrow: { width: 26, height: 26, borderRadius: 8, backgroundColor: "#fff", justifyContent: "center", alignItems: "center" },
 });
 
 export default CompanyBasicInfoStep;

@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 
-interface CompanySocialInfoStepProps {
+interface Props {
   businessId: string | null;
   userId: string;
   isEditMode: boolean;
@@ -20,361 +20,144 @@ interface CompanySocialInfoStepProps {
 }
 
 interface SocialInfo {
-  linkedin: string;
-  instagram: string;
-  facebook: string;
-  website: string;
-  telegram: string;
-  youtube: string;
-  x: string;
+  linkedin: string; instagram: string; facebook: string;
+  website: string; telegram: string; youtube: string; x: string;
 }
 
-const CompanySocialInfoStep: React.FC<CompanySocialInfoStepProps> = ({
-  businessId,
-  userId,
-  isEditMode,
-  onComplete,
-  onBack,
-}) => {
+const API_URL = Constants.expoConfig?.extra?.API_URL;
+
+const SOCIAL_FIELDS: { key: keyof SocialInfo; label: string; placeholder: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
+  { key: "linkedin", label: "LinkedIn", placeholder: "https://linkedin.com/in/...", icon: "logo-linkedin", color: "#0A66C2" },
+  { key: "instagram", label: "Instagram", placeholder: "https://instagram.com/...", icon: "logo-instagram", color: "#E4405F" },
+  { key: "facebook", label: "Facebook", placeholder: "https://facebook.com/...", icon: "logo-facebook", color: "#1877F2" },
+  { key: "youtube", label: "YouTube", placeholder: "https://youtube.com/@...", icon: "logo-youtube", color: "#FF0000" },
+  { key: "x", label: "X (Twitter)", placeholder: "https://x.com/...", icon: "logo-twitter", color: "#000" },
+  { key: "telegram", label: "Telegram", placeholder: "https://t.me/...", icon: "paper-plane-outline", color: "#0088CC" },
+  { key: "website", label: "Website", placeholder: "https://yourbusiness.com", icon: "globe-outline", color: "#0078D7" },
+];
+
+const CompanySocialInfoStep: React.FC<Props> = ({ businessId, isEditMode, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [isExisting, setIsExisting] = useState(false);
-  const [formData, setFormData] = useState<SocialInfo>({
-    linkedin: "",
-    instagram: "",
-    facebook: "",
-    website: "",
-    telegram: "",
-    youtube: "",
-    x: "",
-  });
+  const [focused, setFocused] = useState<string | null>(null);
+  const [formData, setFormData] = useState<SocialInfo>({ linkedin: "", instagram: "", facebook: "", website: "", telegram: "", youtube: "", x: "" });
 
-  const API_URL = Constants.expoConfig?.extra?.API_URL;
+  useEffect(() => { businessId ? fetchData() : setFetching(false); }, [businessId]);
 
-  useEffect(() => {
-    if (businessId) {
-      fetchSocialData();
-    } else {
-      setFetching(false);
-    }
-  }, [businessId]);
-
-  const fetchSocialData = async () => {
+  const fetchData = async () => {
     try {
-      setFetching(true);
-      const response = await fetch(
-        `${API_URL}/business/social/get/${businessId}`,
-        {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-
-      if (response.ok) {
-        const result = await response.json();
-        const social = result.details;
+      const res = await fetch(`${API_URL}/business/social/get/${businessId}`, { headers: { "Content-Type": "application/json" } });
+      if (res.ok) {
+        const { details } = await res.json();
         setIsExisting(true);
-        setFormData({
-          linkedin: social.linkedin || "",
-          instagram: social.instagram || "",
-          facebook: social.facebook || "",
-          website: social.website || "",
-          telegram: social.telegram || "",
-          youtube: social.youtube || "",
-          x: social.x || "",
-        });
+        setFormData({ linkedin: details.linkedin || "", instagram: details.instagram || "", facebook: details.facebook || "", website: details.website || "", telegram: details.telegram || "", youtube: details.youtube || "", x: details.x || "" });
       }
-    } catch (error) {
-      console.error("Error fetching social data:", error);
-    } finally {
-      setFetching(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setFetching(false); }
   };
 
-  const handleInputChange = (field: keyof SocialInfo, value: string) => {
-    setFormData({ ...formData, [field]: value });
-  };
+  const set = (field: keyof SocialInfo, value: string) => setFormData(p => ({ ...p, [field]: value }));
 
   const handleSubmit = async () => {
-    if (!businessId) {
-      Alert.alert(
-        "Error",
-        "Business ID not found. Please complete step 1 first.",
-      );
-      return;
-    }
-
+    if (!businessId) { Alert.alert("Error", "Complete step 1 first."); return; }
     try {
       setLoading(true);
-
-      const payload: any = {
-        id: businessId,
-      };
-
-      if (formData.linkedin.trim()) payload.linkedin = formData.linkedin.trim();
-      if (formData.instagram.trim())
-        payload.instagram = formData.instagram.trim();
-      if (formData.facebook.trim()) payload.facebook = formData.facebook.trim();
-      if (formData.website.trim()) payload.website = formData.website.trim();
-      if (formData.telegram.trim()) payload.telegram = formData.telegram.trim();
-      if (formData.youtube.trim()) payload.youtube = formData.youtube.trim();
-      if (formData.x.trim()) payload.x = formData.x.trim();
-
-      if (isExisting || isEditMode) {
-        // Update existing social details
-        const response = await fetch(
-          `${API_URL}/business/social/update/${businessId}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
-
-        if (!response.ok) throw new Error("Failed to update social details");
-      } else {
-        // Create new social details
-        const response = await fetch(`${API_URL}/business/social/create`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!response.ok) throw new Error("Failed to create social details");
-      }
-
+      const payload: any = { id: businessId };
+      Object.entries(formData).forEach(([k, v]) => { if (v.trim()) payload[k] = v.trim(); });
+      const url = isExisting || isEditMode ? `${API_URL}/business/social/update/${businessId}` : `${API_URL}/business/social/create`;
+      const method = isExisting || isEditMode ? "PUT" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error("Failed to save");
       onComplete(3);
-    } catch (error: any) {
-      console.error("Error submitting social info:", error);
-      Alert.alert(
-        "Error",
-        error.message || "Failed to save social information",
-      );
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { Alert.alert("Error", e.message || "Failed to save"); }
+    finally { setLoading(false); }
   };
 
   const handleSkip = async () => {
-    if (!businessId) {
-      onComplete(3);
-      return;
-    }
-
-    // If rows already exist, just move to next step
-    if (isExisting) {
-      onComplete(3);
-      return;
-    }
-
-    // Create empty social table entry so future updates don't fail with "no rows in result set"
-    try {
-      const response = await fetch(`${API_URL}/business/social/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: businessId }),
-      });
-
-      if (!response.ok) {
-        console.warn("Failed to create empty social entry on skip, proceeding anyway");
-      }
-    } catch (error) {
-      console.warn("Error creating empty social entry on skip:", error);
-    }
-
+    if (!businessId || isExisting) { onComplete(3); return; }
+    try { await fetch(`${API_URL}/business/social/create`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: businessId }) }); } catch { }
     onComplete(3);
   };
 
-  if (fetching) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0078D7" />
-        <Text style={styles.loadingText}>Loading social information...</Text>
-      </View>
-    );
-  }
-
-  const socialFields: {
-    key: keyof SocialInfo;
-    label: string;
-    placeholder: string;
-    icon: keyof typeof Ionicons.glyphMap;
-    color: string;
-  }[] = [
-    {
-      key: "linkedin",
-      label: "LinkedIn",
-      placeholder: "https://linkedin.com/in/yourprofile",
-      icon: "logo-linkedin",
-      color: "#0A66C2",
-    },
-    {
-      key: "instagram",
-      label: "Instagram",
-      placeholder: "https://instagram.com/yourhandle",
-      icon: "logo-instagram",
-      color: "#E4405F",
-    },
-    {
-      key: "facebook",
-      label: "Facebook",
-      placeholder: "https://facebook.com/yourpage",
-      icon: "logo-facebook",
-      color: "#1877F2",
-    },
-    {
-      key: "youtube",
-      label: "YouTube",
-      placeholder: "https://youtube.com/@yourchannel",
-      icon: "logo-youtube",
-      color: "#FF0000",
-    },
-    {
-      key: "x",
-      label: "X (Twitter)",
-      placeholder: "https://x.com/yourhandle",
-      icon: "logo-twitter",
-      color: "#000000",
-    },
-    {
-      key: "telegram",
-      label: "Telegram",
-      placeholder: "https://t.me/yourchannel",
-      icon: "paper-plane-outline",
-      color: "#0088CC",
-    },
-    {
-      key: "website",
-      label: "Website",
-      placeholder: "https://yourbusiness.com",
-      icon: "globe-outline",
-      color: "#666",
-    },
-  ];
+  if (fetching) return <View style={s.center}><ActivityIndicator size="large" color="#0078D7" /><Text style={s.loadingTxt}>Loading...</Text></View>;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Social Media Links</Text>
-        <Text style={styles.sectionSubtitle}>
-          Add your social media profiles (optional). These will be displayed on
-          your seller profile.
-        </Text>
+    <View style={s.container}>
+      <View style={s.card}>
+        <View style={s.cardHeader}>
+          <View style={s.cardIcon}><Ionicons name="share-social-outline" size={16} color="#0078D7" /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.cardTitle}>Social Media Links</Text>
+            <Text style={s.cardSub}>These appear on your seller profile (optional)</Text>
+          </View>
+        </View>
 
-        {socialFields.map((field) => (
-          <View key={field.key} style={styles.inputGroup}>
-            <View style={styles.labelRow}>
-              <Ionicons name={field.icon} size={18} color={field.color} />
-              <Text style={styles.label}>{field.label}</Text>
+        {SOCIAL_FIELDS.map(f => (
+          <View key={f.key}>
+            <View style={s.labelRow}>
+              <View style={[s.socialDot, { backgroundColor: f.color }]}><Ionicons name={f.icon} size={12} color="#fff" /></View>
+              <Text style={s.label}>{f.label}</Text>
             </View>
-            <TextInput
-              style={styles.input}
-              placeholder={field.placeholder}
-              placeholderTextColor="#999"
-              value={formData[field.key]}
-              onChangeText={(text) => handleInputChange(field.key, text)}
-              autoCapitalize="none"
-              keyboardType="url"
-            />
+            <View style={[s.inputRow, focused === f.key && s.inputFocused]}>
+              <TextInput
+                style={s.input}
+                placeholder={f.placeholder}
+                placeholderTextColor="#CBD5E1"
+                value={formData[f.key]}
+                onChangeText={v => set(f.key, v)}
+                autoCapitalize="none"
+                keyboardType="url"
+                onFocus={() => setFocused(f.key)}
+                onBlur={() => setFocused(null)}
+              />
+            </View>
           </View>
         ))}
       </View>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
-          onPress={handleSkip}
-        >
-          <Text style={styles.secondaryButtonText}>Skip for Now</Text>
+      <View style={s.cta}>
+        <TouchableOpacity style={s.skipBtn} onPress={handleSkip} activeOpacity={0.85}>
+          <Text style={s.skipTxt}>Skip for Now</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.button,
-            styles.primaryButton,
-            loading && styles.buttonDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={styles.primaryButtonText}>Save & Continue</Text>
-              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-            </>
+        <TouchableOpacity style={[s.ctaBtn, loading && { opacity: 0.7 }]} onPress={handleSubmit} disabled={loading} activeOpacity={0.88}>
+          {loading ? <ActivityIndicator color="#fff" /> : (
+            <View style={s.ctaInner}>
+              <Text style={s.ctaTxt}>Save & Continue</Text>
+              <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={15} color="#0078D7" /></View>
+            </View>
           )}
         </TouchableOpacity>
       </View>
-
-      <View style={{ height: 40 }} />
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  loadingText: { marginTop: 12, fontSize: 14, color: "#666" },
-  section: { backgroundColor: "#FFFFFF", padding: 16, marginBottom: 8 },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: "#888",
-    marginBottom: 20,
-    lineHeight: 18,
-  },
-  inputGroup: { marginBottom: 16 },
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
-  },
-  label: { fontSize: 14, fontWeight: "600", color: "#333" },
-  input: {
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#000",
-    backgroundColor: "#FAFAFA",
-  },
-  buttonContainer: {
-    paddingHorizontal: 16,
-    marginTop: 8,
-    gap: 10,
-  },
-  button: {
-    paddingVertical: 16,
-    borderRadius: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  primaryButton: { backgroundColor: "#0078D7" },
-  secondaryButton: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-  },
-  buttonDisabled: { opacity: 0.6 },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
-  secondaryButtonText: { color: "#666", fontSize: 16, fontWeight: "600" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
+  loadingTxt: { marginTop: 12, fontSize: 14, color: "#64748B" },
+
+  card: { backgroundColor: "#fff", marginHorizontal: 16, marginTop: 16, borderRadius: 20, padding: 18, shadowColor: "#0078D7", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: "#F1F5F9" },
+  cardHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: "#F1F5F9" },
+  cardIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#EBF5FF", justifyContent: "center", alignItems: "center", marginTop: 2 },
+  cardTitle: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+  cardSub: { fontSize: 12, color: "#94A3B8", marginTop: 2 },
+
+  labelRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, marginBottom: 7 },
+  socialDot: { width: 22, height: 22, borderRadius: 7, justifyContent: "center", alignItems: "center" },
+  label: { fontSize: 12, fontWeight: "700", color: "#374151", textTransform: "uppercase", letterSpacing: 0.2 },
+  inputRow: { borderWidth: 1.5, borderColor: "#E2E8F0", borderRadius: 12, paddingHorizontal: 14, height: 50, backgroundColor: "#F8FAFC", justifyContent: "center" },
+  inputFocused: { borderColor: "#0078D7", backgroundColor: "#EFF6FF" },
+  input: { fontSize: 14, color: "#0F172A", fontWeight: "500" },
+
+  cta: { paddingHorizontal: 16, paddingTop: 20, gap: 10 },
+  skipBtn: { height: 50, borderRadius: 14, borderWidth: 1.5, borderColor: "#BFDBFE", backgroundColor: "#EFF6FF", justifyContent: "center", alignItems: "center" },
+  skipTxt: { fontSize: 15, fontWeight: "700", color: "#0078D7" },
+  ctaBtn: { backgroundColor: "#0078D7", borderRadius: 16, height: 56, justifyContent: "center", alignItems: "center", shadowColor: "#0060B8", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 8 },
+  ctaInner: { flexDirection: "row", alignItems: "center", gap: 12 },
+  ctaTxt: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  ctaArrow: { width: 26, height: 26, borderRadius: 8, backgroundColor: "#fff", justifyContent: "center", alignItems: "center" },
 });
 
 export default CompanySocialInfoStep;
