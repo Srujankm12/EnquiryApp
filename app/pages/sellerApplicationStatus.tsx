@@ -210,15 +210,14 @@ export default function SellerApplicationStatus() {
     try {
       setSaving("photo");
       const token = await AsyncStorage.getItem("token");
-      const presignRes = await fetch(`${API_URL}/business/get/presigned/${businessId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const presignRes = await fetch(`${API_URL}/business/update/image/${businessId}`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } });
       if (presignRes.ok) {
-        const { data } = await presignRes.json();
-        const presignedUrl = data?.url || data?.upload_url;
+        const data = await presignRes.json();
+        const presignedUrl = data.url;
         if (presignedUrl) {
           const blob = await (await fetch(uri)).blob();
           const s3Res = await fetch(presignedUrl, { method: "PUT", body: blob, headers: { "Content-Type": blob.type || "image/jpeg" } });
           if (s3Res.ok) {
-            await fetch(`${API_URL}/business/update/image/${businessId}`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } });
             setBusiness(p => ({ ...p, profile_image: uri }));
             Alert.alert("Success", "Photo updated!");
             return;
