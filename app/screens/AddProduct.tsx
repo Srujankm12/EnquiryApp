@@ -149,28 +149,114 @@ const AddProductsScreen: React.FC = () => {
       setSubmitting(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) { Alert.alert('Error', 'Session expired. Please log in again.'); return; }
-      if (!businessId) { Alert.alert('Seller Account Required', 'You need to create a seller account before you can post products. Please register your business first.'); return; }
+      if (!businessId) { Alert.alert('Seller Account Required', 'Please register your business first.'); return; }
+
+      // ── Step 1: Create the product ──
       const productData = {
         business_id: businessId, name: productName.trim(), description: productDescription.trim(),
         quantity: parseFloat(productQuantity), unit: productUnit, price: parseFloat(productPrice),
-        moq: productMOQ.trim(), category_id: selectedCategory.id, sub_category_id: selectedSubCategory?.id || '', is_product_active: true,
+        moq: productMOQ.trim(), category_id: selectedCategory.id,
+        sub_category_id: selectedSubCategory?.id || '', is_product_active: true,
       };
-      const createRes = await axios.post(`${API_URL}/product/create`, productData, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
-      const productId = createRes.data?.product_id || createRes.data?.id;
+      console.log('[AddProduct] Step 1 – Creating product:', JSON.stringify(productData, null, 2));
+
+      const createRes = await axios.post(
+        `${API_URL}/product/create`, productData,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+      console.log('[AddProduct] Step 1 – Product create response status:', createRes.status);
+      console.log('[AddProduct] Step 1 – Product create response data:', JSON.stringify(createRes.data, null, 2));
+      console.log('[AddProduct] Step 1 – Response keys:', Object.keys(createRes.data || {}));
+
+      // Try every possible field name the backend might use
+      const d = createRes.data;
+      const productId =
+        d?.product_id ||
+        d?.id ||
+        d?.productId ||
+        d?.data?.product_id ||
+        d?.data?.id ||
+        d?.product?.id ||
+        d?.product?.product_id ||
+        d?.result?.id ||
+        d?.result?.product_id ||
+        Object.values(d || {}).find((v) => typeof v === 'string' && v.length > 8 && !v.includes(' ')); // last-resort: first UUID-like string
+
+      console.log('[AddProduct] Step 1 – Extracted productId:', productId);
+
+      // ── Step 2: Upload each image ──
       if (productId && selectedImages.length > 0) {
+        console.log(`[AddProduct] Step 2 – Uploading ${selectedImages.length} image(s) for productId: ${productId}`);
+
         for (let i = 0; i < selectedImages.length; i++) {
+          const localUri = selectedImages[i];
+          console.log(`[AddProduct] Step 2.${i} – Image ${i + 1}: local URI = ${localUri}`);
+
           try {
-            const imgRes = await axios.put(`${API_URL}/product/update/image`, { product_id: productId, index: i }, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+            // Backend: `Index <= 0 || Index > 3` → accepts only 1, 2, 3
+            const presignPayload = {
+              product_id: productId,
+              index: i + 1,  // send 1, 2, 3 (backend rejects 0)
+              id: '',
+              image: '',
+              created_at: 0,
+              updated_at: 0,
+            };
+            console.log(`[AddProduct] Step 2.${i}a – Requesting presigned URL:`, JSON.stringify(presignPayload));
+
+            const imgRes = await axios.put(
+              `${API_URL}/product/update/image`,
+              presignPayload,
+              { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+            );
+            console.log(`[AddProduct] Step 2.${i}a – Presigned URL response status:`, imgRes.status);
+            console.log(`[AddProduct] Step 2.${i}a – Presigned URL response data:`, JSON.stringify(imgRes.data, null, 2));
+
             const presignedUrl = imgRes.data?.url;
-            if (presignedUrl) {
-              const blob = await (await fetch(selectedImages[i])).blob();
-              await fetch(presignedUrl, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'image/png' } });
+            console.log(`[AddProduct] Step 2.${i}a – Presigned URL:`, presignedUrl);
+
+            if (!presignedUrl) {
+              console.warn(`[AddProduct] Step 2.${i}a – No presigned URL returned, skipping image ${i + 1}`);
+              continue;
             }
-          } catch { }
+
+            // Fetch image as blob
+            console.log(`[AddProduct] Step 2.${i}b – Fetching blob from: ${localUri}`);
+            const imgFetchRes = await fetch(localUri);
+            const blob = await imgFetchRes.blob();
+            console.log(`[AddProduct] Step 2.${i}b – Blob: size=${blob.size} bytes, type=${blob.type}`);
+
+            // Upload to S3
+            console.log(`[AddProduct] Step 2.${i}c – Uploading to S3...`);
+            const s3Res = await fetch(presignedUrl, {
+              method: 'PUT',
+              body: blob,
+              headers: { 'Content-Type': blob.type || 'image/jpeg' },
+            });
+            console.log(`[AddProduct] Step 2.${i}c – S3 status: ${s3Res.status} ${s3Res.statusText}`);
+
+            if (s3Res.ok) {
+              console.log(`[AddProduct] Step 2.${i}c – ✅ Image ${i + 1} uploaded`);
+            } else {
+              const body = await s3Res.text();
+              console.error(`[AddProduct] Step 2.${i}c – ❌ S3 failed:`, body);
+            }
+          } catch (imgErr: any) {
+            console.error(`[AddProduct] Step 2.${i} – ❌ Error uploading image ${i + 1}:`, imgErr?.message || imgErr);
+          }
         }
+        console.log('[AddProduct] Step 2 – All image uploads attempted.');
+      } else {
+        console.log('[AddProduct] Step 2 – No images to upload (selectedImages.length =', selectedImages.length, ')');
       }
-      Alert.alert('Product Created! 🎉', 'Your product has been added successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+
+      console.log('[AddProduct] ✅ Product creation complete. productId =', productId);
+      Alert.alert('Product Created! 🎉', 'Your product has been added successfully.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
     } catch (err: any) {
+      console.error('[AddProduct] ❌ Fatal error during product creation:', err?.message || err);
+      console.error('[AddProduct] Response data:', JSON.stringify(err?.response?.data, null, 2));
       Alert.alert('Error', err.response?.data?.error || err.response?.data?.message || 'Failed to create product.');
     } finally { setSubmitting(false); }
   };

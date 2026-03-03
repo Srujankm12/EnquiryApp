@@ -114,9 +114,22 @@ export default function ProductDetailScreen() {
       }
 
       const res = await axios.get(`${API_URL}/product/get/${product_id}`, { headers: h });
+      console.log('[ProductDetail] Product API keys:', Object.keys(res.data || {}));
+      console.log('[ProductDetail] Product API data:', JSON.stringify(res.data, null, 2));
+
       const data = res.data?.product_details;
       if (!data) throw new Error("Not found");
       setProduct(data);
+
+      // Extract images from within the product response
+      const imgs =
+        data?.images ||
+        data?.product_images ||
+        res.data?.images ||
+        res.data?.product_images ||
+        [];
+      console.log('[ProductDetail] Images found:', imgs.length, imgs.length > 0 ? JSON.stringify(imgs[0]) : 'none');
+      setImages(Array.isArray(imgs) ? imgs : []);
 
       // Follow check
       if (token) {
@@ -160,12 +173,6 @@ export default function ProductDetailScreen() {
           }).slice(0, 8));
         } catch { setSimilarProducts([]); }
       }
-
-      // Images
-      try {
-        const ir = await axios.get(`${API_URL}/product/image/get/${product_id}`, { headers: h });
-        setImages(ir.data?.images || ir.data?.data?.images || []);
-      } catch { setImages([]); }
 
       // Ratings
       try {
