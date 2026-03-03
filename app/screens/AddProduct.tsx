@@ -91,9 +91,12 @@ const AddProductsScreen: React.FC = () => {
   const checkSellerStatus = async () => {
     const status = await AsyncStorage.getItem('sellerStatus');
     const storedBusinessId = await AsyncStorage.getItem('companyId');
-    if (status?.toLowerCase() !== 'approved' || !storedBusinessId) {
+    if (!storedBusinessId) {
       setIsSeller(false);
-      Alert.alert('Access Denied', 'Only approved sellers can add products.', [{ text: 'OK', onPress: () => router.back() }]);
+      Alert.alert('Seller Account Required', 'You need to create a seller account before you can post products. Please register your business first.', [{ text: 'OK', onPress: () => router.back() }]);
+    } else if (status?.toLowerCase() !== 'approved') {
+      setIsSeller(false);
+      Alert.alert('Account Pending', 'Your seller account is not yet approved. Please wait for approval before posting products.', [{ text: 'OK', onPress: () => router.back() }]);
     } else {
       setIsSeller(true);
       setBusinessId(storedBusinessId);
@@ -145,7 +148,8 @@ const AddProductsScreen: React.FC = () => {
     try {
       setSubmitting(true);
       const token = await AsyncStorage.getItem('token');
-      if (!token || !businessId) { Alert.alert('Error', 'Session expired.'); return; }
+      if (!token) { Alert.alert('Error', 'Session expired. Please log in again.'); return; }
+      if (!businessId) { Alert.alert('Seller Account Required', 'You need to create a seller account before you can post products. Please register your business first.'); return; }
       const productData = {
         business_id: businessId, name: productName.trim(), description: productDescription.trim(),
         quantity: parseFloat(productQuantity), unit: productUnit, price: parseFloat(productPrice),
