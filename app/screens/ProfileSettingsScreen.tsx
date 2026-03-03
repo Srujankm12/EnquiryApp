@@ -258,18 +258,13 @@ const ProfileSettingsScreen: React.FC = () => {
       setUploadingImage(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) { Alert.alert('Error', 'Authentication token not found.'); setUploadingImage(false); return; }
-      const presignedUrlRes = await axios.get(`${API_URL}/user/get/presigned/${userId}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
-      const s3PresignedUrl = presignedUrlRes.data.data?.url || presignedUrlRes.data.url;
+      const presignedUrlRes = await axios.put(`${API_URL}/user/update/image/${userId}`, null, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
+      const s3PresignedUrl = presignedUrlRes.data.url;
       if (!s3PresignedUrl) throw new Error('Invalid response from server: missing presigned URL');
       await uploadImageToS3(s3PresignedUrl, asset.uri);
-      const updateRes = await axios.put(`${API_URL}/user/update/image/${userId}`, null, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
-      if (updateRes.status === 200 || updateRes.data.message) {
-        await fetchProfileData(false);
-        setUploadingImage(false);
-        Alert.alert('Success', 'Profile picture updated successfully!');
-      } else {
-        throw new Error('Failed to update profile image');
-      }
+      await fetchProfileData(false);
+      setUploadingImage(false);
+      Alert.alert('Success', 'Profile picture updated successfully!');
     } catch (error: any) {
       let errorMessage = 'Failed to update profile picture. Please try again.';
       if (error.code === 'ERR_NETWORK') errorMessage = 'Network error. Please check your connection.';

@@ -151,7 +151,20 @@ const AddProductsScreen: React.FC = () => {
         quantity: parseFloat(productQuantity), unit: productUnit, price: parseFloat(productPrice),
         moq: productMOQ.trim(), category_id: selectedCategory.id, sub_category_id: selectedSubCategory?.id || '', is_product_active: true,
       };
-      await axios.post(`${API_URL}/product/create`, productData, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+      const createRes = await axios.post(`${API_URL}/product/create`, productData, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+      const productId = createRes.data?.product_id || createRes.data?.id;
+      if (productId && selectedImages.length > 0) {
+        for (let i = 0; i < selectedImages.length; i++) {
+          try {
+            const imgRes = await axios.put(`${API_URL}/product/update/image`, { product_id: productId, index: i }, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+            const presignedUrl = imgRes.data?.url;
+            if (presignedUrl) {
+              const blob = await (await fetch(selectedImages[i])).blob();
+              await fetch(presignedUrl, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'image/png' } });
+            }
+          } catch { }
+        }
+      }
       Alert.alert('Product Created! 🎉', 'Your product has been added successfully.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.error || err.response?.data?.message || 'Failed to create product.');

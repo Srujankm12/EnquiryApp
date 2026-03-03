@@ -193,10 +193,9 @@ export default function RegisterScreen() {
   };
 
   const uploadImage = async (userId: string, uri: string) => {
-    const res = await axios.get(`${API_URL}/user/get/presigned/${userId}`);
+    const res = await axios.put(`${API_URL}/user/update/image/${userId}`);
     const blob = await (await fetch(uri)).blob();
-    await fetch(res.data.data.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
-    await axios.put(`${API_URL}/user/update/image/${userId}`);
+    await fetch(res.data.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
   };
 
   const handleRegister = async () => {

@@ -149,12 +149,11 @@ const UpdateProfileDetailsScreen: React.FC = () => {
     setImageUploading(true);
     try {
       const token = await AsyncStorage.getItem("token");
-      const presignedRes = await axios.get(`${API_URL}/user/get/presigned/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const presignedRes = await axios.put(`${API_URL}/user/update/image/${userId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
       const uploadUrl: string = presignedRes.data.url;
       const blob = await (await fetch(uri)).blob();
       const s3Res = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: blob });
       if (!s3Res.ok) throw new Error("S3 upload failed");
-      await axios.put(`${API_URL}/user/update/image/${userId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
       Alert.alert("Done", "Profile photo updated!");
     } catch { Alert.alert("Upload Failed", "Could not update profile photo."); setProfileImage(null); }
     finally { setImageUploading(false); }

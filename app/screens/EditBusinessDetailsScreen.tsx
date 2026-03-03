@@ -110,14 +110,13 @@ const EditBusinessDetailsScreen: React.FC = () => {
       setUploadingImage(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-      const presignRes = await fetch(`${API_URL}/business/get/presigned/${businessId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const presignRes = await fetch(`${API_URL}/business/update/image/${businessId}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
       const presignData = await presignRes.json();
-      const s3Url = presignData.data?.url || presignData.url;
+      const s3Url = presignData.url;
       if (!s3Url) throw new Error('No presigned URL');
       const imageResponse = await fetch(result.assets[0].uri);
       const blob = await imageResponse.blob();
       await fetch(s3Url, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'image/jpeg' } });
-      await fetch(`${API_URL}/business/update/image/${businessId}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
       await fetchData(false);
       const { Alert } = await import('react-native');
       Alert.alert('Success', 'Business photo updated!');
