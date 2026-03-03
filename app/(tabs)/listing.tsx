@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Constants from "expo-constants";
 import { useFocusEffect, useRouter } from "expo-router";
+import { jwtDecode } from "jwt-decode";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -98,6 +99,11 @@ const SellerTab: React.FC = () => {
         norm === "approved" || norm === "accepted" || norm === "active";
       setSellerStatus(approved ? "approved" : norm);
 
+      const dec: any = jwtDecode(token);
+      const myUserId = String(dec.user_id || "");
+      const myBizId = String(dec.business_id || "");
+      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
+
       const [catRes, prodRes] = await Promise.allSettled([
         axios.get(`${API_URL}/category/get/all`, { headers }),
         axios.get(`${API_URL}/product/get/all`, { headers }),
@@ -106,7 +112,18 @@ const SellerTab: React.FC = () => {
         setCategories(catRes.value.data?.categories || []);
       if (prodRes.status === "fulfilled") {
         const d = prodRes.value.data?.products || [];
-        setAllProducts(Array.isArray(d) ? d : []);
+        const raw = Array.isArray(d) ? d : [];
+        setAllProducts(
+          raw.filter((p: any) => {
+            if (p.is_product_active === false) return false;
+            const pUid = String(p.user_id || "");
+            const pBid = String(p.business_id || "");
+            if (myUserId && pUid === myUserId) return false;
+            if (myBizId && pBid === myBizId) return false;
+            if (storedBizId && pBid === storedBizId) return false;
+            return true;
+          })
+        );
       }
     } catch {
       setError("Unable to load data. Please try again.");

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { jwtDecode } from 'jwt-decode';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Dimensions,
@@ -55,13 +56,28 @@ const ProductsByCategoryScreen = () => {
       setLoading(true); setError(null);
       const token = await AsyncStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
+      const dec: any = token ? jwtDecode(token) : {};
+      const myUserId = String(dec.user_id || "");
+      const myBizId = String(dec.business_id || "");
+      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
       let endpoint = '';
       if (sub_category_id) endpoint = `${API_URL}/product/get/sub/category/${sub_category_id}`;
       else if (category_id) endpoint = `${API_URL}/product/get/category/${category_id}`;
       else endpoint = `${API_URL}/product/get/all`;
       const res = await axios.get(endpoint, { headers });
       const data = res.data?.products || [];
-      setProducts(Array.isArray(data) ? data : []);
+      const raw = Array.isArray(data) ? data : [];
+      setProducts(
+        raw.filter((p: any) => {
+          if (p.is_product_active === false) return false;
+          const pUid = String(p.user_id || "");
+          const pBid = String(p.business_id || "");
+          if (myUserId && pUid === myUserId) return false;
+          if (myBizId && pBid === myBizId) return false;
+          if (storedBizId && pBid === storedBizId) return false;
+          return true;
+        })
+      );
     } catch (err: any) {
       if (err.response?.status === 404) setProducts([]);
       else setError('Unable to load products. Please try again.');
