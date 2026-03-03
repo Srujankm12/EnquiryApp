@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Image,
-  ActivityIndicator,
-  Dimensions,
-  RefreshControl,
-  Linking,
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
 import Constants from 'expo-constants';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { jwtDecode } from 'jwt-decode';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator, Dimensions,
+  Image,
+  Linking,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text, TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
@@ -31,42 +31,51 @@ const getImageUri = (url: string | null | undefined): string | null => {
 };
 
 interface BusinessDetails {
-  id: string;
-  user_id: string;
-  name: string;
-  email: string;
-  phone: string;
-  profile_image: string | null;
-  address: string;
-  city: string;
-  state: string;
-  pincode: string;
-  business_type: string;
-  is_business_verified: boolean;
-  is_business_trusted: boolean;
-  is_business_approved: boolean;
+  id: string; user_id: string; name: string; email: string; phone: string;
+  profile_image: string | null; address: string; city: string; state: string;
+  pincode: string; business_type: string; is_business_verified: boolean;
+  is_business_trusted: boolean; is_business_approved: boolean;
 }
+interface SocialDetails { linkedin: string | null; instagram: string | null; facebook: string | null; website: string | null; telegram: string | null; youtube: string | null; x: string | null; }
+interface LegalDetails { aadhaar: string | null; pan: string | null; gst: string | null; msme: string | null; fassi: string | null; export_import: string | null; }
 
-interface SocialDetails {
-  linkedin: string | null;
-  instagram: string | null;
-  facebook: string | null;
-  website: string | null;
-  telegram: string | null;
-  youtube: string | null;
-  x: string | null;
-}
+// ── Sub-components ────────────────────────────────────────────────────────────
+const SectionCard = ({ icon, iconBg, iconColor, title, children }: any) => (
+  <View style={styles.sectionCard}>
+    <View style={styles.sectionHeader}>
+      <View style={[styles.sectionIconWrap, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={15} color={iconColor} />
+      </View>
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+    {children}
+  </View>
+);
 
-interface LegalDetails {
-  aadhaar: string | null;
-  pan: string | null;
-  gst: string | null;
-  msme: string | null;
-  fassi: string | null;
-  export_import: string | null;
-}
+const InfoRow = ({ icon, iconBg, label, value }: any) => (
+  value ? (
+    <View style={styles.infoRow}>
+      <View style={[styles.infoIconWrap, { backgroundColor: iconBg || '#EBF5FF' }]}>
+        <Ionicons name={icon} size={13} color="#0078D7" />
+      </View>
+      <View style={styles.infoContent}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+    </View>
+  ) : null
+);
 
+const LegalBadge = ({ label }: { label: string }) => (
+  <View style={styles.legalBadge}>
+    <Ionicons name="checkmark-circle" size={13} color="#16A34A" />
+    <Text style={styles.legalBadgeText}>{label}</Text>
+  </View>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 const SellerProfile = () => {
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const paramBusinessId = params.business_id as string;
   const paramUserId = params.user_id as string;
@@ -76,65 +85,33 @@ const SellerProfile = () => {
   const [business, setBusiness] = useState<BusinessDetails | null>(null);
   const [socialDetails, setSocialDetails] = useState<SocialDetails | null>(null);
   const [legalDetails, setLegalDetails] = useState<LegalDetails | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
 
-  useEffect(() => {
-    loadProfile();
-  }, [paramBusinessId, paramUserId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadProfile();
-    }, [paramBusinessId, paramUserId])
-  );
+  useEffect(() => { loadProfile(); }, [paramBusinessId, paramUserId]);
+  useFocusEffect(useCallback(() => { loadProfile(); }, [paramBusinessId, paramUserId]));
 
   const loadProfile = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-
       const decoded: any = jwtDecode(token);
-      setCurrentUserId(decoded.user_id);
 
       let businessId = paramBusinessId;
       if (!businessId && paramUserId) {
         try {
-          const res = await fetch(`${API_URL}/business/get/user/${paramUserId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          });
-          if (res.ok) {
-            const result = await res.json();
-            businessId = result.business_id;
-          }
-        } catch (e) {
-          console.error('Error fetching business by user ID:', e);
-        }
+          const res = await fetch(`${API_URL}/business/get/user/${paramUserId}`, { headers: { 'Content-Type': 'application/json' } });
+          if (res.ok) { const r = await res.json(); businessId = r.business_id; }
+        } catch { }
       }
-
       if (!businessId) {
         try {
-          const res = await fetch(`${API_URL}/business/get/user/${decoded.user_id}`, {
-            headers: { 'Content-Type': 'application/json' },
-          });
-          if (res.ok) {
-            const result = await res.json();
-            businessId = result.business_id;
-          }
-        } catch (e) {
-          console.error('Error fetching own business:', e);
-        }
+          const res = await fetch(`${API_URL}/business/get/user/${decoded.user_id}`, { headers: { 'Content-Type': 'application/json' } });
+          if (res.ok) { const r = await res.json(); businessId = r.business_id; }
+        } catch { }
       }
+      if (!businessId) { setLoading(false); return; }
 
-      if (!businessId) {
-        setLoading(false);
-        return;
-      }
-
-      const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, {
-        headers: { 'Content-Type': 'application/json' },
-      });
-
+      const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, { headers: { 'Content-Type': 'application/json' } });
       if (completeRes.ok) {
         const result = await completeRes.json();
         const details = result.details;
@@ -143,60 +120,58 @@ const SellerProfile = () => {
         setLegalDetails(details.legal_details);
       } else {
         const [bizRes, socialRes, legalRes] = await Promise.allSettled([
-          fetch(`${API_URL}/business/get/${businessId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          }),
-          fetch(`${API_URL}/business/social/get/${businessId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          }),
-          fetch(`${API_URL}/business/legal/get/${businessId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          }),
+          fetch(`${API_URL}/business/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
+          fetch(`${API_URL}/business/social/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
+          fetch(`${API_URL}/business/legal/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
         ]);
-
-        if (bizRes.status === 'fulfilled' && bizRes.value.ok) {
-          const r = await bizRes.value.json();
-          setBusiness(r.details);
-        }
-        if (socialRes.status === 'fulfilled' && socialRes.value.ok) {
-          const r = await socialRes.value.json();
-          setSocialDetails(r.details);
-        }
-        if (legalRes.status === 'fulfilled' && legalRes.value.ok) {
-          const r = await legalRes.value.json();
-          setLegalDetails(r.details);
-        }
+        if (bizRes.status === 'fulfilled' && bizRes.value.ok) { const r = await bizRes.value.json(); setBusiness(r.details); }
+        if (socialRes.status === 'fulfilled' && socialRes.value.ok) { const r = await socialRes.value.json(); setSocialDetails(r.details); }
+        if (legalRes.status === 'fulfilled' && legalRes.value.ok) { const r = await legalRes.value.json(); setLegalDetails(r.details); }
       }
-    } catch (error) {
-      console.error('Error loading profile:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    } catch { }
+    finally { setLoading(false); setRefreshing(false); }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadProfile();
-  };
+  const onRefresh = () => { setRefreshing(true); loadProfile(); };
+  const handleSocialLink = (url: string | null) => { if (url) Linking.openURL(url); };
 
-  const handleCall = () => {
-    if (business?.phone) Linking.openURL(`tel:${business.phone}`);
-  };
+  const SOCIAL_LINKS = [
+    { key: 'instagram', icon: 'logo-instagram', color: '#E4405F', bg: '#FCE7F3', label: 'Instagram' },
+    { key: 'linkedin', icon: 'logo-linkedin', color: '#0A66C2', bg: '#E8F0FA', label: 'LinkedIn' },
+    { key: 'facebook', icon: 'logo-facebook', color: '#1877F2', bg: '#EBF5FF', label: 'Facebook' },
+    { key: 'youtube', icon: 'logo-youtube', color: '#FF0000', bg: '#FEF2F2', label: 'YouTube' },
+    { key: 'x', icon: 'logo-twitter', color: '#1A1A1A', bg: '#F1F5F9', label: 'X' },
+    { key: 'telegram', icon: 'paper-plane-outline', color: '#0088CC', bg: '#E5F5FD', label: 'Telegram' },
+    { key: 'website', icon: 'globe-outline', color: '#334155', bg: '#F1F5F9', label: 'Website' },
+  ];
 
-  const handleEmail = () => {
-    if (business?.email) Linking.openURL(`mailto:${business.email}`);
-  };
-
-  const handleSocialLink = (url: string | null) => {
-    if (url) Linking.openURL(url);
-  };
+  const PremiumHeader = () => (
+    <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+      <View style={styles.orb1} /><View style={styles.orb2} />
+      <View style={styles.headerInner}>
+        <TouchableOpacity style={styles.headerBackBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={20} color="#fff" />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 14 }}>
+          <Text style={styles.headerEyebrow}>BUSINESS</Text>
+          <Text style={styles.headerTitle}>Seller Profile</Text>
+        </View>
+        <TouchableOpacity style={styles.headerShareBtn} onPress={() => { }}>
+          <Ionicons name="share-social-outline" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#0078D7" />
-        <Text style={styles.loaderText}>Loading profile...</Text>
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+        <PremiumHeader />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 14 }}>
+          <ActivityIndicator size="large" color="#0078D7" />
+          <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '500' }}>Loading profile...</Text>
+        </View>
       </View>
     );
   }
@@ -204,286 +179,232 @@ const SellerProfile = () => {
   if (!business) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+        <PremiumHeader />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+          <View style={styles.emptyIconWrap}><Ionicons name="business-outline" size={30} color="#0078D7" /></View>
+          <Text style={styles.emptyTitle}>Profile Not Found</Text>
+          <Text style={styles.emptySubtitle}>This seller profile could not be loaded.</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadProfile}>
+            <Ionicons name="refresh" size={15} color="#fff" />
+            <Text style={styles.retryBtnText}>Retry</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Seller Profile</Text>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.emptyContainer}>
-          <Ionicons name="alert-circle-outline" size={80} color="#CCC" />
-          <Text style={styles.emptyText}>Profile not found</Text>
         </View>
       </View>
     );
   }
 
+  const imageUri = getImageUri(business.profile_image);
+  const hasSocial = socialDetails && (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook || socialDetails.website || socialDetails.youtube || socialDetails.telegram || socialDetails.x);
+  const hasLegal = legalDetails && (legalDetails.pan || legalDetails.gst || legalDetails.msme || legalDetails.aadhaar || legalDetails.fassi || legalDetails.export_import);
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Seller Profile</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+      <PremiumHeader />
 
       <ScrollView
-        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#177DDF']} />
-        }
+        contentContainerStyle={{ paddingBottom: 50 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0078D7']} tintColor="#0078D7" />}
       >
-        {/* Profile Header Card */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileHeader}>
-            <View style={styles.logoContainer}>
-              {business.profile_image ? (
-                <Image source={{ uri: getImageUri(business.profile_image)! }} style={styles.logo} />
-              ) : (
-                <View style={[styles.logo, styles.logoPlaceholder]}>
-                  <Ionicons name="business" size={40} color="#0078D7" />
-                </View>
-              )}
-              {business.is_business_verified && (
-                <View style={styles.verifiedBadge}>
-                  <Ionicons name="checkmark-circle" size={24} color="#34C759" />
-                </View>
-              )}
-            </View>
-
-            <View style={styles.profileInfo}>
-              <Text style={styles.businessName}>{business.name}</Text>
-              <Text style={styles.businessLocation}>
-                {business.city}, {business.state}
-              </Text>
-              {business.business_type && (
-                <View style={styles.businessTypeBadge}>
-                  <Text style={styles.businessTypeText}>{business.business_type}</Text>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* Contact Actions */}
-        <View style={styles.contactActionsRow}>
-          <TouchableOpacity style={styles.contactAction} onPress={handleCall}>
-            <Ionicons name="call" size={22} color="#0078D7" />
-            <Text style={styles.contactActionText}>Call</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.contactAction} onPress={handleEmail}>
-            <Ionicons name="mail" size={22} color="#0078D7" />
-            <Text style={styles.contactActionText}>Email</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Business Information */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Business Information</Text>
-          <View style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <Ionicons name="mail-outline" size={20} color="#666" />
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Email</Text>
-                <Text style={styles.infoValue}>{business.email}</Text>
+        {/* ── Hero Profile Card ── */}
+        <View style={styles.heroCard}>
+          {/* Badges */}
+          <View style={styles.badgeRow}>
+            {business.is_business_trusted && (
+              <View style={styles.badgeTrusted}>
+                <Ionicons name="ribbon" size={11} color="#16A34A" />
+                <Text style={styles.badgeTrustedText}>Trusted</Text>
               </View>
-            </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="call-outline" size={20} color="#666" />
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Phone</Text>
-                <Text style={styles.infoValue}>{business.phone}</Text>
-              </View>
-            </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="location-outline" size={20} color="#666" />
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Address</Text>
-                <Text style={styles.infoValue}>
-                  {business.address}, {business.city}, {business.state} - {business.pincode}
-                </Text>
-              </View>
-            </View>
-            {business.business_type && (
-              <View style={styles.infoRow}>
-                <Ionicons name="briefcase-outline" size={20} color="#666" />
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Business Type</Text>
-                  <Text style={styles.infoValue}>{business.business_type}</Text>
-                </View>
+            )}
+            {business.is_business_verified && (
+              <View style={styles.badgeVerified}>
+                <Ionicons name="shield-checkmark" size={11} color="#0078D7" />
+                <Text style={styles.badgeVerifiedText}>Verified</Text>
               </View>
             )}
           </View>
+
+          {/* Avatar + Info */}
+          <View style={styles.avatarRow}>
+            <View style={styles.avatarWrap}>
+              {imageUri ? (
+                <Image source={{ uri: imageUri }} style={styles.avatar} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Ionicons name="business" size={34} color="#0078D7" />
+                </View>
+              )}
+              {business.is_business_verified && (
+                <View style={styles.verifiedOverlay}>
+                  <Ionicons name="checkmark-circle" size={20} color="#16A34A" />
+                </View>
+              )}
+            </View>
+
+            <View style={{ flex: 1, marginLeft: 16 }}>
+              <Text style={styles.bizName}>{business.name}</Text>
+              {(business.city || business.state) && (
+                <View style={styles.locationRow}>
+                  <Ionicons name="location-outline" size={11} color="#94A3B8" />
+                  <Text style={styles.locationText}>{business.city}{business.state ? `, ${business.state}` : ''}</Text>
+                </View>
+              )}
+              {business.business_type && (
+                <View style={styles.typePill}>
+                  <Ionicons name="briefcase-outline" size={11} color="#7C3AED" />
+                  <Text style={styles.typePillText}>{business.business_type}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Contact Actions */}
+          <View style={styles.contactRow}>
+            <TouchableOpacity style={styles.contactBtn} onPress={() => { if (business.phone) Linking.openURL(`tel:${business.phone}`); }}>
+              <View style={[styles.contactIcon, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="call-outline" size={20} color="#16A34A" />
+              </View>
+              <Text style={[styles.contactLabel, { color: '#16A34A' }]}>Call</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.contactBtn} onPress={() => { if (business.phone) Linking.openURL(`https://wa.me/${business.phone.replace(/[^0-9]/g, '')}`); }}>
+              <View style={[styles.contactIcon, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
+              </View>
+              <Text style={[styles.contactLabel, { color: '#25D366' }]}>WhatsApp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.contactBtn} onPress={() => { if (business.email) Linking.openURL(`mailto:${business.email}`); }}>
+              <View style={[styles.contactIcon, { backgroundColor: '#FEF3C7' }]}>
+                <Ionicons name="mail-outline" size={20} color="#F59E0B" />
+              </View>
+              <Text style={[styles.contactLabel, { color: '#F59E0B' }]}>Email</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.contactBtn}
+              onPress={() => router.push({ pathname: '/pages/bussinesProfile' as any, params: { business_id: business.id } })}
+            >
+              <View style={[styles.contactIcon, { backgroundColor: '#EBF5FF' }]}>
+                <Ionicons name="storefront-outline" size={20} color="#0078D7" />
+              </View>
+              <Text style={[styles.contactLabel, { color: '#0078D7' }]}>Profile</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Legal Information */}
-        {legalDetails && (legalDetails.pan || legalDetails.gst || legalDetails.msme || legalDetails.aadhaar || legalDetails.fassi || legalDetails.export_import) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Legal Information</Text>
-            <View style={styles.infoCard}>
-              {legalDetails.aadhaar && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="card-outline" size={20} color="#666" />
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>Aadhaar</Text>
-                    <Text style={styles.infoValue}>{legalDetails.aadhaar}</Text>
-                  </View>
-                </View>
-              )}
-              {legalDetails.pan && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="document-text-outline" size={20} color="#666" />
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>PAN</Text>
-                    <Text style={styles.infoValue}>{legalDetails.pan}</Text>
-                  </View>
-                </View>
-              )}
-              {legalDetails.gst && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="receipt-outline" size={20} color="#666" />
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>GST</Text>
-                    <Text style={styles.infoValue}>{legalDetails.gst}</Text>
-                  </View>
-                </View>
-              )}
-              {legalDetails.msme && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="business-outline" size={20} color="#666" />
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>MSME</Text>
-                    <Text style={styles.infoValue}>{legalDetails.msme}</Text>
-                  </View>
-                </View>
-              )}
-              {legalDetails.fassi && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="nutrition-outline" size={20} color="#666" />
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>FSSAI</Text>
-                    <Text style={styles.infoValue}>{legalDetails.fassi}</Text>
-                  </View>
-                </View>
-              )}
-              {legalDetails.export_import && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="globe-outline" size={20} color="#666" />
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>Export/Import Code</Text>
-                    <Text style={styles.infoValue}>{legalDetails.export_import}</Text>
-                  </View>
-                </View>
-              )}
+        {/* ── Social Media Pills ── */}
+        {hasSocial && (
+          <SectionCard icon="share-social-outline" iconBg="#FCE7F3" iconColor="#EC4899" title="Connect on Social">
+            <View style={styles.socialPillsRow}>
+              {SOCIAL_LINKS.map((s) => {
+                const url = (socialDetails as any)?.[s.key];
+                if (!url) return null;
+                return (
+                  <TouchableOpacity key={s.key} style={[styles.socialPill, { backgroundColor: s.bg }]} onPress={() => handleSocialLink(url)}>
+                    <Ionicons name={s.icon as any} size={16} color={s.color} />
+                    <Text style={[styles.socialPillText, { color: s.color }]}>{s.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          </View>
+          </SectionCard>
         )}
 
-        {/* Social Media Links */}
-        {socialDetails && (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook || socialDetails.website || socialDetails.youtube || socialDetails.telegram || socialDetails.x) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Social Media</Text>
-            <View style={styles.socialMediaRow}>
-              {socialDetails.linkedin && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.linkedin)}>
-                  <Ionicons name="logo-linkedin" size={24} color="#0A66C2" />
-                </TouchableOpacity>
-              )}
-              {socialDetails.instagram && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.instagram)}>
-                  <Ionicons name="logo-instagram" size={24} color="#E4405F" />
-                </TouchableOpacity>
-              )}
-              {socialDetails.facebook && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.facebook)}>
-                  <Ionicons name="logo-facebook" size={24} color="#1877F2" />
-                </TouchableOpacity>
-              )}
-              {socialDetails.youtube && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.youtube)}>
-                  <Ionicons name="logo-youtube" size={24} color="#FF0000" />
-                </TouchableOpacity>
-              )}
-              {socialDetails.x && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.x)}>
-                  <Ionicons name="logo-twitter" size={24} color="#000" />
-                </TouchableOpacity>
-              )}
-              {socialDetails.telegram && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.telegram)}>
-                  <Ionicons name="paper-plane-outline" size={24} color="#0088CC" />
-                </TouchableOpacity>
-              )}
-              {socialDetails.website && (
-                <TouchableOpacity style={styles.socialIcon} onPress={() => handleSocialLink(socialDetails.website)}>
-                  <Ionicons name="globe-outline" size={24} color="#666" />
-                </TouchableOpacity>
-              )}
+        {/* ── Business Info ── */}
+        <SectionCard icon="storefront-outline" iconBg="#EBF5FF" iconColor="#0078D7" title="Business Information">
+          <InfoRow icon="mail-outline" iconBg="#EBF5FF" label="Email" value={business.email} />
+          <InfoRow icon="call-outline" iconBg="#DCFCE7" label="Phone" value={business.phone} />
+          <InfoRow icon="location-outline" iconBg="#FEF3C7" label="Address" value={[business.address, business.city, business.state, business.pincode].filter(Boolean).join(', ')} />
+          <InfoRow icon="briefcase-outline" iconBg="#F3EEFF" label="Business Type" value={business.business_type} />
+        </SectionCard>
+
+        {/* ── Legal Credentials ── */}
+        {hasLegal && (
+          <SectionCard icon="shield-checkmark-outline" iconBg="#DCFCE7" iconColor="#16A34A" title="Legal Credentials">
+            <View style={styles.legalBadgesWrap}>
+              {legalDetails!.pan && <LegalBadge label="PAN" />}
+              {legalDetails!.gst && <LegalBadge label="GST" />}
+              {legalDetails!.msme && <LegalBadge label="MSME" />}
+              {legalDetails!.aadhaar && <LegalBadge label="Aadhaar" />}
+              {legalDetails!.fassi && <LegalBadge label="FSSAI" />}
+              {legalDetails!.export_import && <LegalBadge label="Export/Import" />}
             </View>
-          </View>
+          </SectionCard>
         )}
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 30 }} />
       </ScrollView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
-  loaderText: { marginTop: 12, fontSize: 14, color: '#666' },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  emptyText: { fontSize: 16, color: '#666', marginTop: 16 },
-  header: {
-    backgroundColor: '#1E90FF', paddingTop: 50, paddingBottom: 16, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  scrollView: { flex: 1 },
-  profileCard: {
-    backgroundColor: '#FFFFFF', margin: 16, borderRadius: 16, padding: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4,
-  },
-  profileHeader: { flexDirection: 'row' },
-  logoContainer: { position: 'relative' },
-  logo: { width: 80, height: 80, borderRadius: 40, marginRight: 16 },
-  logoPlaceholder: { backgroundColor: '#F0F8FF', justifyContent: 'center', alignItems: 'center' },
-  verifiedBadge: { position: 'absolute', bottom: 0, right: 12, backgroundColor: '#FFFFFF', borderRadius: 12 },
-  profileInfo: { flex: 1, justifyContent: 'center' },
-  businessName: { fontSize: 18, fontWeight: '700', color: '#000', marginBottom: 4 },
-  businessLocation: { fontSize: 13, color: '#888', marginBottom: 8 },
-  businessTypeBadge: {
-    alignSelf: 'flex-start', backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
-  },
-  businessTypeText: { fontSize: 12, fontWeight: '600', color: '#0078D7' },
-  contactActionsRow: {
-    flexDirection: 'row', justifyContent: 'space-around', backgroundColor: '#FFFFFF',
-    marginHorizontal: 16, marginBottom: 12, paddingVertical: 14, borderRadius: 12,
-    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4,
-  },
-  contactAction: { alignItems: 'center', gap: 4 },
-  contactActionText: { fontSize: 12, fontWeight: '500', color: '#666' },
-  section: { marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#000', marginHorizontal: 16, marginBottom: 12 },
-  infoCard: {
-    backgroundColor: '#FFFFFF', padding: 16, marginHorizontal: 16, borderRadius: 12,
-    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
-  },
-  infoRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  infoContent: { flex: 1, marginLeft: 12 },
-  infoLabel: { fontSize: 12, color: '#666', marginBottom: 4 },
-  infoValue: { fontSize: 14, color: '#000', lineHeight: 20 },
-  socialMediaRow: { flexDirection: 'row', gap: 16, paddingHorizontal: 16 },
-  socialIcon: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: '#F5F5F5',
-    justifyContent: 'center', alignItems: 'center', elevation: 1,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2,
-  },
-});
-
 export default SellerProfile;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F7F9FC' },
+
+  /* ── Header ── */
+  headerWrapper: { backgroundColor: '#0060B8', paddingHorizontal: 20, paddingBottom: 22, overflow: 'hidden', shadowColor: '#003E80', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18 },
+  orb1: { position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: 'rgba(255,255,255,0.06)', top: -80, right: -60 },
+  orb2: { position: 'absolute', width: 160, height: 160, borderRadius: 80, backgroundColor: 'rgba(255,255,255,0.04)', bottom: 5, left: -50 },
+  headerInner: { flexDirection: 'row', alignItems: 'center', paddingTop: 16 },
+  headerBackBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  headerEyebrow: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.4 },
+  headerShareBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+
+  /* Empty / loading */
+  emptyIconWrap: { width: 70, height: 70, borderRadius: 24, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A', marginBottom: 6 },
+  emptySubtitle: { fontSize: 13, color: '#94A3B8', textAlign: 'center', marginBottom: 20 },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0078D7', paddingHorizontal: 22, paddingVertical: 12, borderRadius: 14 },
+  retryBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+  /* Hero Card */
+  heroCard: { backgroundColor: '#fff', marginHorizontal: 16, marginTop: 16, borderRadius: 24, padding: 20, shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 18, elevation: 6, borderWidth: 1, borderColor: '#F0F4F8' },
+  badgeRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  badgeTrusted: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  badgeTrustedText: { fontSize: 11, fontWeight: '800', color: '#16A34A' },
+  badgeVerified: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EBF5FF', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  badgeVerifiedText: { fontSize: 11, fontWeight: '800', color: '#0078D7' },
+
+  avatarRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20 },
+  avatarWrap: { position: 'relative' },
+  avatar: { width: 80, height: 80, borderRadius: 20, borderWidth: 3, borderColor: '#EBF5FF' },
+  avatarPlaceholder: { width: 80, height: 80, borderRadius: 20, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#DBEAFE' },
+  verifiedOverlay: { position: 'absolute', top: -6, right: -6, backgroundColor: '#fff', borderRadius: 10 },
+  bizName: { fontSize: 18, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3, marginBottom: 6 },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
+  locationText: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  typePill: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', backgroundColor: '#F3EEFF', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  typePillText: { fontSize: 11, fontWeight: '700', color: '#7C3AED' },
+
+  /* Contact Row */
+  contactRow: { flexDirection: 'row', justifyContent: 'space-around', borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 16, marginTop: 4 },
+  contactBtn: { alignItems: 'center', gap: 6 },
+  contactIcon: { width: 48, height: 48, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  contactLabel: { fontSize: 11, fontWeight: '800' },
+
+  /* Section Card */
+  sectionCard: { backgroundColor: '#fff', marginHorizontal: 16, marginTop: 14, borderRadius: 22, padding: 18, shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4, borderWidth: 1, borderColor: '#F0F4F8' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  sectionIconWrap: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#0F172A' },
+
+  /* Info Rows */
+  infoRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F8FAFC', gap: 12 },
+  infoIconWrap: { width: 28, height: 28, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginTop: 2 },
+  infoContent: { flex: 1 },
+  infoLabel: { fontSize: 10, color: '#94A3B8', fontWeight: '700', marginBottom: 3, letterSpacing: 0.4, textTransform: 'uppercase' },
+  infoValue: { fontSize: 14, fontWeight: '600', color: '#0F172A', lineHeight: 20 },
+
+  /* Legal Badges */
+  legalBadgesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 4 },
+  legalBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#DCFCE7', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12 },
+  legalBadgeText: { fontSize: 12, fontWeight: '700', color: '#16A34A' },
+
+  /* Social Pills */
+  socialPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 4 },
+  socialPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 },
+  socialPillText: { fontSize: 12, fontWeight: '700' },
+});

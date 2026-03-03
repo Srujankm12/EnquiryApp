@@ -8,7 +8,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
+  Linking,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -18,11 +20,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  removeFollowFromCache,
-  saveCachedFollowedIds,
-} from "../utils/followState";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { removeFollowFromCache, saveCachedFollowedIds } from "../utils/followState";
 
+const { width } = Dimensions.get("window");
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
@@ -35,19 +36,18 @@ const getImageUri = (url: string | null | undefined): string | null => {
   return `${S3_URL}${path}`;
 };
 
-const extractFollowings = (resData: any): any[] => {
-  if (!resData) return [];
-  if (Array.isArray(resData?.followings)) return resData.followings;
-  if (Array.isArray(resData?.data?.followings)) return resData.data.followings;
-  if (Array.isArray(resData?.data)) return resData.data;
+const extractFollowings = (d: any): any[] => {
+  if (!d) return [];
+  if (Array.isArray(d?.followings)) return d.followings;
+  if (Array.isArray(d?.data?.followings)) return d.data.followings;
+  if (Array.isArray(d?.data)) return d.data;
   return [];
 };
-
-const extractFollowers = (resData: any): any[] => {
-  if (!resData) return [];
-  if (Array.isArray(resData?.followers)) return resData.followers;
-  if (Array.isArray(resData?.data?.followers)) return resData.data.followers;
-  if (Array.isArray(resData?.data)) return resData.data;
+const extractFollowers = (d: any): any[] => {
+  if (!d) return [];
+  if (Array.isArray(d?.followers)) return d.followers;
+  if (Array.isArray(d?.data?.followers)) return d.data.followers;
+  if (Array.isArray(d?.data)) return d.data;
   return [];
 };
 
@@ -59,7 +59,6 @@ interface FollowerDetail {
   follower_phone: string;
   created_at: string;
 }
-
 interface FollowingDetail {
   following_id: string;
   following_profile_image: string;
@@ -70,125 +69,64 @@ interface FollowingDetail {
   following_state: string;
   following_telegram: string | null;
 }
-
 type TabType = "followers" | "following";
 
 const FollowersScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>("following");
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const [followers, setFollowers] = useState<FollowerDetail[]>([]);
   const [followedCompanies, setFollowedCompanies] = useState<FollowingDetail[]>([]);
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [isSeller, setIsSeller] = useState(false);
-
-  // Stable ref — never stale in async callbacks
   const userIdRef = useRef<string>("");
 
-  useEffect(() => {
-    loadNetworkData();
-  }, []);
+  useEffect(() => { loadNetworkData(); }, []);
 
   const loadNetworkData = async () => {
     setLoading(true);
     try {
       const token = await AsyncStorage.getItem("token");
-      if (!token) {
-        console.warn("[FollowersScreen] No token found.");
-        setLoading(false);
-        return;
-      }
-
+      if (!token) { setLoading(false); return; }
       const decoded: any = jwtDecode(token);
       const currentUserId = String(decoded.user_id ?? "").trim();
       userIdRef.current = currentUserId;
-
       const headers = { Authorization: `Bearer ${token}` };
       const storedCompanyId = await AsyncStorage.getItem("companyId");
       const sellerStatus = await AsyncStorage.getItem("sellerStatus");
-      const isApprovedSeller = sellerStatus?.toLowerCase() === "approved";
-      setIsSeller(isApprovedSeller);
+      const isApproved = sellerStatus?.toLowerCase() === "approved";
+      setIsSeller(isApproved);
 
-      // ── Fetch businesses this USER follows ────────────────────────────────
-      // Backend: GET /follower/get/followings/:user_id
-      // Returns followings[] where following_id = business UUID (the business_id column in DB)
-      // Now works correctly after backend LEFT JOIN fix on business_socials
       try {
-        const followingRes = await axios.get(
-          `${API_URL}/follower/get/followings/${currentUserId}`,
-          { headers }
-        );
-        const companies: FollowingDetail[] = extractFollowings(followingRes.data);
+        const res = await axios.get(`${API_URL}/follower/get/followings/${currentUserId}`, { headers });
+        const companies: FollowingDetail[] = extractFollowings(res.data);
         setFollowedCompanies(companies);
         setFollowingCount(companies.length);
-
-        // Always sync cache so BusinessProfileScreen has accurate state
         const ids = new Set<string>(
-          companies
-            .map((c) => String(c.following_id).trim())
-            .filter((id) => id !== "" && id !== "undefined" && id !== "null")
+          companies.map((c) => String(c.following_id).trim()).filter((id) => id && id !== "undefined" && id !== "null")
         );
         await saveCachedFollowedIds(ids);
-      } catch (err: any) {
-        console.warn(
-          "[FollowersScreen] Failed to fetch followings:",
-          err?.response?.status,
-          err?.response?.data || err?.message
-        );
-        setFollowedCompanies([]);
-        setFollowingCount(0);
-      }
+      } catch { setFollowedCompanies([]); setFollowingCount(0); }
 
-      // ── Fetch followers of this user's company (sellers only) ──────────────
-      if (isApprovedSeller && storedCompanyId) {
+      if (isApproved && storedCompanyId) {
         try {
-          const followersRes = await axios.get(
-            `${API_URL}/follower/get/followers/${storedCompanyId}`,
-            { headers }
-          );
-          setFollowers(extractFollowers(followersRes.data));
-        } catch (err: any) {
-          console.warn(
-            "[FollowersScreen] Failed to fetch followers list:",
-            err?.response?.status,
-            err?.response?.data || err?.message
-          );
-          setFollowers([]);
-        }
-
-        // ── Fetch follower count ─────────────────────────────────────────────
+          const res = await axios.get(`${API_URL}/follower/get/followers/${storedCompanyId}`, { headers });
+          setFollowers(extractFollowers(res.data));
+        } catch { setFollowers([]); }
         try {
-          const countRes = await axios.get(
-            `${API_URL}/follower/get/followers/count/${storedCompanyId}`,
-            { headers }
-          );
-          const cResData = countRes.data;
-          const count =
-            cResData?.followers_count ??
-            cResData?.following_count ??
-            cResData?.data?.followers_count ??
-            cResData?.data?.following_count ??
-            0;
-          setFollowerCount(
-            typeof count === "number" ? count : parseInt(count, 10) || 0
-          );
-        } catch (err: any) {
-          console.warn(
-            "[FollowersScreen] Failed to fetch follower count:",
-            err?.response?.status,
-            err?.response?.data || err?.message
-          );
-          setFollowerCount(0);
-        }
+          const res = await axios.get(`${API_URL}/follower/get/followers/count/${storedCompanyId}`, { headers });
+          const d = res.data;
+          const cnt = d?.followers_count ?? d?.following_count ?? d?.data?.followers_count ?? d?.data?.following_count ?? 0;
+          setFollowerCount(typeof cnt === "number" ? cnt : parseInt(cnt, 10) || 0);
+        } catch { setFollowerCount(0); }
       }
-    } catch (error) {
-      console.error("[FollowersScreen] Unexpected error:", error);
-    } finally {
-      setLoading(false);
-    }
+    } catch { }
+    finally { setLoading(false); }
   };
 
   const onRefresh = useCallback(async () => {
@@ -197,397 +135,244 @@ const FollowersScreen: React.FC = () => {
     setRefreshing(false);
   }, []);
 
-  const handleBack = () => router.back();
-
-  const handleUnfollow = async (company: FollowingDetail) => {
-    Alert.alert(
-      "Unfollow",
-      `Are you sure you want to unfollow ${company.following_name}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Unfollow",
-          style: "destructive",
-          onPress: async () => {
-            const userId = userIdRef.current;
-            if (!userId) {
-              Alert.alert("Error", "User session not found.");
-              return;
-            }
-
-            setProcessingId(company.following_id);
-            try {
-              const token = await AsyncStorage.getItem("token");
-              if (!token) throw new Error("No auth token");
-
-              // USER unfollows BUSINESS
-              // Payload: user_id = logged-in user, business_id = company being unfollowed
-              await axios.post(
-                `${API_URL}/follower/unfollow`,
-                { user_id: userId, business_id: company.following_id },
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-
-              // Optimistic UI update
-              setFollowedCompanies((prev) =>
-                prev.filter((c) => c.following_id !== company.following_id)
-              );
-              setFollowingCount((prev) => Math.max(0, prev - 1));
-
-              // Sync cache
-              await removeFollowFromCache(company.following_id);
-            } catch (error: any) {
-              console.error(
-                "[FollowersScreen] Error unfollowing:",
-                error?.response?.data || error?.message
-              );
-              Alert.alert("Error", "Failed to unfollow. Please try again.");
-            } finally {
-              setProcessingId(null);
-            }
-          },
+  const handleUnfollow = (company: FollowingDetail) => {
+    Alert.alert("Unfollow", `Unfollow ${company.following_name}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Unfollow", style: "destructive",
+        onPress: async () => {
+          const userId = userIdRef.current;
+          if (!userId) return;
+          setProcessingId(company.following_id);
+          try {
+            const token = await AsyncStorage.getItem("token");
+            if (!token) throw new Error("No token");
+            await axios.post(`${API_URL}/follower/unfollow`,
+              { user_id: userId, business_id: company.following_id },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setFollowedCompanies((prev) => prev.filter((c) => c.following_id !== company.following_id));
+            setFollowingCount((prev) => Math.max(0, prev - 1));
+            await removeFollowFromCache(company.following_id);
+          } catch { Alert.alert("Error", "Failed to unfollow."); }
+          finally { setProcessingId(null); }
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  // FIX: param name must be `business_id` — matches what BusinessProfileScreen
-  // reads via useLocalSearchParams: const { business_id } = useLocalSearchParams()
-  const handleCompanyPress = (company: FollowingDetail) => {
-    router.push({
-      pathname: "/pages/sellerProfile" as any,
-      params: { business_id: company.following_id },
-    });
-  };
+  const q = searchQuery.toLowerCase();
+  const filteredFollowing = followedCompanies.filter((c) =>
+    !q || c.following_name?.toLowerCase().includes(q) || c.following_city?.toLowerCase().includes(q)
+  );
+  const filteredFollowers = followers.filter((f) =>
+    !q || f.follower_name?.toLowerCase().includes(q) || f.follower_email?.toLowerCase().includes(q)
+  );
+  const activeList = activeTab === "following" ? filteredFollowing : filteredFollowers;
 
-  const renderCompanyCard = (company: FollowingDetail) => {
+  const CompanyCard = ({ company }: { company: FollowingDetail }) => {
     const isProcessing = processingId === company.following_id;
     const imageUri = getImageUri(company.following_profile_image);
-
     return (
-      <TouchableOpacity
-        key={company.following_id}
-        style={styles.userCard}
-        activeOpacity={0.7}
-        onPress={() => handleCompanyPress(company)}
-      >
+      <TouchableOpacity style={styles.card} activeOpacity={0.85}
+        onPress={() => router.push({ pathname: "/pages/sellerProfile" as any, params: { business_id: company.following_id } })}>
         <View style={styles.cardContent}>
-          {imageUri ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.companyLogo}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={[styles.companyLogo, styles.logoPlaceholder]}>
-              <Ionicons name="business" size={24} color="#CCC" />
-            </View>
-          )}
-
-          <View style={styles.userInfo}>
-            <Text style={styles.companyName} numberOfLines={1}>
-              {company.following_name}
-            </Text>
+          {imageUri
+            ? <Image source={{ uri: imageUri }} style={styles.avatar} resizeMode="cover" />
+            : <View style={[styles.avatar, styles.avatarFill]}><Ionicons name="business" size={22} color="#0078D7" /></View>}
+          <View style={styles.cardInfo}>
+            <Text style={styles.cardName} numberOfLines={1}>{company.following_name}</Text>
             {company.following_city ? (
-              <Text style={styles.location} numberOfLines={1}>
-                {company.following_city}
-                {company.following_state ? `, ${company.following_state}` : ""}
-              </Text>
-            ) : null}
-            {company.following_phone ? (
-              <Text style={styles.contactPerson} numberOfLines={1}>
-                {company.following_phone}
-              </Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={11} color="#94A3B8" />
+                <Text style={styles.infoText} numberOfLines={1}>{company.following_city}{company.following_state ? `, ${company.following_state}` : ""}</Text>
+              </View>
             ) : null}
           </View>
-
-          {activeTab === "following" && (
-            <TouchableOpacity
-              style={[
-                styles.actionButton,
-                styles.unfollowButton,
-                isProcessing && styles.actionButtonDisabled,
-              ]}
-              onPress={() => handleUnfollow(company)}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <ActivityIndicator size="small" color="#666" />
-              ) : (
-                <Text style={[styles.actionButtonText, styles.unfollowButtonText]}>
-                  Unfollow
-                </Text>
-              )}
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={[styles.unfollowBtn, isProcessing && { opacity: 0.6 }]}
+            onPress={() => handleUnfollow(company)} disabled={isProcessing}>
+            {isProcessing ? <ActivityIndicator size="small" color="#64748B" /> : <Text style={styles.unfollowBtnText}>Unfollow</Text>}
+          </TouchableOpacity>
+        </View>
+        <View style={styles.footerRow}>
+          <TouchableOpacity style={styles.footerBtn}
+            onPress={() => router.push({ pathname: "/pages/sellerProfile" as any, params: { business_id: company.following_id } })}>
+            <Ionicons name="storefront-outline" size={14} color="#0078D7" />
+            <Text style={styles.footerBtnText}>Profile</Text>
+          </TouchableOpacity>
+          {company.following_phone ? (
+            <>
+              <View style={styles.footerDivider} />
+              <TouchableOpacity style={styles.footerBtn} onPress={() => Linking.openURL(`tel:${company.following_phone}`)}>
+                <Ionicons name="call-outline" size={14} color="#0078D7" />
+                <Text style={styles.footerBtnText}>Call</Text>
+              </TouchableOpacity>
+              <View style={styles.footerDivider} />
+              <TouchableOpacity style={styles.footerBtn}
+                onPress={() => Linking.openURL(`https://wa.me/${company.following_phone.replace(/[^0-9]/g, "")}`)}>
+                <Ionicons name="logo-whatsapp" size={14} color="#25D366" />
+                <Text style={[styles.footerBtnText, { color: "#25D366" }]}>WhatsApp</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
         </View>
       </TouchableOpacity>
     );
   };
 
-  const renderFollowerCard = (follower: FollowerDetail) => {
+  const FollowerCard = ({ follower }: { follower: FollowerDetail }) => {
     const imageUri = getImageUri(follower.follower_profile_image);
-
     return (
-      <View key={follower.follower_id} style={styles.userCard}>
+      <View style={styles.card}>
         <View style={styles.cardContent}>
-          {imageUri ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.companyLogo}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={[styles.companyLogo, styles.logoPlaceholder]}>
-              <Ionicons name="person" size={24} color="#CCC" />
-            </View>
-          )}
-          <View style={styles.userInfo}>
-            <Text style={styles.companyName} numberOfLines={1}>
-              {follower.follower_name}
-            </Text>
+          {imageUri
+            ? <Image source={{ uri: imageUri }} style={styles.avatar} resizeMode="cover" />
+            : <View style={[styles.avatar, styles.avatarFill]}><Ionicons name="person" size={22} color="#0078D7" /></View>}
+          <View style={styles.cardInfo}>
+            <Text style={styles.cardName} numberOfLines={1}>{follower.follower_name}</Text>
             {follower.follower_email ? (
-              <Text style={styles.contactPerson} numberOfLines={1}>
-                {follower.follower_email}
-              </Text>
+              <View style={styles.infoRow}><Ionicons name="mail-outline" size={11} color="#94A3B8" /><Text style={styles.infoText} numberOfLines={1}>{follower.follower_email}</Text></View>
             ) : null}
             {follower.follower_phone ? (
-              <Text style={styles.location} numberOfLines={1}>
-                {follower.follower_phone}
-              </Text>
+              <View style={styles.infoRow}><Ionicons name="call-outline" size={11} color="#94A3B8" /><Text style={styles.infoText}>{follower.follower_phone}</Text></View>
             ) : null}
+          </View>
+          <View style={styles.followerBadge}>
+            <Text style={styles.followerBadgeText}>Follower</Text>
           </View>
         </View>
       </View>
     );
   };
 
-  const filteredFollowing = followedCompanies.filter(
-    (company) =>
-      company.following_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      company.following_city?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const filteredFollowers = followers.filter(
-    (follower) =>
-      follower.follower_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      follower.follower_email?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
-
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Network</Text>
-      </View>
-
-      {/* Tabs */}
-      <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "following" && styles.activeTab]}
-          onPress={() => setActiveTab("following")}
-        >
-          <Text style={[styles.tabText, activeTab === "following" && styles.activeTabText]}>
-            Following <Text style={styles.tabCount}>{followingCount}</Text>
-          </Text>
-        </TouchableOpacity>
-
-        {isSeller && (
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "followers" && styles.activeTab]}
-            onPress={() => setActiveTab("followers")}
-          >
-            <Text style={[styles.tabText, activeTab === "followers" && styles.activeTabText]}>
-              Followers <Text style={styles.tabCount}>{followerCount}</Text>
-            </Text>
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.orb1} /><View style={styles.orb2} /><View style={styles.orb3} />
+        <View style={styles.headerTop}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
           </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor="#999"
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <Ionicons name="close-circle" size={20} color="#999" />
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.eyebrow}>NETWORK</Text>
+            <Text style={styles.headerTitle}>My Network</Text>
+          </View>
+        </View>
+        <View style={styles.tabRow}>
+          <TouchableOpacity style={[styles.tabPill, activeTab === "following" && styles.tabPillActive]} onPress={() => setActiveTab("following")}>
+            <Text style={[styles.tabPillText, activeTab === "following" && styles.tabPillTextActive]}>Following · {followingCount}</Text>
           </TouchableOpacity>
-        )}
+          {isSeller && (
+            <TouchableOpacity style={[styles.tabPill, activeTab === "followers" && styles.tabPillActive]} onPress={() => setActiveTab("followers")}>
+              <Text style={[styles.tabPillText, activeTab === "followers" && styles.tabPillTextActive]}>Followers · {followerCount}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={[styles.searchWrap, searchFocused && styles.searchWrapFocused]}>
+          <View style={styles.searchIconCircle}><Ionicons name="search-outline" size={14} color="#0078D7" /></View>
+          <TextInput style={styles.searchInput} placeholder={activeTab === "following" ? "Search companies…" : "Search followers…"}
+            placeholderTextColor="#94A3B8" value={searchQuery} onChangeText={setSearchQuery}
+            onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity style={styles.clearBtn} onPress={() => setSearchQuery("")}><Ionicons name="close" size={15} color="#0078D7" /></TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {loading ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#177DDF" />
-          <Text style={styles.loadingText}>Loading network...</Text>
+          <View style={styles.loaderCard}><ActivityIndicator size="large" color="#0078D7" /><Text style={styles.loaderText}>Loading your network…</Text></View>
         </View>
       ) : (
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={["#177DDF"]}
-              tintColor="#177DDF"
-            />
-          }
-        >
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              {activeTab === "following" ? "Companies You Follow" : "Your Followers"}
-            </Text>
-          </View>
-
-          {activeTab === "following" ? (
-            filteredFollowing.length > 0 ? (
-              filteredFollowing.map((company) => renderCompanyCard(company))
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="people-outline" size={64} color="#CCC" />
-                <Text style={styles.emptyText}>
-                  {searchQuery ? "No results found" : "Not following anyone yet"}
-                </Text>
-                <Text style={styles.emptySubtext}>
-                  {searchQuery
-                    ? "Try adjusting your search"
-                    : "Follow companies to see them here"}
-                </Text>
-              </View>
-            )
-          ) : filteredFollowers.length > 0 ? (
-            filteredFollowers.map((follower) => renderFollowerCard(follower))
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="people-outline" size={64} color="#CCC" />
-              <Text style={styles.emptyText}>
-                {searchQuery ? "No results found" : "No followers yet"}
-              </Text>
-              <Text style={styles.emptySubtext}>
-                {searchQuery
-                  ? "Try adjusting your search"
-                  : "People who follow your company will appear here"}
-              </Text>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#0078D7"]} tintColor="#0078D7" />}>
+          {/* <View style={styles.statsBar}>
+            <View style={styles.statItem}><Text style={styles.statValue}>{followingCount}</Text><Text style={styles.statLabel}>Following</Text></View>
+            <View style={styles.statDivider} />
+            {isSeller && (<><View style={styles.statItem}><Text style={styles.statValue}>{followerCount}</Text><Text style={styles.statLabel}>Followers</Text></View><View style={styles.statDivider} /></>)}
+          </View> */}
+          <View style={styles.sectionRow}>
+            <View>
+              <Text style={styles.sectionTitle}>{activeTab === "following" ? "Companies You Follow" : "Your Followers"}</Text>
+              <Text style={styles.sectionSubtitle}>{activeList.length} {activeTab === "following" ? "companies" : "followers"}</Text>
             </View>
-          )}
-
-          <View style={styles.bottomPadding} />
+          </View>
+          {activeList.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconWrap}><Ionicons name="people-outline" size={32} color="#0078D7" /></View>
+              <Text style={styles.emptyTitle}>{searchQuery ? "No Results Found" : activeTab === "following" ? "Not Following Anyone" : "No Followers Yet"}</Text>
+              <Text style={styles.emptySubtitle}>{searchQuery ? `Nothing matches "${searchQuery}"` : activeTab === "following" ? "Follow companies to see them here" : "People who follow your business will appear here"}</Text>
+              {!searchQuery && activeTab === "following" && (
+                <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/screens/SellerDirectoryScreen" as any)}>
+                  <Ionicons name="storefront-outline" size={16} color="#fff" />
+                  <Text style={styles.actionBtnText}>Browse Sellers</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : activeTab === "following"
+            ? filteredFollowing.map((c) => <CompanyCard key={c.following_id} company={c} />)
+            : filteredFollowers.map((f) => <FollowerCard key={f.follower_id} follower={f} />)}
         </ScrollView>
       )}
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F8F9FA" },
-  header: {
-    backgroundColor: "#177DDF",
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-  },
-  backButton: { marginRight: 16, padding: 4 },
-  headerTitle: { fontSize: 20, fontWeight: "700", color: "#FFFFFF", letterSpacing: 0.3 },
-  tabsContainer: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 20, gap: 12 },
-  tab: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-    borderRadius: 30,
-    backgroundColor: "#E8E8E8",
-    alignItems: "center",
-  },
-  activeTab: { backgroundColor: "#177DDF" },
-  tabText: { fontSize: 15, fontWeight: "700", color: "#666" },
-  activeTabText: { color: "#FFFFFF" },
-  tabCount: { fontWeight: "400" },
-  searchContainer: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 14,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  searchIcon: { marginRight: 10 },
-  searchInput: { flex: 1, paddingVertical: 14, fontSize: 15, color: "#333" },
-  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
-  scrollView: { flex: 1 },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  sectionTitle: { fontSize: 19, fontWeight: "700", color: "#000", letterSpacing: 0.2 },
-  userCard: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginBottom: 14,
-    borderRadius: 14,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  cardContent: { flexDirection: "row", padding: 12, alignItems: "center" },
-  companyLogo: { width: 64, height: 64, borderRadius: 14, backgroundColor: "#E0E0E0" },
-  logoPlaceholder: { justifyContent: "center", alignItems: "center" },
-  userInfo: { flex: 1, marginLeft: 14, marginRight: 10 },
-  companyName: { fontSize: 17, fontWeight: "700", color: "#000", marginBottom: 6, letterSpacing: 0.2 },
-  contactPerson: { fontSize: 13, color: "#666", marginBottom: 2 },
-  location: { fontSize: 12, color: "#999" },
-  actionButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 22,
-    borderRadius: 8,
-    minWidth: 85,
-    alignItems: "center",
-    justifyContent: "center",
-    height: 36,
-  },
-  unfollowButton: { backgroundColor: "#FFFFFF", borderWidth: 1.5, borderColor: "#E0E0E0" },
-  actionButtonDisabled: { opacity: 0.6 },
-  actionButtonText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF", letterSpacing: 0.3 },
-  unfollowButtonText: { color: "#666" },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 80,
-    paddingHorizontal: 40,
-  },
-  emptyText: { fontSize: 19, fontWeight: "700", color: "#666", marginTop: 16 },
-  emptySubtext: { fontSize: 14, color: "#999", marginTop: 8, textAlign: "center" },
-  bottomPadding: { height: 80 },
-});
-
 export default FollowersScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F7F9FC" },
+  headerWrapper: { backgroundColor: "#0060B8", paddingHorizontal: 20, paddingBottom: 18, overflow: "hidden", shadowColor: "#003E80", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18 },
+  orb1: { position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "rgba(255,255,255,0.06)", top: -100, right: -70 },
+  orb2: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.04)", bottom: 10, left: -60 },
+  orb3: { position: "absolute", width: 100, height: 100, borderRadius: 50, backgroundColor: "rgba(100,180,255,0.08)", top: 20, right: width * 0.35 },
+  headerTop: { flexDirection: "row", alignItems: "center", paddingTop: 16, paddingBottom: 14 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.15)", justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
+  eyebrow: { fontSize: 10, fontWeight: "700", color: "rgba(255,255,255,0.65)", letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 26, fontWeight: "800", color: "#FFFFFF", letterSpacing: -0.5 },
+  tabRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  tabPill: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.15)", borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
+  tabPillActive: { backgroundColor: "#FFFFFF" },
+  tabPillText: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.85)" },
+  tabPillTextActive: { color: "#0060B8" },
+  searchWrap: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFFFFF", paddingHorizontal: 12, height: 46, borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", shadowColor: "#003E80", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.18, shadowRadius: 10, elevation: 6 },
+  searchWrapFocused: { borderColor: "rgba(255,255,255,0.6)" },
+  searchIconCircle: { width: 28, height: 28, borderRadius: 9, backgroundColor: "#EBF5FF", justifyContent: "center", alignItems: "center", marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 13, color: "#0F172A", fontWeight: "500" },
+  clearBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#EBF5FF", justifyContent: "center", alignItems: "center", marginLeft: 6 },
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loaderCard: { backgroundColor: "#fff", borderRadius: 20, padding: 32, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 6 },
+  loaderText: { marginTop: 12, fontSize: 13, color: "#94A3B8", fontWeight: "500" },
+  statsBar: { flexDirection: "row", margin: 16, marginBottom: 0, backgroundColor: "#0078D7", borderRadius: 18, paddingVertical: 18, paddingHorizontal: 10, shadowColor: "#0078D7", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 14, elevation: 8 },
+  statItem: { flex: 1, alignItems: "center" },
+  statValue: { fontSize: 20, fontWeight: "900", color: "#FFFFFF", letterSpacing: -0.5 },
+  statLabel: { fontSize: 11, color: "rgba(255,255,255,0.72)", marginTop: 2, fontWeight: "600" },
+  statDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.2)" },
+  sectionRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginTop: 22, marginBottom: 12 },
+  sectionTitle: { fontSize: 18, fontWeight: "800", color: "#0F172A", letterSpacing: -0.4 },
+  sectionSubtitle: { fontSize: 12, color: "#94A3B8", marginTop: 2, fontWeight: "500" },
+  card: { backgroundColor: "#fff", borderRadius: 22, marginHorizontal: 16, marginBottom: 14, shadowColor: "#1B4FBF", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.09, shadowRadius: 16, elevation: 6, borderWidth: 1, borderColor: "#F0F4F8", overflow: "hidden" },
+  cardContent: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
+  avatar: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#EBF5FF" },
+  avatarFill: { justifyContent: "center", alignItems: "center" },
+  cardInfo: { flex: 1 },
+  cardName: { fontSize: 15, fontWeight: "800", color: "#0F172A", letterSpacing: -0.2, marginBottom: 4 },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 2 },
+  infoText: { fontSize: 12, color: "#94A3B8", fontWeight: "500", flex: 1 },
+  unfollowBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1.5, borderColor: "#E2E8F0", backgroundColor: "#fff", minWidth: 76, alignItems: "center" },
+  unfollowBtnText: { fontSize: 12, fontWeight: "700", color: "#64748B" },
+  followerBadge: { backgroundColor: "#EBF5FF", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  followerBadgeText: { fontSize: 11, fontWeight: "700", color: "#0078D7" },
+  footerRow: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#F1F5F9" },
+  footerBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12 },
+  footerBtnText: { fontSize: 12, fontWeight: "700", color: "#0078D7" },
+  footerDivider: { width: 1, backgroundColor: "#F1F5F9", marginVertical: 8 },
+  emptyState: { alignItems: "center", paddingVertical: 60, paddingHorizontal: 40 },
+  emptyIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#EBF5FF", justifyContent: "center", alignItems: "center", marginBottom: 20 },
+  emptyTitle: { fontSize: 18, fontWeight: "800", color: "#0F172A", letterSpacing: -0.3 },
+  emptySubtitle: { fontSize: 13, color: "#94A3B8", textAlign: "center", marginTop: 8, lineHeight: 20 },
+  actionBtn: { marginTop: 24, backgroundColor: "#0078D7", paddingHorizontal: 24, paddingVertical: 13, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 8, shadowColor: "#0078D7", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 },
+  actionBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+});

@@ -11,6 +11,7 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -62,8 +63,6 @@ const CARD_WIDTH = (width - 44) / 2;
 const SellerTab: React.FC = () => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,19 +76,6 @@ const SellerTab: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 60,
-        friction: 9,
-        useNativeDriver: true,
-      }),
-    ]).start();
   }, []);
 
   useFocusEffect(
@@ -144,10 +130,10 @@ const SellerTab: React.FC = () => {
     const matchSearch = !searchQuery
       ? true
       : p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.product_description || "")
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase());
+      p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.product_description || "")
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
     const matchCat = !selectedCategory
       ? true
       : (p as any).category_id === selectedCategory;
@@ -411,12 +397,8 @@ const SellerTab: React.FC = () => {
           </TouchableOpacity>
         </View>
       ) : (
-        <Animated.ScrollView
-          style={{
-            flex: 1,
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }],
-          }}
+        <ScrollView
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 110 }}
           refreshControl={
@@ -537,7 +519,7 @@ const SellerTab: React.FC = () => {
                   <Text style={styles.sectionTitle}>
                     {selectedCategory
                       ? categories.find((c) => c.id === selectedCategory)
-                          ?.name || "Category"
+                        ?.name || "Category"
                       : "All Products"}
                   </Text>
                   <Text style={styles.sectionSubtitle}>
@@ -604,7 +586,7 @@ const SellerTab: React.FC = () => {
               </View>
             </TouchableOpacity>
           )}
-        </Animated.ScrollView>
+        </ScrollView>
       )}
     </View>
   );

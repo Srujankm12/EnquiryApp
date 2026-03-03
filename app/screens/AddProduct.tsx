@@ -1,27 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  Dimensions,
-  StatusBar,
-  Alert,
-  Modal,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
-import Constants from 'expo-constants';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import Constants from 'expo-constants';
+import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput, TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
@@ -36,35 +36,35 @@ const getImageUri = (url: string | null | undefined): string | null => {
   return `${S3_URL}${path}`;
 };
 
-interface Category {
-  id: string;
-  name: string;
-  category_image: string | null;
-  description: string;
-}
-
-interface SubCategory {
-  id: string;
-  category_id: string;
-  name: string;
-  category_image: string | null;
-  description: string;
-}
+interface Category { id: string; name: string; category_image: string | null; description: string; }
+interface SubCategory { id: string; category_id: string; name: string; category_image: string | null; description: string; }
 
 const UNIT_OPTIONS = [
-  'kg', 'g', 'lb', 'ton', 'quintal',
-  'litre', 'ml',
-  'piece', 'dozen', 'pack', 'box', 'bag',
-  'metre', 'cm', 'feet', 'inch',
-  'acre', 'hectare',
-  'other',
+  { label: 'Kilogram', value: 'kg' }, { label: 'Gram', value: 'g' }, { label: 'Pound', value: 'lb' },
+  { label: 'Ton', value: 'ton' }, { label: 'Quintal', value: 'quintal' }, { label: 'Litre', value: 'litre' },
+  { label: 'Millilitre', value: 'ml' }, { label: 'Piece', value: 'piece' }, { label: 'Dozen', value: 'dozen' },
+  { label: 'Pack', value: 'pack' }, { label: 'Box', value: 'box' }, { label: 'Bag', value: 'bag' },
+  { label: 'Metre', value: 'metre' }, { label: 'Centimetre', value: 'cm' }, { label: 'Feet', value: 'feet' },
+  { label: 'Inch', value: 'inch' }, { label: 'Acre', value: 'acre' }, { label: 'Hectare', value: 'hectare' }, { label: 'Other', value: 'other' },
 ];
 
+// Styled field component
+const FormSection = ({ title, icon, iconBg, iconColor, children }: any) => (
+  <View style={styles.formSection}>
+    <View style={styles.sectionHeader}>
+      <View style={[styles.sectionIconWrap, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={15} color={iconColor} />
+      </View>
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+    {children}
+  </View>
+);
+
 const AddProductsScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const [submitting, setSubmitting] = useState(false);
   const [isSeller, setIsSeller] = useState<boolean | null>(null);
-
-  // Form fields
   const [productName, setProductName] = useState('');
   const [productDescription, setProductDescription] = useState('');
   const [productQuantity, setProductQuantity] = useState('');
@@ -73,21 +73,14 @@ const AddProductsScreen: React.FC = () => {
   const [productMOQ, setProductMOQ] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<SubCategory | null>(null);
-
-  // Category data
   const [categories, setCategories] = useState<Category[]>([]);
   const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingSubCategories, setLoadingSubCategories] = useState(false);
-
-  // Modals
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
-
-  // Images (placeholder for future upload)
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
-
   const [businessId, setBusinessId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -100,11 +93,7 @@ const AddProductsScreen: React.FC = () => {
     const storedBusinessId = await AsyncStorage.getItem('companyId');
     if (status?.toLowerCase() !== 'approved' || !storedBusinessId) {
       setIsSeller(false);
-      Alert.alert(
-        'Access Denied',
-        'Only approved sellers can add products. Please become a seller first.',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      Alert.alert('Access Denied', 'Only approved sellers can add products.', [{ text: 'OK', onPress: () => router.back() }]);
     } else {
       setIsSeller(true);
       setBusinessId(storedBusinessId);
@@ -115,16 +104,10 @@ const AddProductsScreen: React.FC = () => {
     try {
       setLoadingCategories(true);
       const token = await AsyncStorage.getItem('token');
-      const res = await axios.get(`${API_URL}/category/get/all`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await axios.get(`${API_URL}/category/get/all`, { headers: { Authorization: `Bearer ${token}` } });
       setCategories(res.data?.categories || []);
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-      Alert.alert('Error', 'Unable to load categories. Please try again.');
-    } finally {
-      setLoadingCategories(false);
-    }
+    } catch { Alert.alert('Error', 'Unable to load categories.'); }
+    finally { setLoadingCategories(false); }
   };
 
   const fetchSubCategories = async (categoryId: string) => {
@@ -132,444 +115,260 @@ const AddProductsScreen: React.FC = () => {
       setLoadingSubCategories(true);
       setSubCategories([]);
       const token = await AsyncStorage.getItem('token');
-      const res = await axios.get(
-        `${API_URL}/category/sub/get/category/${categoryId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await axios.get(`${API_URL}/category/sub/get/category/${categoryId}`, { headers: { Authorization: `Bearer ${token}` } });
       setSubCategories(res.data?.sub_categories || []);
-    } catch (error) {
-      console.error('Error fetching sub-categories:', error);
-      setSubCategories([]);
-    } finally {
-      setLoadingSubCategories(false);
-    }
+    } catch { setSubCategories([]); }
+    finally { setLoadingSubCategories(false); }
   };
 
-  const handleCategorySelect = (category: Category) => {
-    setSelectedCategory(category);
+  const handleCategorySelect = (cat: Category) => {
+    setSelectedCategory(cat);
     setSelectedSubCategory(null);
     setShowCategoryModal(false);
-    fetchSubCategories(category.id);
-  };
-
-  const handleSubCategorySelect = (subCategory: SubCategory) => {
-    setSelectedSubCategory(subCategory);
-    setShowSubCategoryModal(false);
+    fetchSubCategories(cat.id);
   };
 
   const handlePickImage = async () => {
-    if (selectedImages.length >= 3) {
-      Alert.alert('Limit Reached', 'You can add up to 3 images per product.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets[0]?.uri) {
-      setSelectedImages((prev) => [...prev, result.assets[0].uri]);
-    }
-  };
-
-  const handleRemoveImage = (index: number) => {
-    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const validateForm = (): boolean => {
-    if (!productName.trim()) {
-      Alert.alert('Missing Information', 'Please enter a product name.');
-      return false;
-    }
-    if (productName.trim().length < 2) {
-      Alert.alert('Invalid Name', 'Product name must be at least 2 characters long.');
-      return false;
-    }
-    if (!productDescription.trim()) {
-      Alert.alert('Missing Information', 'Please enter a product description.');
-      return false;
-    }
-    if (productDescription.trim().length < 10) {
-      Alert.alert('Invalid Description', 'Product description must be at least 10 characters long.');
-      return false;
-    }
-    if (!productQuantity.trim() || isNaN(Number(productQuantity))) {
-      Alert.alert('Missing Information', 'Please enter a valid product quantity.');
-      return false;
-    }
-    if (!productUnit.trim()) {
-      Alert.alert('Missing Information', 'Please select a unit for your product.');
-      return false;
-    }
-    if (!productPrice.trim() || isNaN(Number(productPrice))) {
-      Alert.alert('Missing Information', 'Please enter a valid product price.');
-      return false;
-    }
-    if (!productMOQ.trim()) {
-      Alert.alert('Missing Information', 'Please enter the minimum order quantity (MOQ).');
-      return false;
-    }
-    if (!selectedCategory) {
-      Alert.alert('Missing Information', 'Please select a category for your product.');
-      return false;
-    }
-    return true;
+    if (selectedImages.length >= 3) { Alert.alert('Limit Reached', 'Max 3 images per product.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!result.canceled && result.assets[0]?.uri) setSelectedImages(prev => [...prev, result.assets[0].uri]);
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) return;
-
+    if (!productName.trim()) { Alert.alert('Missing', 'Product name is required.'); return; }
+    if (!productDescription.trim() || productDescription.trim().length < 10) { Alert.alert('Missing', 'Description must be at least 10 characters.'); return; }
+    if (!productQuantity || isNaN(Number(productQuantity))) { Alert.alert('Missing', 'Enter a valid quantity.'); return; }
+    if (!productUnit) { Alert.alert('Missing', 'Select a unit.'); return; }
+    if (!productPrice || isNaN(Number(productPrice))) { Alert.alert('Missing', 'Enter a valid price.'); return; }
+    if (!productMOQ.trim()) { Alert.alert('Missing', 'Enter minimum order quantity.'); return; }
+    if (!selectedCategory) { Alert.alert('Missing', 'Select a category.'); return; }
     try {
       setSubmitting(true);
       const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        Alert.alert('Session Expired', 'Please login again.');
-        return;
-      }
-
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+      if (!token || !businessId) { Alert.alert('Error', 'Session expired.'); return; }
+      const productData = {
+        business_id: businessId, name: productName.trim(), description: productDescription.trim(),
+        quantity: parseFloat(productQuantity), unit: productUnit, price: parseFloat(productPrice),
+        moq: productMOQ.trim(), category_id: selectedCategory.id, sub_category_id: selectedSubCategory?.id || '', is_product_active: true,
       };
-
-      if (!businessId) {
-        Alert.alert('Error', 'Business information not found. Please try again.');
-        return;
-      }
-
-      // Create product - aligned with Go backend field names
-      const productData: any = {
-        business_id: businessId,
-        name: productName.trim(),
-        description: productDescription.trim(),
-        quantity: parseFloat(productQuantity),
-        unit: productUnit.trim(),
-        price: parseFloat(productPrice),
-        moq: productMOQ.trim(),
-        category_id: selectedCategory!.id,
-        sub_category_id: selectedSubCategory?.id || '',
-        is_product_active: true,
-      };
-
-      await axios.post(`${API_URL}/product/create`, productData, { headers });
-
-      Alert.alert('Product Created', 'Your product has been added successfully!', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
-    } catch (error: any) {
-      console.error('Error creating product:', error);
-      const msg =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        'Failed to create product. Please check your input and try again.';
-      Alert.alert('Error', msg);
-    } finally {
-      setSubmitting(false);
-    }
+      await axios.post(`${API_URL}/product/create`, productData, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+      Alert.alert('Product Created! 🎉', 'Your product has been added successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.error || err.response?.data?.message || 'Failed to create product.');
+    } finally { setSubmitting(false); }
   };
+
+  const SelectButton = ({ label, value, onPress, loading: lod }: { label: string; value: string; onPress: () => void; loading?: boolean }) => (
+    <TouchableOpacity style={styles.selectBtn} onPress={onPress} disabled={!!lod} activeOpacity={0.85}>
+      {lod ? (
+        <ActivityIndicator size="small" color="#0078D7" style={{ flex: 1 }} />
+      ) : (
+        <>
+          <Text style={[styles.selectBtnText, !value && styles.selectBtnPlaceholder]} numberOfLines={1}>{value || label}</Text>
+          <View style={styles.selectChevron}><Ionicons name="chevron-down" size={14} color="#0078D7" /></View>
+        </>
+      )}
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Product</Text>
-        <View style={styles.backButton} />
+      {/* ── Premium Header ── */}
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.orb1} /><View style={styles.orb2} />
+        <View style={styles.headerInner}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.eyebrow}>PRODUCT LISTING</Text>
+            <Text style={styles.headerTitle}>Add Product</Text>
+          </View>
+          <TouchableOpacity style={[styles.publishBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
+            {submitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.publishBtnText}>Publish</Text>}
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Images Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Product Images</Text>
-            <Text style={styles.sectionSubtitle}>Add up to 3 images (optional - upload later)</Text>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+
+          {/* ── Images Section ── */}
+          <FormSection title="Product Images" icon="images-outline" iconBg="#EBF5FF" iconColor="#0078D7">
+            <Text style={styles.sectionHint}>Add up to 3 photos to showcase your product</Text>
             <View style={styles.imagesRow}>
-              {selectedImages.map((uri, index) => (
-                <View key={index} style={styles.imageBox}>
-                  <Image source={{ uri }} style={styles.imagePreview} />
-                  <TouchableOpacity
-                    style={styles.removeImageButton}
-                    onPress={() => handleRemoveImage(index)}
-                  >
-                    <Ionicons name="close-circle" size={22} color="#DC3545" />
+              {selectedImages.map((uri, i) => (
+                <View key={i} style={styles.imageBox}>
+                  <Image source={{ uri }} style={styles.imagePreview} resizeMode="cover" />
+                  <TouchableOpacity style={styles.removeImg} onPress={() => setSelectedImages(prev => prev.filter((_, j) => j !== i))}>
+                    <Ionicons name="close-circle" size={20} color="#EF4444" />
                   </TouchableOpacity>
+                  {i === 0 && <View style={styles.primaryBadge}><Text style={styles.primaryBadgeText}>Cover</Text></View>}
                 </View>
               ))}
               {selectedImages.length < 3 && (
-                <TouchableOpacity style={styles.addImageBox} onPress={handlePickImage}>
-                  <Ionicons name="camera-outline" size={28} color="#0078D7" />
-                  <Text style={styles.addImageText}>Add</Text>
+                <TouchableOpacity style={styles.addImageBox} onPress={handlePickImage} activeOpacity={0.85}>
+                  <View style={styles.addImageIcon}><Ionicons name="camera-outline" size={22} color="#0078D7" /></View>
+                  <Text style={styles.addImageText}>Add Photo</Text>
                 </TouchableOpacity>
               )}
             </View>
-          </View>
+          </FormSection>
 
-          {/* Product Name */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Product Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter product name"
-              placeholderTextColor="#999"
-              value={productName}
-              onChangeText={setProductName}
-              maxLength={50}
-            />
-          </View>
-
-          {/* Product Description */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Description *</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Describe your product (min 10 characters)"
-              placeholderTextColor="#999"
-              value={productDescription}
-              onChangeText={setProductDescription}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              maxLength={500}
-            />
-            <Text style={styles.charCount}>{productDescription.length}/500</Text>
-          </View>
-
-          {/* Category */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Category *</Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => setShowCategoryModal(true)}
-            >
-              <Text
-                style={[
-                  styles.selectButtonText,
-                  !selectedCategory && styles.placeholderText,
-                ]}
-              >
-                {selectedCategory ? selectedCategory.name : 'Select a category'}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Sub-Category */}
-          {selectedCategory && (
-            <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>Sub-Category (Optional)</Text>
-              <TouchableOpacity
-                style={styles.selectButton}
-                onPress={() => setShowSubCategoryModal(true)}
-                disabled={loadingSubCategories}
-              >
-                {loadingSubCategories ? (
-                  <ActivityIndicator size="small" color="#0078D7" />
-                ) : (
-                  <>
-                    <Text
-                      style={[
-                        styles.selectButtonText,
-                        !selectedSubCategory && styles.placeholderText,
-                      ]}
-                    >
-                      {selectedSubCategory
-                        ? selectedSubCategory.name
-                        : subCategories.length > 0
-                        ? 'Select a sub-category'
-                        : 'No sub-categories available'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
-                  </>
-                )}
-              </TouchableOpacity>
+          {/* ── Basic Info ── */}
+          <FormSection title="Basic Information" icon="information-circle-outline" iconBg="#EBF5FF" iconColor="#0078D7">
+            <Text style={styles.inputLabel}>Product Name *</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="cube-outline" size={15} color="#0078D7" style={styles.inputIcon} />
+              <TextInput style={styles.textInput} value={productName} onChangeText={setProductName} placeholder="e.g. Premium Basmati Rice" placeholderTextColor="#CBD5E1" maxLength={50} />
+              <Text style={styles.charHint}>{productName.length}/50</Text>
             </View>
-          )}
 
-          {/* Quantity */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Quantity *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., 100"
-              placeholderTextColor="#999"
-              value={productQuantity}
-              onChangeText={setProductQuantity}
-              keyboardType="numeric"
-              maxLength={20}
-            />
-          </View>
+            <Text style={styles.inputLabel}>Description *</Text>
+            <View style={[styles.inputWrap, { alignItems: 'flex-start', paddingTop: 10 }]}>
+              <Ionicons name="document-text-outline" size={15} color="#0078D7" style={[styles.inputIcon, { marginTop: 2 }]} />
+              <TextInput style={[styles.textInput, { height: 90, textAlignVertical: 'top' }]} value={productDescription} onChangeText={setProductDescription} placeholder="Describe your product, quality, usage, etc. (min 10 chars)" placeholderTextColor="#CBD5E1" multiline maxLength={500} />
+            </View>
+            <Text style={styles.charHintRight}>{productDescription.length}/500</Text>
+          </FormSection>
 
-          {/* Unit */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Unit *</Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => setShowUnitModal(true)}
-            >
-              <Text
-                style={[
-                  styles.selectButtonText,
-                  !productUnit && styles.placeholderText,
-                ]}
-              >
-                {productUnit || 'Select unit (kg, piece, litre...)'}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#666" />
-            </TouchableOpacity>
-          </View>
+          {/* ── Category ── */}
+          <FormSection title="Category" icon="layers-outline" iconBg="#FEF3C7" iconColor="#F59E0B">
+            <Text style={styles.inputLabel}>Category *</Text>
+            <SelectButton label="Select a category" value={selectedCategory?.name || ''} onPress={() => setShowCategoryModal(true)} loading={loadingCategories} />
+            {selectedCategory && (
+              <>
+                <Text style={[styles.inputLabel, { marginTop: 12 }]}>Sub-Category (Optional)</Text>
+                <SelectButton label={subCategories.length > 0 ? 'Select sub-category' : 'No sub-categories'} value={selectedSubCategory?.name || ''} onPress={() => subCategories.length > 0 && setShowSubCategoryModal(true)} loading={loadingSubCategories} />
+              </>
+            )}
+          </FormSection>
 
-          {/* Price */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Price *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., 500"
-              placeholderTextColor="#999"
-              value={productPrice}
-              onChangeText={setProductPrice}
-              keyboardType="numeric"
-              maxLength={20}
-            />
-          </View>
+          {/* ── Pricing & Qty ── */}
+          <FormSection title="Pricing & Quantity" icon="pricetag-outline" iconBg="#DCFCE7" iconColor="#16A34A">
+            <View style={styles.rowFields}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Quantity *</Text>
+                <View style={styles.inputWrap}>
+                  <Ionicons name="archive-outline" size={15} color="#16A34A" style={styles.inputIcon} />
+                  <TextInput style={styles.textInput} value={productQuantity} onChangeText={setProductQuantity} placeholder="0" placeholderTextColor="#CBD5E1" keyboardType="numeric" />
+                </View>
+              </View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.inputLabel}>Unit *</Text>
+                <SelectButton label="kg, litre..." value={productUnit} onPress={() => setShowUnitModal(true)} />
+              </View>
+            </View>
 
-          {/* MOQ */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Minimum Order Quantity (MOQ) *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., 10 kg, 5 pieces"
-              placeholderTextColor="#999"
-              value={productMOQ}
-              onChangeText={setProductMOQ}
-              maxLength={100}
-            />
-          </View>
+            <Text style={styles.inputLabel}>Price (₹) *</Text>
+            <View style={styles.inputWrap}>
+              <Text style={[styles.inputIcon, { fontSize: 16, color: '#16A34A', fontWeight: '800', marginTop: 0 }]}>₹</Text>
+              <TextInput style={styles.textInput} value={productPrice} onChangeText={setProductPrice} placeholder="0.00" placeholderTextColor="#CBD5E1" keyboardType="numeric" />
+              {productUnit ? <Text style={styles.unitSuffix}>per {productUnit}</Text> : null}
+            </View>
 
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={submitting}
-          >
+            <Text style={styles.inputLabel}>Minimum Order Quantity (MOQ) *</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="layers-outline" size={15} color="#16A34A" style={styles.inputIcon} />
+              <TextInput style={styles.textInput} value={productMOQ} onChangeText={setProductMOQ} placeholder="e.g. 10 kg, 5 pieces" placeholderTextColor="#CBD5E1" maxLength={100} />
+            </View>
+          </FormSection>
+
+          {/* ── Submit ── */}
+          <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting} activeOpacity={0.85}>
             {submitting ? (
-              <View style={styles.submitContent}>
-                <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text style={styles.submitText}>Creating Product...</Text>
+              <View style={styles.submitInner}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.submitText}>Publishing...</Text>
               </View>
             ) : (
-              <View style={styles.submitContent}>
-                <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
-                <Text style={styles.submitText}>Create Product</Text>
+              <View style={styles.submitInner}>
+                <Ionicons name="rocket-outline" size={20} color="#fff" />
+                <Text style={styles.submitText}>Publish Product</Text>
               </View>
             )}
           </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Category Modal */}
+      {/* ── Category Modal ── */}
       <Modal visible={showCategoryModal} transparent animationType="slide" onRequestClose={() => setShowCategoryModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Category</Text>
-              <TouchableOpacity onPress={() => setShowCategoryModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
+              <TouchableOpacity onPress={() => setShowCategoryModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
-            {loadingCategories ? (
-              <View style={styles.modalLoader}>
-                <ActivityIndicator size="large" color="#0078D7" />
-              </View>
-            ) : (
-              <FlatList
-                data={categories}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.modalItem, selectedCategory?.id === item.id && styles.modalItemSelected]}
-                    onPress={() => handleCategorySelect(item)}
-                  >
-                    {item.category_image && (
-                      <Image source={{ uri: getImageUri(item.category_image)! }} style={styles.modalItemImage} />
-                    )}
-                    <Text style={styles.modalItemText}>{item.name}</Text>
-                    {selectedCategory?.id === item.id && <Ionicons name="checkmark" size={20} color="#0078D7" />}
-                  </TouchableOpacity>
-                )}
-                ListEmptyComponent={<Text style={styles.modalEmptyText}>No categories available</Text>}
-              />
-            )}
+            <FlatList
+              data={categories}
+              keyExtractor={item => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[styles.modalItem, selectedCategory?.id === item.id && styles.modalItemSelected]} onPress={() => handleCategorySelect(item)}>
+                  {item.category_image && <Image source={{ uri: getImageUri(item.category_image)! }} style={styles.modalItemImg} />}
+                  <Text style={styles.modalItemText}>{item.name}</Text>
+                  {selectedCategory?.id === item.id && <Ionicons name="checkmark-circle" size={20} color="#0078D7" />}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.modalEmpty}>No categories found</Text>}
+            />
           </View>
         </View>
       </Modal>
 
-      {/* Sub-Category Modal */}
+      {/* ── SubCategory Modal ── */}
       <Modal visible={showSubCategoryModal} transparent animationType="slide" onRequestClose={() => setShowSubCategoryModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Sub-Category</Text>
-              <TouchableOpacity onPress={() => setShowSubCategoryModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
+              <TouchableOpacity onPress={() => setShowSubCategoryModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
             <FlatList
               data={subCategories}
-              keyExtractor={(item) => item.id}
+              keyExtractor={item => item.id}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.modalItem, selectedSubCategory?.id === item.id && styles.modalItemSelected]}
-                  onPress={() => handleSubCategorySelect(item)}
-                >
-                  {item.category_image && (
-                    <Image source={{ uri: getImageUri(item.category_image)! }} style={styles.modalItemImage} />
-                  )}
+                <TouchableOpacity style={[styles.modalItem, selectedSubCategory?.id === item.id && styles.modalItemSelected]} onPress={() => { setSelectedSubCategory(item); setShowSubCategoryModal(false); }}>
                   <Text style={styles.modalItemText}>{item.name}</Text>
-                  {selectedSubCategory?.id === item.id && <Ionicons name="checkmark" size={20} color="#0078D7" />}
+                  {selectedSubCategory?.id === item.id && <Ionicons name="checkmark-circle" size={20} color="#0078D7" />}
                 </TouchableOpacity>
               )}
-              ListEmptyComponent={<Text style={styles.modalEmptyText}>No sub-categories available</Text>}
+              ListEmptyComponent={<Text style={styles.modalEmpty}>No sub-categories</Text>}
             />
           </View>
         </View>
       </Modal>
 
-      {/* Unit Modal */}
+      {/* ── Unit Modal ── */}
       <Modal visible={showUnitModal} transparent animationType="slide" onRequestClose={() => setShowUnitModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Unit</Text>
-              <TouchableOpacity onPress={() => setShowUnitModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
+              <TouchableOpacity onPress={() => setShowUnitModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
             <FlatList
               data={UNIT_OPTIONS}
-              keyExtractor={(item) => item}
+              keyExtractor={item => item.value}
+              numColumns={3}
+              columnWrapperStyle={{ gap: 8, padding: 8, paddingBottom: 0 }}
+              contentContainerStyle={{ paddingBottom: 20 }}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.modalItem, productUnit === item && styles.modalItemSelected]}
-                  onPress={() => { setProductUnit(item); setShowUnitModal(false); }}
+                  style={[styles.unitChip, productUnit === item.value && styles.unitChipSelected]}
+                  onPress={() => { setProductUnit(item.value); setShowUnitModal(false); }}
                 >
-                  <Text style={styles.modalItemText}>{item}</Text>
-                  {productUnit === item && <Ionicons name="checkmark" size={20} color="#0078D7" />}
+                  <Text style={[styles.unitChipText, productUnit === item.value && styles.unitChipTextSelected]}>{item.label}</Text>
                 </TouchableOpacity>
               )}
             />
@@ -580,71 +379,76 @@ const AddProductsScreen: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: {
-    backgroundColor: '#177DDF',
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { flex: 1, fontSize: 20, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
-  section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
-  sectionSubtitle: { fontSize: 13, color: '#888', marginBottom: 12 },
-  imagesRow: { flexDirection: 'row', gap: 12 },
-  imageBox: { width: 90, height: 90, borderRadius: 12, position: 'relative' },
-  imagePreview: { width: 90, height: 90, borderRadius: 12 },
-  removeImageButton: { position: 'absolute', top: -8, right: -8, backgroundColor: '#FFFFFF', borderRadius: 11 },
-  addImageBox: {
-    width: 90, height: 90, borderRadius: 12, borderWidth: 2, borderColor: '#0078D7',
-    borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F8FF',
-  },
-  addImageText: { fontSize: 12, color: '#0078D7', fontWeight: '600', marginTop: 4 },
-  fieldContainer: { marginBottom: 16 },
-  fieldLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
-  input: {
-    backgroundColor: '#FFFFFF', borderRadius: 10, padding: 14, fontSize: 15,
-    color: '#1A1A1A', borderWidth: 1, borderColor: '#E0E0E0',
-  },
-  textArea: { height: 100, textAlignVertical: 'top' },
-  charCount: { fontSize: 12, color: '#999', textAlign: 'right', marginTop: 4 },
-  selectButton: {
-    backgroundColor: '#FFFFFF', borderRadius: 10, padding: 14, borderWidth: 1,
-    borderColor: '#E0E0E0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
-  selectButtonText: { fontSize: 15, color: '#1A1A1A', flex: 1 },
-  placeholderText: { color: '#999' },
-  submitButton: {
-    backgroundColor: '#177DDF', borderRadius: 12, paddingVertical: 16, marginTop: 8,
-    elevation: 3, shadowColor: '#0078D7', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4,
-  },
-  submitButtonDisabled: { backgroundColor: '#A0C4E8', elevation: 0 },
-  submitContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  submitText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContainer: {
-    backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%', paddingBottom: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A' },
-  modalLoader: { padding: 40, alignItems: 'center' },
-  modalItem: {
-    flexDirection: 'row', alignItems: 'center', padding: 14, paddingHorizontal: 16,
-    borderBottomWidth: 1, borderBottomColor: '#F8F8F8',
-  },
-  modalItemSelected: { backgroundColor: '#F0F8FF' },
-  modalItemImage: { width: 40, height: 40, borderRadius: 8, marginRight: 12, backgroundColor: '#F0F0F0' },
-  modalItemText: { flex: 1, fontSize: 15, color: '#333' },
-  modalEmptyText: { padding: 40, fontSize: 15, color: '#999', textAlign: 'center' },
-});
-
 export default AddProductsScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F7F9FC' },
+
+  // ── Header ──
+  headerWrapper: {
+    backgroundColor: '#0060B8', paddingHorizontal: 20, paddingBottom: 22, overflow: 'hidden',
+    shadowColor: '#003E80', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18,
+  },
+  orb1: { position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: 'rgba(255,255,255,0.06)', top: -80, right: -60 },
+  orb2: { position: 'absolute', width: 160, height: 160, borderRadius: 80, backgroundColor: 'rgba(255,255,255,0.04)', bottom: 5, left: -50 },
+  headerInner: { flexDirection: 'row', alignItems: 'center', paddingTop: 16 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  eyebrow: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.4 },
+  publishBtn: { backgroundColor: '#FFFFFF', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  publishBtnText: { color: '#0060B8', fontWeight: '800', fontSize: 13 },
+
+  // ── Form Sections ──
+  formSection: { backgroundColor: '#fff', borderRadius: 22, marginHorizontal: 16, marginTop: 16, padding: 18, shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4, borderWidth: 1, borderColor: '#F0F4F8' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  sectionIconWrap: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#0F172A' },
+  sectionHint: { fontSize: 12, color: '#94A3B8', marginBottom: 14, fontWeight: '500' },
+
+  // ── Images ──
+  imagesRow: { flexDirection: 'row', gap: 10 },
+  imageBox: { width: 80, height: 80, borderRadius: 16, position: 'relative' },
+  imagePreview: { width: 80, height: 80, borderRadius: 16 },
+  removeImg: { position: 'absolute', top: -8, right: -8, backgroundColor: '#fff', borderRadius: 10 },
+  primaryBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: '#0078D7', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
+  primaryBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  addImageBox: { width: 80, height: 80, borderRadius: 16, borderWidth: 2, borderColor: '#CBD5E1', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F7F9FC' },
+  addImageIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
+  addImageText: { fontSize: 10, fontWeight: '700', color: '#0078D7' },
+
+  // ── Inputs ──
+  inputLabel: { fontSize: 11, fontWeight: '700', color: '#64748B', marginBottom: 8, letterSpacing: 0.4, textTransform: 'uppercase' },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F7F9FC', borderRadius: 14, borderWidth: 1.5, borderColor: '#E2E8F0', paddingHorizontal: 12, marginBottom: 14 },
+  inputIcon: { marginRight: 10 },
+  textInput: { flex: 1, fontSize: 14, color: '#0F172A', fontWeight: '600', paddingVertical: 13 },
+  charHint: { fontSize: 10, color: '#CBD5E1', fontWeight: '600' },
+  charHintRight: { fontSize: 10, color: '#CBD5E1', fontWeight: '600', textAlign: 'right', marginTop: -10, marginBottom: 14 },
+  unitSuffix: { fontSize: 12, color: '#94A3B8', fontWeight: '600', marginLeft: 6 },
+  selectBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F7F9FC', borderRadius: 14, borderWidth: 1.5, borderColor: '#E2E8F0', paddingHorizontal: 14, paddingVertical: 13, marginBottom: 0 },
+  selectBtnText: { flex: 1, fontSize: 14, color: '#0F172A', fontWeight: '600' },
+  selectBtnPlaceholder: { color: '#CBD5E1' },
+  selectChevron: { width: 26, height: 26, borderRadius: 9, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center' },
+  rowFields: { flexDirection: 'row', gap: 0, marginBottom: 14 },
+
+  // ── Submit ──
+  submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0078D7', marginHorizontal: 16, marginTop: 20, paddingVertical: 17, borderRadius: 18, shadowColor: '#0078D7', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 8 },
+  submitInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  submitText: { color: '#fff', fontSize: 17, fontWeight: '800' },
+
+  // ── Modals ──
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '75%', paddingBottom: 30 },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E2E8F0', alignSelf: 'center', marginTop: 12, marginBottom: 4 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A' },
+  modalCloseBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  modalItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F8FAFC', gap: 12 },
+  modalItemSelected: { backgroundColor: '#EBF5FF' },
+  modalItemImg: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F1F5F9' },
+  modalItemText: { flex: 1, fontSize: 15, color: '#0F172A', fontWeight: '600' },
+  modalEmpty: { padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 14, fontWeight: '500' },
+  unitChip: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, backgroundColor: '#F7F9FC', borderWidth: 1.5, borderColor: '#E2E8F0' },
+  unitChipSelected: { backgroundColor: '#0078D7', borderColor: '#0078D7' },
+  unitChipText: { fontSize: 12, fontWeight: '700', color: '#64748B' },
+  unitChipTextSelected: { color: '#fff' },
+});

@@ -20,350 +20,208 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 
-interface Category {
-  id: string;
-  name: string;
-  category_image: string | null;
-  description: string;
-}
+interface Category { id: string; name: string; category_image: string | null; description: string; }
+interface SubCategory { id: string; category_id: string; name: string; category_image: string | null; description: string; }
 
-interface SubCategory {
-  id: string;
-  category_id: string;
-  name: string;
-  category_image: string | null;
-  description: string;
-}
+const UNIT_OPTIONS = ["kg", "g", "lb", "ton", "quintal", "litre", "ml", "piece", "dozen", "pack", "box", "bag", "metre", "cm", "feet", "inch", "acre", "hectare", "other"];
 
-const UNIT_OPTIONS = [
-  "kg",
-  "g",
-  "lb",
-  "ton",
-  "quintal",
-  "litre",
-  "ml",
-  "piece",
-  "dozen",
-  "pack",
-  "box",
-  "bag",
-  "metre",
-  "cm",
-  "feet",
-  "inch",
-  "acre",
-  "hectare",
-  "other",
-];
+// ── Reusable Input Field Component ────────────────────────────────────────────
+const InputField = ({
+  icon, label, value, onChangeText, placeholder,
+  keyboardType, multiline, maxLength, required,
+}: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; value: string;
+  onChangeText: (t: string) => void; placeholder?: string;
+  keyboardType?: any; multiline?: boolean; maxLength?: number; required?: boolean;
+}) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={fi.group}>
+      <View style={fi.labelRow}>
+        <Text style={fi.label}>{label}</Text>
+        {required && <View style={fi.requiredDot} />}
+      </View>
+      <View style={[fi.row, focused && fi.rowFocused, multiline && fi.rowMulti]}>
+        <View style={fi.iconWrap}>
+          <Ionicons name={icon} size={16} color={focused ? "#0078D7" : "#94A3B8"} />
+        </View>
+        <TextInput
+          style={[fi.input, multiline && fi.inputMulti]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder || label}
+          placeholderTextColor="#CBD5E1"
+          keyboardType={keyboardType}
+          multiline={multiline}
+          maxLength={maxLength}
+          textAlignVertical={multiline ? "top" : "center"}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+        {value.trim() && !multiline && (
+          <Ionicons name="checkmark-circle" size={16} color="#10B981" style={{ marginRight: 4 }} />
+        )}
+      </View>
+      {multiline && maxLength && (
+        <Text style={fi.charCount}>{value.length}/{maxLength}</Text>
+      )}
+    </View>
+  );
+};
 
+const fi = StyleSheet.create({
+  group: { marginBottom: 14 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 7 },
+  label: { fontSize: 10, fontWeight: '800', color: '#64748B', letterSpacing: 1, textTransform: 'uppercase' },
+  requiredDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#EF4444', marginTop: 1 },
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F7F9FC', borderRadius: 14, borderWidth: 1.5, borderColor: '#E2E8F0', paddingHorizontal: 10 },
+  rowFocused: { borderColor: '#0078D7', backgroundColor: '#EBF5FF' },
+  rowMulti: { alignItems: 'flex-start', paddingTop: 10 },
+  iconWrap: { width: 30, height: 30, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  input: { flex: 1, fontSize: 14, color: '#0F172A', fontWeight: '600', paddingVertical: 13 },
+  inputMulti: { minHeight: 90, paddingVertical: 4 },
+  charCount: { fontSize: 10, color: '#94A3B8', fontWeight: '600', textAlign: 'right', marginTop: 4 },
+});
+
+// ── Select Button ─────────────────────────────────────────────────────────────
+const SelectButton = ({ icon, label, value, placeholder, onPress, loading }: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; value: string; placeholder: string;
+  onPress: () => void; loading?: boolean;
+}) => (
+  <View style={sb.group}>
+    <Text style={sb.label}>{label}</Text>
+    <TouchableOpacity style={sb.btn} onPress={onPress} activeOpacity={0.8}>
+      <View style={[sb.iconWrap, value ? { backgroundColor: '#EBF5FF' } : { backgroundColor: '#F7F9FC' }]}>
+        {loading ? <ActivityIndicator size="small" color="#0078D7" /> : (
+          <Ionicons name={icon} size={16} color={value ? '#0078D7' : '#94A3B8'} />
+        )}
+      </View>
+      <Text style={[sb.text, !value && sb.placeholder]} numberOfLines={1}>{value || placeholder}</Text>
+      {value ? (
+        <View style={sb.selectedBadge}>
+          <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+        </View>
+      ) : null}
+      <Ionicons name="chevron-down" size={16} color="#94A3B8" />
+    </TouchableOpacity>
+  </View>
+);
+
+const sb = StyleSheet.create({
+  group: { marginBottom: 14 },
+  label: { fontSize: 10, fontWeight: '800', color: '#64748B', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 7 },
+  btn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F7F9FC', borderRadius: 14, borderWidth: 1.5, borderColor: '#E2E8F0', paddingHorizontal: 10, paddingVertical: 10, gap: 10 },
+  iconWrap: { width: 30, height: 30, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
+  text: { flex: 1, fontSize: 14, color: '#0F172A', fontWeight: '600' },
+  placeholder: { color: '#CBD5E1', fontWeight: '500' },
+  selectedBadge: { marginRight: 2 },
+});
+
+// ── Main Screen ───────────────────────────────────────────────────────────────
 const EditProductScreen: React.FC = () => {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { product_id } = useLocalSearchParams();
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form fields
   const [productName, setProductName] = useState("");
   const [productDescription, setProductDescription] = useState("");
   const [productQuantity, setProductQuantity] = useState("");
   const [productUnit, setProductUnit] = useState("");
   const [productPrice, setProductPrice] = useState("");
   const [productMOQ, setProductMOQ] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
-  const [selectedSubCategoryId, setSelectedSubCategoryId] =
-    useState<string>("");
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
-    null,
-  );
-  const [selectedSubCategory, setSelectedSubCategory] =
-    useState<SubCategory | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<SubCategory | null>(null);
 
-  // Category data
   const [categories, setCategories] = useState<Category[]>([]);
   const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingSubCategories, setLoadingSubCategories] = useState(false);
 
-  // Modals
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
 
-  useEffect(() => {
-    loadProductDetails();
-    fetchCategories();
-  }, [product_id]);
+  useEffect(() => { loadProductDetails(); fetchCategories(); }, [product_id]);
 
   const loadProductDetails = async () => {
-    console.log("📦 [LoadProduct] Starting loadProductDetails...");
-    console.log("📦 [LoadProduct] product_id:", product_id);
-
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
-      console.log("📦 [LoadProduct] Token present:", !!token);
-
-      const headers = { Authorization: `Bearer ${token}` };
-      const url = `${API_URL}/product/get/${product_id}`;
-      console.log("📦 [LoadProduct] GET", url);
-
-      const res = await axios.get(url, { headers });
-      console.log("📦 [LoadProduct] Response status:", res.status);
-      console.log(
-        "📦 [LoadProduct] Full response data:",
-        JSON.stringify(res.data, null, 2),
-      );
-
+      const res = await axios.get(`${API_URL}/product/get/${product_id}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = res.data?.product_details;
-      console.log(
-        "📦 [LoadProduct] product_details extracted:",
-        JSON.stringify(data, null, 2),
-      );
-
       if (data) {
-        // Log every field individually so we can see what's present vs missing
-        console.log("📦 [LoadProduct] --- Field-by-field breakdown ---");
-        console.log("📦 [LoadProduct] product_name     :", data.product_name);
-        console.log(
-          "📦 [LoadProduct] description      :",
-          data.product_description,
-        );
-        console.log("📦 [LoadProduct] quantity         :", data.quantity);
-        console.log("📦 [LoadProduct] unit             :", data.unit);
-        console.log("📦 [LoadProduct] price            :", data.price);
-        console.log("📦 [LoadProduct] moq              :", data.moq);
-        console.log("📦 [LoadProduct] category_id      :", data.category_id);
-        console.log("📦 [LoadProduct] category_name    :", data.category_name);
-        console.log(
-          "📦 [LoadProduct] sub_category_id  :",
-          data.sub_category_id,
-        );
-        console.log(
-          "📦 [LoadProduct] sub_category_name:",
-          data.sub_category_name,
-        );
-        console.log(
-          "📦 [LoadProduct] is_product_active:",
-          data.is_product_active,
-        );
-        console.log("📦 [LoadProduct] business_id      :", data.business_id);
-        console.log("📦 [LoadProduct] business_name    :", data.business_name);
-        console.log("📦 [LoadProduct] created_at       :", data.created_at);
-        console.log("📦 [LoadProduct] --- End field breakdown ---");
-
-        // Set state and log what's being set
-        const nameVal = data.product_name || "";
-        const descVal = data.product_description || "";
-        const qtyVal = String(data.quantity || "");
-        const unitVal = data.unit || "";
-        const priceVal = String(data.price || "");
-        const moqVal = data.moq || "";
-
-        console.log("📦 [LoadProduct] Setting productName        →", nameVal);
-        console.log(
-          "📦 [LoadProduct] Setting productDescription →",
-          descVal || "(empty — was it missing from API response?)",
-        );
-        console.log("📦 [LoadProduct] Setting productQuantity    →", qtyVal);
-        console.log("📦 [LoadProduct] Setting productUnit        →", unitVal);
-        console.log("📦 [LoadProduct] Setting productPrice       →", priceVal);
-        console.log("📦 [LoadProduct] Setting productMOQ         →", moqVal);
-
-        setProductName(nameVal);
-        setProductDescription(descVal);
-        setProductQuantity(qtyVal);
-        setProductUnit(unitVal);
-        setProductPrice(priceVal);
-        setProductMOQ(moqVal);
+        setProductName(data.product_name || "");
+        setProductDescription(data.product_description || "");
+        setProductQuantity(String(data.quantity || ""));
+        setProductUnit(data.unit || "");
+        setProductPrice(String(data.price || ""));
+        setProductMOQ(data.moq || "");
         setSelectedCategoryId(data.category_id || "");
         setSelectedSubCategoryId(data.sub_category_id || "");
-
-        if (data.category_id && data.category_name) {
-          const cat = {
-            id: data.category_id,
-            name: data.category_name,
-            category_image: null,
-            description: "",
-          };
-          console.log("📦 [LoadProduct] Setting selectedCategory →", cat);
-          setSelectedCategory(cat);
-        } else {
-          console.warn(
-            "📦 [LoadProduct] ⚠️ No category_id or category_name in response — category will not be pre-selected.",
-          );
-        }
-
-        if (data.sub_category_id && data.sub_category_name) {
-          const sub = {
-            id: data.sub_category_id,
-            category_id: data.category_id,
-            name: data.sub_category_name,
-            category_image: null,
-            description: "",
-          };
-          console.log("📦 [LoadProduct] Setting selectedSubCategory →", sub);
-          setSelectedSubCategory(sub);
-        } else {
-          console.warn(
-            "📦 [LoadProduct] ⚠️ No sub_category_id or sub_category_name — sub-category will not be pre-selected.",
-          );
-        }
-
-        if (data.category_id) {
-          console.log(
-            "📦 [LoadProduct] Fetching sub-categories for category_id:",
-            data.category_id,
-          );
-          fetchSubCategories(data.category_id);
-        }
-
-        console.log("📦 [LoadProduct] ✅ All state set successfully.");
-      } else {
-        console.error(
-          "📦 [LoadProduct] ❌ product_details is null/undefined in response. Full response:",
-          JSON.stringify(res.data, null, 2),
-        );
+        if (data.category_id && data.category_name) setSelectedCategory({ id: data.category_id, name: data.category_name, category_image: null, description: "" });
+        if (data.sub_category_id && data.sub_category_name) setSelectedSubCategory({ id: data.sub_category_id, category_id: data.category_id, name: data.sub_category_name, category_image: null, description: "" });
+        if (data.category_id) fetchSubCategories(data.category_id);
       }
-    } catch (error: any) {
-      console.error("📦 [LoadProduct] ❌ Error loading product:");
-      console.error("📦 [LoadProduct]   message:", error?.message);
-      console.error(
-        "📦 [LoadProduct]   response status:",
-        error?.response?.status,
-      );
-      console.error(
-        "📦 [LoadProduct]   response data:",
-        JSON.stringify(error?.response?.data, null, 2),
-      );
-      Alert.alert("Error", "Unable to load product details.", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
-    } finally {
-      setLoading(false);
-      console.log("📦 [LoadProduct] Done.");
-    }
+    } catch {
+      Alert.alert("Error", "Unable to load product details.", [{ text: "OK", onPress: () => router.back() }]);
+    } finally { setLoading(false); }
   };
 
   const fetchCategories = async () => {
-    console.log("📂 [FetchCategories] Fetching all categories...");
     try {
-      setLoadingCategories(true);
       const token = await AsyncStorage.getItem("token");
-      const res = await axios.get(`${API_URL}/category/get/all`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const cats = res.data?.categories || [];
-      console.log("📂 [FetchCategories] ✅ Loaded", cats.length, "categories.");
-      setCategories(cats);
-    } catch (error: any) {
-      console.error(
-        "📂 [FetchCategories] ❌ Error:",
-        error?.response?.status,
-        error?.message,
-      );
-    } finally {
-      setLoadingCategories(false);
-    }
+      const res = await axios.get(`${API_URL}/category/get/all`, { headers: { Authorization: `Bearer ${token}` } });
+      setCategories(res.data?.categories || []);
+    } catch { }
   };
 
   const fetchSubCategories = async (categoryId: string) => {
-    console.log(
-      "📁 [FetchSubCats] Fetching sub-categories for category_id:",
-      categoryId,
-    );
     try {
       setLoadingSubCategories(true);
       setSubCategories([]);
       const token = await AsyncStorage.getItem("token");
-      const res = await axios.get(
-        `${API_URL}/category/sub/get/category/${categoryId}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      const subs = res.data?.sub_categories || [];
-      console.log(
-        "📁 [FetchSubCats] ✅ Loaded",
-        subs.length,
-        "sub-categories for category:",
-        categoryId,
-      );
-      setSubCategories(subs);
-    } catch (error: any) {
-      console.error(
-        "📁 [FetchSubCats] ❌ Error:",
-        error?.response?.status,
-        error?.message,
-      );
-      setSubCategories([]);
-    } finally {
-      setLoadingSubCategories(false);
-    }
+      const res = await axios.get(`${API_URL}/category/sub/get/category/${categoryId}`, { headers: { Authorization: `Bearer ${token}` } });
+      setSubCategories(res.data?.sub_categories || []);
+    } catch { setSubCategories([]); }
+    finally { setLoadingSubCategories(false); }
   };
 
-  const handleCategorySelect = (category: Category) => {
-    console.log("🗂️ [CategorySelect] Selected:", category.id, category.name);
-    setSelectedCategory(category);
-    setSelectedCategoryId(category.id);
-    setSelectedSubCategory(null);
-    setSelectedSubCategoryId("");
-    setShowCategoryModal(false);
-    fetchSubCategories(category.id);
+  const handleCategorySelect = (cat: Category) => {
+    setSelectedCategory(cat); setSelectedCategoryId(cat.id);
+    setSelectedSubCategory(null); setSelectedSubCategoryId("");
+    setShowCategoryModal(false); fetchSubCategories(cat.id);
   };
 
-  const handleSubCategorySelect = (subCategory: SubCategory) => {
-    console.log(
-      "🗂️ [SubCategorySelect] Selected:",
-      subCategory.id,
-      subCategory.name,
-    );
-    setSelectedSubCategory(subCategory);
-    setSelectedSubCategoryId(subCategory.id);
+  const handleSubCategorySelect = (sub: SubCategory) => {
+    setSelectedSubCategory(sub); setSelectedSubCategoryId(sub.id);
     setShowSubCategoryModal(false);
   };
 
   const validateForm = (): boolean => {
-    if (!productName.trim()) {
-      Alert.alert("Missing Information", "Please enter a product name.");
-      return false;
-    }
-    if (!productQuantity.trim() || isNaN(Number(productQuantity))) {
-      Alert.alert("Missing Information", "Please enter a valid quantity.");
-      return false;
-    }
-    if (!productUnit.trim()) {
-      Alert.alert("Missing Information", "Please select a unit.");
-      return false;
-    }
-    if (!productPrice.trim() || isNaN(Number(productPrice))) {
-      Alert.alert("Missing Information", "Please enter a valid price.");
-      return false;
-    }
-    if (!productMOQ.trim()) {
-      Alert.alert("Missing Information", "Please enter the MOQ.");
-      return false;
-    }
+    if (!productName.trim()) { Alert.alert("Required", "Please enter a product name."); return false; }
+    if (!productQuantity.trim() || isNaN(Number(productQuantity))) { Alert.alert("Required", "Please enter a valid quantity."); return false; }
+    if (!productUnit.trim()) { Alert.alert("Required", "Please select a unit."); return false; }
+    if (!productPrice.trim() || isNaN(Number(productPrice))) { Alert.alert("Required", "Please enter a valid price."); return false; }
+    if (!productMOQ.trim()) { Alert.alert("Required", "Please enter the MOQ."); return false; }
     return true;
   };
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
-
-    console.log("💾 [Submit] Submitting product update...");
-    console.log("💾 [Submit] product_id:", product_id);
-
     try {
       setSubmitting(true);
       const token = await AsyncStorage.getItem("token");
-      if (!token) {
-        Alert.alert("Session Expired", "Please login again.");
-        return;
-      }
-
-      const updateData: any = {
+      if (!token) { Alert.alert("Session Expired", "Please login again."); return; }
+      const payload: any = {
         name: productName.trim(),
         description: productDescription.trim() || undefined,
         category_id: selectedCategoryId || undefined,
@@ -373,63 +231,84 @@ const EditProductScreen: React.FC = () => {
         price: parseFloat(productPrice),
         moq: productMOQ.trim(),
       };
-
-      console.log("💾 [Submit] Payload:", JSON.stringify(updateData, null, 2));
-
-      const url = `${API_URL}/product/update/${product_id}`;
-      console.log("💾 [Submit] PUT", url);
-
-      const res = await axios.put(url, updateData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+      const res = await axios.put(`${API_URL}/product/update/${product_id}`, payload, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
-
-      console.log("💾 [Submit] ✅ Response status:", res.status);
-      console.log(
-        "💾 [Submit] ✅ Response data:",
-        JSON.stringify(res.data, null, 2),
-      );
-
-      Alert.alert("Success", "Product updated successfully!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
+      Alert.alert("Updated ✓", res.data?.message || "Product updated successfully!", [{ text: "OK", onPress: () => router.back() }]);
     } catch (error: any) {
-      console.error("💾 [Submit] ❌ Error updating product:");
-      console.error("💾 [Submit]   message:", error?.message);
-      console.error("💾 [Submit]   response status:", error?.response?.status);
-      console.error(
-        "💾 [Submit]   response data:",
-        JSON.stringify(error?.response?.data, null, 2),
-      );
-      const msg =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        "Failed to update product. Please try again.";
+      const msg = error.response?.data?.error || error.response?.data?.message || "Failed to update product.";
       Alert.alert("Error", msg);
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
+
+  // ── Premium Bottom-sheet Modal ──
+  const PremiumModal = ({ visible, title, icon, onClose, children }: {
+    visible: boolean; title: string; icon: keyof typeof Ionicons.glyphMap; onClose: () => void; children: React.ReactNode;
+  }) => (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={ms.overlay} activeOpacity={1} onPress={onClose} />
+      <View style={ms.sheet}>
+        {/* Drag handle */}
+        <View style={ms.handle} />
+        <View style={ms.sheetHeader}>
+          <View style={ms.sheetIconWrap}>
+            <Ionicons name={icon} size={18} color="#0078D7" />
+          </View>
+          <Text style={ms.sheetTitle}>{title}</Text>
+          <TouchableOpacity style={ms.closeBtn} onPress={onClose}>
+            <Ionicons name="close" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
+        {children}
+      </View>
+    </Modal>
+  );
+
+  const ms = StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+    sheet: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '75%', paddingBottom: insets.bottom + 16 },
+    handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E2E8F0', alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+    sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+    sheetIconWrap: { width: 36, height: 36, borderRadius: 11, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center' },
+    sheetTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: '#0F172A', letterSpacing: -0.2 },
+    closeBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#F7F9FC', justifyContent: 'center', alignItems: 'center' },
+  });
+
+  const ModalItem = ({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) => (
+    <TouchableOpacity
+      style={[styles.modalItem, selected && styles.modalItemSelected]}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      <View style={[styles.modalItemIcon, selected && styles.modalItemIconSelected]}>
+        <Ionicons name={selected ? "checkmark" : "ellipse-outline"} size={14} color={selected ? "#fff" : "#CBD5E1"} />
+      </View>
+      <Text style={[styles.modalItemText, selected && styles.modalItemTextSelected]}>{label}</Text>
+      {selected && <View style={styles.selectedPill}><Text style={styles.selectedPillText}>Selected</Text></View>}
+    </TouchableOpacity>
+  );
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Product</Text>
-          <View style={styles.backButton} />
+        <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+        <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+          <View style={styles.orb1} /><View style={styles.orb2} />
+          <View style={styles.headerInner}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={20} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={styles.eyebrow}>PRODUCT MANAGEMENT</Text>
+              <Text style={styles.headerTitle}>Edit Product</Text>
+            </View>
+          </View>
         </View>
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#177DDF" />
-          <Text style={styles.loaderText}>Loading product...</Text>
+        <View style={styles.loaderWrap}>
+          <View style={styles.loaderCard}>
+            <ActivityIndicator size="large" color="#0078D7" />
+            <Text style={styles.loaderText}>Loading product details…</Text>
+          </View>
         </View>
       </View>
     );
@@ -437,441 +316,250 @@ const EditProductScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
 
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Edit Product</Text>
-        <View style={styles.backButton} />
-      </View>
-
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Product Name */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Product Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter product name"
-              placeholderTextColor="#999"
-              value={productName}
-              onChangeText={setProductName}
-              maxLength={50}
-            />
+      {/* ── Premium Header ── */}
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.orb1} /><View style={styles.orb2} />
+        <View style={styles.headerInner}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.eyebrow}>PRODUCT MANAGEMENT</Text>
+            <Text style={styles.headerTitle}>Edit Product</Text>
           </View>
-
-          {/* Description */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Description</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Update product description"
-              placeholderTextColor="#999"
-              value={productDescription}
-              onChangeText={setProductDescription}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              maxLength={500}
-            />
-            <Text style={styles.charCount}>
-              {productDescription.length}/500
-            </Text>
-          </View>
-
-          {/* Category */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Category</Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => setShowCategoryModal(true)}
-            >
-              <Text
-                style={[
-                  styles.selectButtonText,
-                  !selectedCategory && styles.placeholderText,
-                ]}
-              >
-                {selectedCategory ? selectedCategory.name : "Select a category"}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Sub-Category */}
-          {selectedCategory && (
-            <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>Sub-Category</Text>
-              <TouchableOpacity
-                style={styles.selectButton}
-                onPress={() => setShowSubCategoryModal(true)}
-                disabled={loadingSubCategories}
-              >
-                {loadingSubCategories ? (
-                  <ActivityIndicator size="small" color="#0078D7" />
-                ) : (
-                  <>
-                    <Text
-                      style={[
-                        styles.selectButtonText,
-                        !selectedSubCategory && styles.placeholderText,
-                      ]}
-                    >
-                      {selectedSubCategory
-                        ? selectedSubCategory.name
-                        : subCategories.length > 0
-                          ? "Select a sub-category"
-                          : "No sub-categories"}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Quantity */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Quantity *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., 100"
-              placeholderTextColor="#999"
-              value={productQuantity}
-              onChangeText={setProductQuantity}
-              keyboardType="numeric"
-              maxLength={20}
-            />
-          </View>
-
-          {/* Unit */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Unit *</Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => setShowUnitModal(true)}
-            >
-              <Text
-                style={[
-                  styles.selectButtonText,
-                  !productUnit && styles.placeholderText,
-                ]}
-              >
-                {productUnit || "Select unit"}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Price */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Price *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., 500"
-              placeholderTextColor="#999"
-              value={productPrice}
-              onChangeText={setProductPrice}
-              keyboardType="numeric"
-              maxLength={20}
-            />
-          </View>
-
-          {/* MOQ */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>
-              Minimum Order Quantity (MOQ) *
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., 10 kg"
-              placeholderTextColor="#999"
-              value={productMOQ}
-              onChangeText={setProductMOQ}
-              maxLength={100}
-            />
-          </View>
-
-          {/* Submit */}
           <TouchableOpacity
-            style={[
-              styles.submitButton,
-              submitting && styles.submitButtonDisabled,
-            ]}
+            style={[styles.saveHeaderBtn, submitting && { opacity: 0.5 }]}
             onPress={handleSubmit}
             disabled={submitting}
           >
-            {submitting ? (
-              <View style={styles.submitContent}>
-                <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text style={styles.submitText}>Updating...</Text>
+            {submitting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.saveHeaderBtnText}>Save</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 16, paddingBottom: 48 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ── Basic Details Card ── */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#EBF5FF' }]}>
+                <Ionicons name="cube-outline" size={16} color="#0078D7" />
               </View>
-            ) : (
-              <View style={styles.submitContent}>
-                <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
-                <Text style={styles.submitText}>Update Product</Text>
+              <View>
+                <Text style={styles.cardTitle}>Basic Details</Text>
+                <Text style={styles.cardSubtitle}>Product name & description</Text>
               </View>
+            </View>
+
+            <InputField
+              icon="cube-outline" label="Product Name" required
+              value={productName} onChangeText={setProductName}
+              placeholder="e.g. Organic Wheat Grains" maxLength={50}
+            />
+            <InputField
+              icon="document-text-outline" label="Description"
+              value={productDescription} onChangeText={setProductDescription}
+              placeholder="Describe your product — quality, grade, usage..."
+              multiline maxLength={500}
+            />
+          </View>
+
+          {/* ── Category Card ── */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#F3EEFF' }]}>
+                <Ionicons name="grid-outline" size={16} color="#7C3AED" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Classification</Text>
+                <Text style={styles.cardSubtitle}>Category & sub-category</Text>
+              </View>
+            </View>
+
+            <SelectButton
+              icon="grid-outline" label="Category"
+              value={selectedCategory?.name || ""}
+              placeholder="Select a category"
+              onPress={() => setShowCategoryModal(true)}
+            />
+            {selectedCategory && (
+              <SelectButton
+                icon="list-outline" label="Sub-Category"
+                value={selectedSubCategory?.name || ""}
+                placeholder={subCategories.length > 0 ? "Select a sub-category" : "No sub-categories"}
+                onPress={() => subCategories.length > 0 && setShowSubCategoryModal(true)}
+                loading={loadingSubCategories}
+              />
+            )}
+          </View>
+
+          {/* ── Quantity & Pricing Card ── */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="pricetag-outline" size={16} color="#16A34A" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Quantity & Pricing</Text>
+                <Text style={styles.cardSubtitle}>Stock, unit, price & MOQ</Text>
+              </View>
+            </View>
+
+            {/* Quantity + Unit side by side */}
+            <View style={styles.row2Col}>
+              <View style={{ flex: 1 }}>
+                <InputField
+                  icon="layers-outline" label="Quantity" required
+                  value={productQuantity} onChangeText={setProductQuantity}
+                  placeholder="e.g. 100" keyboardType="numeric" maxLength={20}
+                />
+              </View>
+              <View style={{ width: 12 }} />
+              <View style={{ flex: 1 }}>
+                <SelectButton
+                  icon="scale-outline" label="Unit"
+                  value={productUnit} placeholder="Select unit"
+                  onPress={() => setShowUnitModal(true)}
+                />
+              </View>
+            </View>
+
+            <InputField
+              icon="cash-outline" label="Price (₹)" required
+              value={productPrice} onChangeText={setProductPrice}
+              placeholder="e.g. 2500" keyboardType="numeric" maxLength={20}
+            />
+            <InputField
+              icon="bag-outline" label="Minimum Order Qty (MOQ)" required
+              value={productMOQ} onChangeText={setProductMOQ}
+              placeholder="e.g. 10 kg or 5 boxes" maxLength={100}
+            />
+          </View>
+
+          {/* ── Update Button ── */}
+          <TouchableOpacity
+            style={[styles.saveBtn, submitting && { opacity: 0.6 }]}
+            onPress={handleSubmit}
+            disabled={submitting}
+            activeOpacity={0.85}
+          >
+            {submitting ? <ActivityIndicator color="#fff" /> : (
+              <>
+                <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+                <Text style={styles.saveBtnText}>Update Product</Text>
+              </>
             )}
           </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Category Modal */}
-      <Modal
-        visible={showCategoryModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCategoryModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Category</Text>
-              <TouchableOpacity onPress={() => setShowCategoryModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={categories}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    selectedCategory?.id === item.id &&
-                      styles.modalItemSelected,
-                  ]}
-                  onPress={() => handleCategorySelect(item)}
-                >
-                  <Text style={styles.modalItemText}>{item.name}</Text>
-                  {selectedCategory?.id === item.id && (
-                    <Ionicons name="checkmark" size={20} color="#0078D7" />
-                  )}
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.modalEmptyText}>
-                  No categories available
-                </Text>
-              }
-            />
-          </View>
-        </View>
-      </Modal>
+      {/* ── Category Modal ── */}
+      <PremiumModal visible={showCategoryModal} title="Select Category" icon="grid-outline" onClose={() => setShowCategoryModal(false)}>
+        <FlatList
+          data={categories}
+          keyExtractor={i => i.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8 }}
+          renderItem={({ item }) => (
+            <ModalItem label={item.name} selected={selectedCategory?.id === item.id} onPress={() => handleCategorySelect(item)} />
+          )}
+          ListEmptyComponent={<Text style={styles.emptyText}>No categories found</Text>}
+        />
+      </PremiumModal>
 
-      {/* Sub-Category Modal */}
-      <Modal
-        visible={showSubCategoryModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowSubCategoryModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Sub-Category</Text>
-              <TouchableOpacity onPress={() => setShowSubCategoryModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={subCategories}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    selectedSubCategory?.id === item.id &&
-                      styles.modalItemSelected,
-                  ]}
-                  onPress={() => handleSubCategorySelect(item)}
-                >
-                  <Text style={styles.modalItemText}>{item.name}</Text>
-                  {selectedSubCategory?.id === item.id && (
-                    <Ionicons name="checkmark" size={20} color="#0078D7" />
-                  )}
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.modalEmptyText}>
-                  No sub-categories available
-                </Text>
-              }
-            />
-          </View>
-        </View>
-      </Modal>
+      {/* ── Sub-Category Modal ── */}
+      <PremiumModal visible={showSubCategoryModal} title="Select Sub-Category" icon="list-outline" onClose={() => setShowSubCategoryModal(false)}>
+        <FlatList
+          data={subCategories}
+          keyExtractor={i => i.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8 }}
+          renderItem={({ item }) => (
+            <ModalItem label={item.name} selected={selectedSubCategory?.id === item.id} onPress={() => handleSubCategorySelect(item)} />
+          )}
+          ListEmptyComponent={<Text style={styles.emptyText}>No sub-categories found</Text>}
+        />
+      </PremiumModal>
 
-      {/* Unit Modal */}
-      <Modal
-        visible={showUnitModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowUnitModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Unit</Text>
-              <TouchableOpacity onPress={() => setShowUnitModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={UNIT_OPTIONS}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    productUnit === item && styles.modalItemSelected,
-                  ]}
-                  onPress={() => {
-                    setProductUnit(item);
-                    setShowUnitModal(false);
-                  }}
-                >
-                  <Text style={styles.modalItemText}>{item}</Text>
-                  {productUnit === item && (
-                    <Ionicons name="checkmark" size={20} color="#0078D7" />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
+      {/* ── Unit Modal ── */}
+      <PremiumModal visible={showUnitModal} title="Select Unit" icon="scale-outline" onClose={() => setShowUnitModal(false)}>
+        <FlatList
+          data={UNIT_OPTIONS}
+          keyExtractor={i => i}
+          numColumns={3}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}
+          columnWrapperStyle={{ gap: 8, marginBottom: 8 }}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.unitChip, productUnit === item && styles.unitChipSelected]}
+              onPress={() => { setProductUnit(item); setShowUnitModal(false); }}
+              activeOpacity={0.8}
+            >
+              {productUnit === item && <Ionicons name="checkmark" size={12} color="#fff" />}
+              <Text style={[styles.unitChipText, productUnit === item && styles.unitChipTextSelected]}>{item}</Text>
+            </TouchableOpacity>
+          )}
+        />
+      </PremiumModal>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F5F5F5" },
-  header: {
-    backgroundColor: "#177DDF",
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    textAlign: "center",
-  },
-  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loaderText: { marginTop: 12, fontSize: 16, color: "#666" },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
-  fieldContainer: { marginBottom: 16 },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 15,
-    color: "#1A1A1A",
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-  },
-  textArea: { height: 100, textAlignVertical: "top" },
-  charCount: { fontSize: 12, color: "#999", textAlign: "right", marginTop: 4 },
-  selectButton: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  selectButtonText: { fontSize: 15, color: "#1A1A1A", flex: 1 },
-  placeholderText: { color: "#999" },
-  submitButton: {
-    backgroundColor: "#177DDF",
-    borderRadius: 12,
-    paddingVertical: 16,
-    marginTop: 8,
-    elevation: 3,
-    shadowColor: "#0078D7",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  submitButtonDisabled: { backgroundColor: "#A0C4E8", elevation: 0 },
-  submitContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  submitText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContainer: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "70%",
-    paddingBottom: 20,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-  },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#1A1A1A" },
-  modalItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F8F8F8",
-  },
-  modalItemSelected: { backgroundColor: "#F0F8FF" },
-  modalItemText: { flex: 1, fontSize: 15, color: "#333" },
-  modalEmptyText: {
-    padding: 40,
-    fontSize: 15,
-    color: "#999",
-    textAlign: "center",
-  },
-});
-
 export default EditProductScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F7F9FC' },
+
+  // Header
+  headerWrapper: { backgroundColor: '#0060B8', paddingHorizontal: 20, paddingBottom: 22, overflow: 'hidden', shadowColor: '#003E80', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18 },
+  orb1: { position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: 'rgba(255,255,255,0.06)', top: -80, right: -60 },
+  orb2: { position: 'absolute', width: 160, height: 160, borderRadius: 80, backgroundColor: 'rgba(255,255,255,0.04)', bottom: 5, left: -50 },
+  headerInner: { flexDirection: 'row', alignItems: 'center', paddingTop: 16 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  eyebrow: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.4 },
+  saveHeaderBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', minWidth: 56, alignItems: 'center' },
+  saveHeaderBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+
+  // Loader
+  loaderWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loaderCard: { backgroundColor: '#fff', borderRadius: 24, padding: 36, alignItems: 'center', gap: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 20, elevation: 6 },
+  loaderText: { fontSize: 14, color: '#94A3B8', fontWeight: '600' },
+
+  // Cards
+  card: { backgroundColor: '#fff', borderRadius: 22, padding: 18, shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4, borderWidth: 1, borderColor: '#F0F4F8', marginBottom: 14 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  cardIconWrap: { width: 36, height: 36, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
+  cardTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A', letterSpacing: -0.2 },
+  cardSubtitle: { fontSize: 11, color: '#94A3B8', fontWeight: '500', marginTop: 2 },
+
+  // 2-col row
+  row2Col: { flexDirection: 'row', alignItems: 'flex-start' },
+
+  // Save button
+  saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#0078D7', paddingVertical: 16, borderRadius: 16, shadowColor: '#0078D7', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 7 },
+  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+
+  // Modal items (list)
+  modalItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#F8FAFC' },
+  modalItemSelected: { backgroundColor: '#F0F9FF', borderRadius: 12, paddingHorizontal: 10, marginHorizontal: -10, borderBottomColor: 'transparent' },
+  modalItemIcon: { width: 26, height: 26, borderRadius: 8, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  modalItemIconSelected: { backgroundColor: '#0078D7' },
+  modalItemText: { flex: 1, fontSize: 14, color: '#334155', fontWeight: '600' },
+  modalItemTextSelected: { color: '#0078D7', fontWeight: '700' },
+  selectedPill: { backgroundColor: '#EBF5FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  selectedPillText: { fontSize: 10, color: '#0078D7', fontWeight: '800' },
+  emptyText: { textAlign: 'center', color: '#94A3B8', fontSize: 13, fontWeight: '500', paddingVertical: 30 },
+
+  // Unit chips
+  unitChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 11, paddingHorizontal: 8, backgroundColor: '#F7F9FC', borderRadius: 12, borderWidth: 1.5, borderColor: '#E2E8F0', minWidth: (width - 80) / 3 },
+  unitChipSelected: { backgroundColor: '#0078D7', borderColor: '#0060B8' },
+  unitChipText: { fontSize: 13, fontWeight: '700', color: '#475569', textTransform: 'lowercase' },
+  unitChipTextSelected: { color: '#fff' },
+});

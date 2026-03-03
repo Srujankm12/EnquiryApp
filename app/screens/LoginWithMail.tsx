@@ -1,83 +1,65 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import Constants from "expo-constants";
 import { router } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import React, { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import Constants from "expo-constants";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
+interface FieldErrors { email?: string; password?: string }
 
-interface FieldErrors {
-  email?: string;
-  password?: string;
-}
-
-const LoginScreenMail: React.FC = () => {
+export default function LoginScreenMail() {
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
-  const passwordRef = useRef<TextInput>(null);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [pwFocused, setPwFocused] = useState(false);
+  const pwRef = useRef<TextInput>(null);
 
-  const clearError = (field: keyof FieldErrors) => {
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }));
-    }
+  const clearError = (f: keyof FieldErrors) => {
+    if (errors[f]) setErrors(p => ({ ...p, [f]: undefined }));
   };
 
   const validate = (): boolean => {
-    const newErrors: FieldErrors = {};
-
-    if (email.trim() === "") {
-      newErrors.email = "Email is required";
-    } else if (
-      !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email.trim())
-    ) {
-      newErrors.email = "Enter a valid email address";
-    }
-
-    if (password === "") {
-      newErrors.password = "Password is required";
-    } else if (password.length < 8) {
-      newErrors.password = "Password must be at least 8 characters";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const e: FieldErrors = {};
+    if (!email.trim()) e.email = "Email is required";
+    else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email.trim()))
+      e.email = "Enter a valid email address";
+    if (!password) e.password = "Password is required";
+    else if (password.length < 8) e.password = "At least 8 characters";
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleLogin = async () => {
     if (!validate()) return;
-
     if (!agreeToTerms) {
-      Alert.alert("Error", "Please agree to the terms and conditions");
+      Alert.alert("Terms Required", "Please agree to Terms & Conditions.");
       return;
     }
-
     try {
       setLoading(true);
       const res = await axios.post(`${API_URL}/user/login`, {
-        email: email.trim(),
-        password: password.trim(),
+        email: email.trim(), password: password.trim(),
       });
-
       if (res.data.token) {
         await AsyncStorage.setItem("token", res.data.token);
         router.replace("/(tabs)");
@@ -86,404 +68,329 @@ const LoginScreenMail: React.FC = () => {
       }
     } catch (error: any) {
       if (error.code === "ERR_NETWORK" || error.message === "Network Error") {
-        Alert.alert(
-          "Cannot Reach Server",
-          `Make sure:\n\n1. Your server is running\n2. Your phone and server are on the same network\n\nCurrent URL: ${API_URL}`,
-        );
+        Alert.alert("Cannot Reach Server", `Check your network.\n\nURL: ${API_URL}`);
         return;
       }
-
-      const serverMessage: string = error.response?.data?.error ?? "";
-      const statusCode: number = error.response?.status ?? 0;
-
-      if (
-        statusCode === 401 ||
-        serverMessage.toLowerCase().includes("invalid") ||
-        serverMessage.toLowerCase().includes("password")
-      ) {
-        setErrors({
-          email: " ",
-          password: "Incorrect email or password",
-        });
-      } else if (serverMessage.toLowerCase().includes("email")) {
+      const msg: string = error.response?.data?.error ?? "";
+      const code: number = error.response?.status ?? 0;
+      if (code === 401 || msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("password")) {
+        setErrors({ email: " ", password: "Incorrect email or password" });
+      } else if (msg.toLowerCase().includes("email")) {
         setErrors({ email: "No account found with this email" });
-      } else if (statusCode === 500) {
-        Alert.alert(
-          "Server Error",
-          "The server encountered an error. Please try again later.",
-        );
       } else {
-        Alert.alert(
-          "Login Failed",
-          serverMessage ||
-            `Error ${statusCode || "unknown"} — check console for details`,
-        );
+        Alert.alert("Login Failed", msg || `Error ${code || "unknown"}`);
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  const handleForgotPassword = () => {
-    router.push("/screens/ForgotPasswordScreen" as any);
-  };
+  const emailOk = email.trim() && !errors.email?.trim();
+  const emailErr = !!errors.email?.trim();
+  const pwErr = !!errors.password;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+    // Root stays white — no black gap ever
+    <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+
+      {/*
+       * Same approach as Register: whole page (hero + form) inside
+       * KeyboardAwareScrollView so the hero scrolls up when keyboard opens.
+       * This also prevents any black-bottom gap on navigation back.
+       */}
+      <KeyboardAwareScrollView
+        style={{ flex: 1, backgroundColor: "#0060B8" }}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        extraScrollHeight={Platform.OS === "ios" ? 30 : 60}
+        bounces={false}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          bounces={false}
-        >
-          {/* Logo Section */}
-          <View style={styles.logoContainer}>
-            <Image
-              source={require("../../assets/images/Small Logo.png")}
-              resizeMode="contain"
-              style={styles.logoImage}
-            />
-            <View style={styles.brandTextContainer}>
-              <Text style={styles.brandName}>South Canara</Text>
-              <Text style={styles.brandSubtitle}>Agro Mart</Text>
-              <Text style={styles.brandTagline}>B2B Agri Marketplace</Text>
+        {/* ── Compact Blue Hero ── */}
+        <View style={[s.hero, { paddingTop: insets.top + 12 }]}>
+          <View style={s.orb1} />
+          <View style={s.orb2} />
+
+          {/* Logo + Brand */}
+          <View style={s.brandRow}>
+            <View style={s.logoBox}>
+              <Image
+                source={require("../../assets/images/icon.png")}
+                style={s.logo}
+                resizeMode="contain"
+              />
+            </View>
+            <View>
+              <Text style={s.brandName}>South Canara Agro Mart</Text>
+              <Text style={s.brandTag}>B2B Dry Fruits Marketplace</Text>
             </View>
           </View>
 
-          {/* Title Section */}
-          <View style={styles.titleContainer}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>
-              Sign in with your email and password to continue
-            </Text>
-          </View>
+          <Text style={s.heroHeading}>Welcome Back 👋</Text>
+          <Text style={s.heroSub}>Sign in to access your marketplace</Text>
+        </View>
 
-          {/* Email Input */}
-          <Text style={styles.fieldLabel}>Email Address</Text>
-          <View
-            style={[
-              styles.inputContainer,
-              !!errors.email && errors.email.trim() && styles.inputError,
-            ]}
-          >
-            <Ionicons
-              name="mail-outline"
-              size={20}
-              color={errors.email?.trim() ? "#E53E3E" : "#999"}
-              style={styles.inputIcon}
-            />
+        {/* ── White Form Card (flexGrow fills rest of screen) ── */}
+        <View style={[s.formCard, { paddingBottom: insets.bottom + 28 }]}>
+          <View style={s.handle} />
+
+          {/* Email */}
+          <Text style={s.label}>Email Address</Text>
+          <View style={[
+            s.inputRow,
+            emailFocused && s.inputFocused,
+            emailErr && s.inputError,
+            emailOk && s.inputValid,
+          ]}>
+            <View style={[s.iconBox, emailFocused && s.iconBoxActive]}>
+              <Ionicons
+                name="mail-outline" size={16}
+                color={emailErr ? "#EF4444" : emailFocused ? "#0078D7" : "#94A3B8"}
+              />
+            </View>
             <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor="#B0B0B0"
+              style={s.input}
+              placeholder="you@example.com"
+              placeholderTextColor="#CBD5E1"
               value={email}
-              onChangeText={(v) => {
-                setEmail(v);
-                clearError("email");
-              }}
+              onChangeText={v => { setEmail(v); clearError("email"); }}
               keyboardType="email-address"
               autoCapitalize="none"
-              autoComplete="email"
               autoCorrect={false}
               returnKeyType="next"
-              onSubmitEditing={() => passwordRef.current?.focus()}
+              onFocus={() => setEmailFocused(true)}
+              onBlur={() => setEmailFocused(false)}
+              onSubmitEditing={() => pwRef.current?.focus()}
             />
-            {!!errors.email?.trim() && (
-              <Ionicons name="alert-circle" size={18} color="#E53E3E" />
-            )}
+            {emailOk && <Ionicons name="checkmark-circle" size={18} color="#10B981" />}
+            {emailErr && <Ionicons name="alert-circle" size={18} color="#EF4444" />}
           </View>
-          {!!errors.email?.trim() && (
-            <Text style={styles.errorText}>{errors.email}</Text>
-          )}
+          {emailErr && <Text style={s.err}>{errors.email}</Text>}
 
-          {/* Password Input */}
-          <Text style={styles.fieldLabel}>Password</Text>
-          <View
-            style={[
-              styles.inputContainer,
-              !!errors.password && styles.inputError,
-            ]}
-          >
-            <Ionicons
-              name="lock-closed-outline"
-              size={20}
-              color={errors.password ? "#E53E3E" : "#999"}
-              style={styles.inputIcon}
-            />
+          {/* Password */}
+          <View style={s.labelRow}>
+            <Text style={s.label}>Password</Text>
+            <TouchableOpacity onPress={() => router.push("/screens/ForgotPasswordScreen" as any)}>
+              <Text style={s.forgot}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={[
+            s.inputRow,
+            pwFocused && s.inputFocused,
+            pwErr && s.inputError,
+          ]}>
+            <View style={[s.iconBox, pwFocused && s.iconBoxActive]}>
+              <Ionicons
+                name="lock-closed-outline" size={16}
+                color={pwErr ? "#EF4444" : pwFocused ? "#0078D7" : "#94A3B8"}
+              />
+            </View>
             <TextInput
-              ref={passwordRef}
-              style={[styles.input, { paddingRight: 44 }]}
-              placeholder="Enter your password"
-              placeholderTextColor="#B0B0B0"
+              ref={pwRef}
+              style={s.input}
+              placeholder="Min 8 characters"
+              placeholderTextColor="#CBD5E1"
               value={password}
-              onChangeText={(v) => {
-                setPassword(v);
-                clearError("password");
-              }}
-              secureTextEntry={!isPasswordVisible}
+              onChangeText={v => { setPassword(v); clearError("password"); }}
+              secureTextEntry={!showPw}
               autoCapitalize="none"
-              autoComplete="password"
               returnKeyType="done"
+              onFocus={() => setPwFocused(true)}
+              onBlur={() => setPwFocused(false)}
               onSubmitEditing={handleLogin}
             />
-            <TouchableOpacity
-              style={styles.eyeIcon}
-              onPress={() => setIsPasswordVisible(!isPasswordVisible)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
+            <TouchableOpacity onPress={() => setShowPw(p => !p)} style={{ padding: 4 }}>
               <Ionicons
-                name={isPasswordVisible ? "eye-outline" : "eye-off-outline"}
-                size={20}
-                color="#999"
+                name={showPw ? "eye-outline" : "eye-off-outline"}
+                size={18} color="#94A3B8"
               />
             </TouchableOpacity>
           </View>
-          {errors.password && (
-            <Text style={styles.errorText}>{errors.password}</Text>
-          )}
+          {pwErr && <Text style={s.err}>{errors.password}</Text>}
 
-          {/* Forgot Password */}
+          {/* Terms */}
           <TouchableOpacity
-            onPress={handleForgotPassword}
-            style={styles.forgotPasswordContainer}
+            style={s.checkRow}
+            onPress={() => setAgreeToTerms(p => !p)}
+            activeOpacity={0.8}
           >
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          {/* Terms and Conditions */}
-          <TouchableOpacity
-            style={styles.checkboxContainer}
-            onPress={() => setAgreeToTerms(!agreeToTerms)}
-            activeOpacity={0.7}
-          >
-            <View
-              style={[styles.checkbox, agreeToTerms && styles.checkboxChecked]}
-            >
-              {agreeToTerms && (
-                <Ionicons name="checkmark" size={14} color="#FFF" />
-              )}
+            <View style={[s.checkbox, agreeToTerms && s.checkboxOn]}>
+              {agreeToTerms && <Ionicons name="checkmark" size={12} color="#fff" />}
             </View>
-            <Text style={styles.checkboxLabel}>
-              I agree to the{" "}
-              <Text style={styles.termsLink}>Terms & Conditions</Text>
+            <Text style={s.checkLabel}>
+              I agree to the <Text style={s.checkLink}>Terms & Conditions</Text>
             </Text>
           </TouchableOpacity>
 
-          {/* Login Button */}
+          {/* Sign In CTA */}
           <TouchableOpacity
-            style={[
-              styles.submitButton,
-              (!agreeToTerms || loading) && styles.submitButtonDisabled,
-            ]}
+            style={[s.ctaBtn, (!agreeToTerms || loading) && s.ctaDisabled]}
             onPress={handleLogin}
-            activeOpacity={0.8}
             disabled={!agreeToTerms || loading}
+            activeOpacity={0.88}
           >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.submitButtonText}>Sign In</Text>
-            )}
+            {loading
+              ? <ActivityIndicator color="#fff" size="small" />
+              : (
+                <View style={s.ctaInner}>
+                  <Text style={s.ctaText}>Sign In</Text>
+                  <View style={s.ctaArrow}>
+                    <Ionicons name="arrow-forward" size={16} color="#0078D7" />
+                  </View>
+                </View>
+              )
+            }
           </TouchableOpacity>
 
-          {/* Register Link */}
-          <View style={styles.registerContainer}>
-            <Text style={styles.registerText}>Don't have an account? </Text>
-            <TouchableOpacity
-              onPress={() => router.push("/screens/RegisterScreen")}
-            >
-              <Text style={styles.registerLink}>Create Account</Text>
-            </TouchableOpacity>
+          {/* Divider */}
+          <View style={s.divider}>
+            <View style={s.divLine} />
+            <Text style={s.divText}>New to Agro Mart?</Text>
+            <View style={s.divLine} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-};
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContainer: {
+          {/* Create Account */}
+          <TouchableOpacity
+            style={s.outlineBtn}
+            onPress={() => router.push("/screens/RegisterScreen")}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="person-add-outline" size={17} color="#0078D7" />
+            <Text style={s.outlineBtnText}>Create Account</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAwareScrollView>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  scrollContent: {
     flexGrow: 1,
+    // Blue background shows behind the white card's rounded corners
+    // — this is what creates the curved header effect (same as Register)
+    backgroundColor: "#0060B8",
+  },
+
+  /* Hero */
+  hero: {
+    backgroundColor: "#0060B8",
+    paddingHorizontal: 22,
+    paddingBottom: 44,
+    overflow: "hidden",
+  },
+  orb1: {
+    position: "absolute", width: 280, height: 280, borderRadius: 140,
+    backgroundColor: "rgba(255,255,255,0.05)", top: -90, right: -70,
+  },
+  orb2: {
+    position: "absolute", width: 170, height: 170, borderRadius: 85,
+    backgroundColor: "rgba(255,255,255,0.04)", bottom: -50, left: -50,
+  },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 24 },
+  logoBox: {
+    width: 46, height: 46, borderRadius: 14,
+    backgroundColor: "#fff",
+    justifyContent: "center", alignItems: "center",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15, shadowRadius: 8, elevation: 5,
+  },
+  logo: { width: 32, height: 32 },
+  brandName: { fontSize: 15, fontWeight: "800", color: "#fff", letterSpacing: -0.1 },
+  brandTag: { fontSize: 11, color: "rgba(255,255,255,0.6)", fontWeight: "500", marginTop: 1 },
+  heroHeading: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: -0.5, marginBottom: 6 },
+  heroSub: { fontSize: 13, color: "rgba(255,255,255,0.65)" },
+
+  /* Form card */
+  formCard: {
+    flexGrow: 1,           // stretches to fill all space below hero
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
+    paddingTop: 12,
   },
-  logoContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 36,
+  handle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: "#E2E8F0",
+    alignSelf: "center", marginBottom: 28,
   },
-  logoImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
-    marginRight: 14,
+
+  /* Fields */
+  label: {
+    fontSize: 12, fontWeight: "700", color: "#374151",
+    marginBottom: 8, marginTop: 10,
   },
-  brandTextContainer: {
-    flex: 1,
+  labelRow: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8, marginTop: 10,
   },
-  brandName: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    letterSpacing: 0.3,
+  forgot: { fontSize: 13, fontWeight: "700", color: "#0078D7" },
+  inputRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#F8FAFC", borderRadius: 14,
+    borderWidth: 1.5, borderColor: "#E2E8F0",
+    paddingHorizontal: 12, height: 54,
   },
-  brandSubtitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    letterSpacing: 0.3,
+  inputFocused: { borderColor: "#0078D7", backgroundColor: "#EFF6FF" },
+  inputError: { borderColor: "#EF4444", backgroundColor: "#FFF5F5" },
+  inputValid: { borderColor: "#10B981", backgroundColor: "#F0FFF4" },
+  iconBox: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center", alignItems: "center",
   },
-  brandTagline: {
-    fontSize: 13,
-    color: "#888",
-    marginTop: 2,
-    fontWeight: "500",
-  },
-  titleContainer: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#888",
-    lineHeight: 20,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#2C3E50",
-    marginBottom: 8,
-  },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F8F9FA",
-    borderRadius: 12,
-    marginBottom: 4,
-    paddingHorizontal: 14,
-    height: 52,
-    borderWidth: 1.5,
-    borderColor: "#E8E8E8",
-  },
-  inputError: {
-    borderColor: "#E53E3E",
-    backgroundColor: "#FFF5F5",
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    color: "#1A1A1A",
-  },
-  eyeIcon: {
-    position: "absolute",
-    right: 14,
-    padding: 4,
-  },
-  errorText: {
-    fontSize: 12,
-    color: "#E53E3E",
-    marginBottom: 12,
-    marginLeft: 4,
-  },
-  forgotPasswordContainer: {
-    alignSelf: "flex-end",
-    marginBottom: 20,
-    marginTop: 8,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    color: "#0078D7",
-    fontWeight: "600",
-  },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 24,
+  iconBoxActive: { backgroundColor: "#DBEAFE" },
+  input: { flex: 1, fontSize: 15, color: "#0F172A", fontWeight: "500" },
+  err: { fontSize: 12, color: "#EF4444", fontWeight: "600", marginTop: 5, marginLeft: 2 },
+
+  /* Terms */
+  checkRow: {
+    flexDirection: "row", alignItems: "center",
+    gap: 12, marginTop: 20, marginBottom: 22,
   },
   checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "#D0D0D0",
-    marginRight: 10,
-    marginTop: 2,
-    justifyContent: "center",
-    alignItems: "center",
+    width: 22, height: 22, borderRadius: 7,
+    borderWidth: 2, borderColor: "#CBD5E1",
+    justifyContent: "center", alignItems: "center",
   },
-  checkboxChecked: {
-    backgroundColor: "#0078D7",
-    borderColor: "#0078D7",
-  },
-  checkboxLabel: {
-    flex: 1,
-    fontSize: 13,
-    color: "#888",
-    lineHeight: 20,
-  },
-  termsLink: {
-    color: "#0078D7",
-    fontWeight: "600",
-  },
-  submitButton: {
-    backgroundColor: "#0078D7",
-    borderRadius: 12,
-    height: 52,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 28,
-    shadowColor: "#0078D7",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  submitButtonDisabled: {
-    backgroundColor: "#B0C4DE",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  submitButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
-  registerContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  registerText: {
-    fontSize: 14,
-    color: "#888",
-  },
-  registerLink: {
-    fontSize: 14,
-    color: "#0078D7",
-    fontWeight: "700",
-  },
-});
+  checkboxOn: { backgroundColor: "#0078D7", borderColor: "#0078D7" },
+  checkLabel: { flex: 1, fontSize: 13, color: "#64748B" },
+  checkLink: { color: "#0078D7", fontWeight: "700" },
 
-export default LoginScreenMail;
+  /* CTA */
+  ctaBtn: {
+    backgroundColor: "#0078D7",
+    borderRadius: 16, height: 56,
+    justifyContent: "center", alignItems: "center",
+    marginBottom: 24,
+    shadowColor: "#0060B8",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3, shadowRadius: 16, elevation: 10,
+  },
+  ctaDisabled: { backgroundColor: "#94A3B8", shadowOpacity: 0 },
+  ctaInner: { flexDirection: "row", alignItems: "center", gap: 14 },
+  ctaText: { fontSize: 16, fontWeight: "800", color: "#fff", letterSpacing: 0.3 },
+  ctaArrow: {
+    width: 28, height: 28, borderRadius: 8,
+    backgroundColor: "#fff",
+    justifyContent: "center", alignItems: "center",
+  },
+
+  /* Divider */
+  divider: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
+  divLine: { flex: 1, height: 1, backgroundColor: "#F1F5F9" },
+  divText: { fontSize: 12, color: "#94A3B8", fontWeight: "600" },
+
+  /* Outline button */
+  outlineBtn: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 8,
+    height: 52, borderRadius: 16,
+    borderWidth: 1.5, borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+  },
+  outlineBtnText: { fontSize: 15, fontWeight: "800", color: "#0078D7" },
+});

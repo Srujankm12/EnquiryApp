@@ -12,6 +12,7 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -49,6 +50,7 @@ const QUICK_ACTIONS = [
     route: "/pages/requestQutation",
     color: "#0078D7",
     bg: "#EBF5FF",
+    gradientStart: "#0078D7",
   },
   {
     id: "2",
@@ -57,6 +59,7 @@ const QUICK_ACTIONS = [
     route: "/pages/bussinesLeads",
     color: "#7C3AED",
     bg: "#F3EEFF",
+    gradientStart: "#7C3AED",
   },
   {
     id: "3",
@@ -65,21 +68,31 @@ const QUICK_ACTIONS = [
     route: "/pages/followers",
     color: "#059669",
     bg: "#ECFDF5",
+    gradientStart: "#059669",
   },
   {
     id: "4",
-    icon: "people-outline" as const,
+    icon: "storefront-outline" as const,
     label: "Sellers",
     route: "/pages/sellerDirectory",
     color: "#D97706",
-    bg: "#FFFBEB",
+    bg: "#FFF7ED",
+    gradientStart: "#D97706",
   },
+];
+
+/* ─── Category placeholder colours cycling ─── */
+const CAT_COLORS = [
+  { bg: "#EBF5FF", icon: "#0078D7" },
+  { bg: "#F3EEFF", icon: "#7C3AED" },
+  { bg: "#ECFDF5", icon: "#059669" },
+  { bg: "#FFF7ED", icon: "#D97706" },
+  { bg: "#FFF1F2", icon: "#E11D48" },
+  { bg: "#F0FDFA", icon: "#0D9488" },
 ];
 
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -93,23 +106,35 @@ const HomeScreen = () => {
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
   const [activeBanner, setActiveBanner] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [greeting, setGreeting] = useState({ text: "", emoji: "" });
+
+  /* subtle pulse animation for the online dot */
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    loadData();
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 60,
-        friction: 9,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.4, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
   }, []);
+
+  const getGreeting = () => {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 12) return { text: "Good Morning", emoji: "☀️" };
+    if (h >= 12 && h < 17) return { text: "Good Afternoon", emoji: "🌤️" };
+    if (h >= 17 && h < 21) return { text: "Good Evening", emoji: "🌇" };
+    return { text: "Good Night", emoji: "🌙" };
+  };
+
+  useEffect(() => {
+    setGreeting(getGreeting());
+    const t = setInterval(() => setGreeting(getGreeting()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => { loadData(); }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -122,12 +147,7 @@ const HomeScreen = () => {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([
-      fetchAllProducts(),
-      fetchFollowerProducts(),
-      fetchCategories(),
-      checkSellerStatus(),
-    ]);
+    await Promise.all([fetchAllProducts(), fetchFollowerProducts(), fetchCategories(), checkSellerStatus()]);
     setRefreshing(false);
   }, []);
 
@@ -139,10 +159,7 @@ const HomeScreen = () => {
     try {
       const s = await AsyncStorage.getItem("sellerStatus");
       const n = s?.toLowerCase()?.trim() || null;
-      if (n === "approved" || n === "accepted" || n === "active") {
-        setSellerStatus("approved");
-        return;
-      }
+      if (n === "approved" || n === "accepted" || n === "active") { setSellerStatus("approved"); return; }
       setSellerStatus(n);
       const token = await AsyncStorage.getItem("token");
       if (token) {
@@ -151,9 +168,7 @@ const HomeScreen = () => {
         if (bId) {
           await AsyncStorage.setItem("companyId", bId);
           try {
-            const r = await fetch(`${API_URL}/business/status/${bId}`, {
-              headers: { "Content-Type": "application/json" },
-            });
+            const r = await fetch(`${API_URL}/business/status/${bId}`, { headers: { "Content-Type": "application/json" } });
             if (r.ok) {
               const d = await r.json();
               if (d?.is_approved === true || d?.is_business_approved === true) {
@@ -161,20 +176,15 @@ const HomeScreen = () => {
                 setSellerStatus("approved");
               }
             }
-          } catch {}
+          } catch { }
         }
       }
-    } catch {}
+    } catch { }
   };
 
   const loadData = async () => {
     setLoading(true);
-    await Promise.all([
-      getProfile(),
-      fetchCategories(),
-      fetchAllProducts(),
-      fetchFollowerProducts(),
-    ]);
+    await Promise.all([getProfile(), fetchCategories(), fetchAllProducts(), fetchFollowerProducts()]);
     setLoading(false);
   };
 
@@ -186,38 +196,45 @@ const HomeScreen = () => {
       if (dec.user_name) setJwtUserName(dec.user_name);
       setCurrentUserId(dec.user_id || "");
       try {
-        const res = await axios.get(`${API_URL}/user/get/user/${dec.user_id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await axios.get(`${API_URL}/user/get/user/${dec.user_id}`, { headers: { Authorization: `Bearer ${token}` } });
         setUserDetails(res.data?.user || res.data);
-      } catch {}
-    } catch {}
+      } catch { }
+    } catch { }
   };
 
   const fetchCategories = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
-      const res = await axios.get(`${API_URL}/category/get/all`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await axios.get(`${API_URL}/category/get/all`, { headers: { Authorization: `Bearer ${token}` } });
       setCategories(res.data?.categories || []);
-    } catch {}
+    } catch { }
   };
 
   const fetchAllProducts = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
-      const res = await axios.get(`${API_URL}/product/get/all`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const dec: any = jwtDecode(token);
+      const myUserId = String(dec.user_id || "");
+      const myBizId = String(dec.business_id || "");
+      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
+      const res = await axios.get(`${API_URL}/product/get/all`, { headers: { Authorization: `Bearer ${token}` } });
       const raw: any[] = res.data?.products || [];
+      /* ── Exclude OWN products by user_id OR business_id ── */
       setAllProducts(
-        raw.filter((p) => p.is_product_active !== false).slice(0, 10),
+        raw
+          .filter((p) => {
+            if (p.is_product_active === false) return false;
+            const pUid = String(p.user_id || "");
+            const pBid = String(p.business_id || "");
+            if (myUserId && pUid === myUserId) return false;
+            if (myBizId && pBid === myBizId) return false;
+            if (storedBizId && pBid === storedBizId) return false;
+            return true;
+          })
+          .slice(0, 20),
       );
-    } catch {
-      setAllProducts([]);
-    }
+    } catch { setAllProducts([]); }
   };
 
   const fetchFollowerProducts = async () => {
@@ -225,33 +242,43 @@ const HomeScreen = () => {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
       const dec: any = jwtDecode(token);
-      const res = await axios.get(
-        `${API_URL}/product/get/followers/${dec.user_id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const myUserId = String(dec.user_id || "");
+      const myBizId = String(dec.business_id || "");
+      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
+      const res = await axios.get(`${API_URL}/product/get/followers/${dec.user_id}`, { headers: { Authorization: `Bearer ${token}` } });
       const raw: any[] = res.data?.products || [];
+      /* ── Exclude OWN products by user_id OR business_id ── */
       setFollowerProducts(
-        raw.filter((p) => p.is_product_active !== false).slice(0, 10),
+        raw
+          .filter((p) => {
+            if (p.is_product_active === false) return false;
+            const pUid = String(p.user_id || "");
+            const pBid = String(p.business_id || "");
+            if (myUserId && pUid === myUserId) return false;
+            if (myBizId && pBid === myBizId) return false;
+            if (storedBizId && pBid === storedBizId) return false;
+            return true;
+          })
+          .slice(0, 20),
       );
-    } catch {
-      setFollowerProducts([]);
-    }
+    } catch { setFollowerProducts([]); }
   };
 
   const getProductImage = (product: any): string | null => {
-    if (product.product_images?.length > 0)
-      return getImageUri(product.product_images[0].image);
+    if (product.product_images?.length > 0) return getImageUri(product.product_images[0].image);
     return null;
   };
 
+  /* ─── LOADING SCREEN ─── */
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
         <View style={styles.loaderCard}>
-          <ActivityIndicator size="large" color="#0078D7" />
-          <Text style={styles.loaderText}>Loading...</Text>
+          <View style={styles.loaderIconWrap}>
+            <ActivityIndicator size="large" color="#0078D7" />
+          </View>
+          <Text style={styles.loaderTitle}>Preparing your feed</Text>
+          <Text style={styles.loaderText}>Finding the best deals for you…</Text>
         </View>
       </View>
     );
@@ -265,80 +292,80 @@ const HomeScreen = () => {
 
   const hasAnyProducts = allProducts.length > 0 || followerProducts.length > 0;
 
-  const ProductCard = ({
-    item,
-    onPress,
-  }: {
-    item: any;
-    onPress: () => void;
-  }) => {
+  /* ─── PREMIUM PRODUCT CARD ─── */
+  const ProductCard = ({ item, onPress }: { item: any; onPress: () => void }) => {
     const img = getProductImage(item);
+    const desc = item.product_description || item.description || "";
     return (
-      <TouchableOpacity
-        style={styles.productCard}
-        activeOpacity={0.93}
-        onPress={onPress}
-      >
+      <TouchableOpacity style={styles.productCard} activeOpacity={0.9} onPress={onPress}>
+
+        {/* ── IMAGE (full-width, tall) ── */}
         <View style={styles.productImgWrap}>
           {img ? (
-            <Image
-              source={{ uri: img }}
-              style={styles.productImg}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: img }} style={styles.productImg} resizeMode="cover" />
           ) : (
             <View style={styles.productImgPlaceholder}>
-              <Ionicons name="cube-outline" size={36} color="#D1D9E2" />
+              <Ionicons name="image-outline" size={40} color="#B8C8DC" />
+              <Text style={styles.noImgText}>No Image</Text>
             </View>
           )}
+          {/* Active badge - top left */}
           <View style={styles.activePill}>
             <View style={styles.activeDot} />
             <Text style={styles.activeText}>Active</Text>
           </View>
+          {/* Category chip - top right */}
           {item.category_name && (
             <View style={styles.categoryPillImg}>
-              <Text style={styles.categoryPillImgText} numberOfLines={1}>
-                {item.category_name}
-              </Text>
+              <Text style={styles.categoryPillImgText} numberOfLines={1}>{item.category_name}</Text>
             </View>
           )}
         </View>
+
+        {/* ── CONTENT BODY ── */}
         <View style={styles.productBody}>
-          <Text style={styles.productName} numberOfLines={2}>
-            {item.name}
-          </Text>
+
+          {/* Product name - large + bold */}
+          <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
+
+          {/* Seller row */}
           {item.business_name && (
             <View style={styles.bizRow}>
-              <Ionicons name="storefront-outline" size={10} color="#A0AEC0" />
-              <Text style={styles.bizName} numberOfLines={1}>
-                {item.business_name}
-              </Text>
+              <Ionicons name="storefront-outline" size={11} color="#0078D7" />
+              <Text style={styles.bizName} numberOfLines={1}>{item.business_name}</Text>
+              {item.city ? (
+                <>
+                  <Text style={styles.bizDot}>·</Text>
+                  <Ionicons name="location-outline" size={10} color="#94A3B8" />
+                  <Text style={styles.bizCity} numberOfLines={1}>{item.city}</Text>
+                </>
+              ) : null}
             </View>
           )}
-          {item.product_description ? (
-            <Text style={styles.productDesc} numberOfLines={2}>
-              {item.product_description}
-            </Text>
-          ) : (
-            <View style={{ height: 4 }} />
-          )}
+
+          {/* Description */}
+          {desc ? (
+            <Text style={styles.productDesc} numberOfLines={3}>{desc}</Text>
+          ) : null}
+
           <View style={styles.separator} />
+
+          {/* Price + CTA */}
           <View style={styles.priceRow}>
             <View>
-              <Text style={styles.priceLabel}>PRICE</Text>
+              <Text style={styles.priceLabel}>BEST PRICE</Text>
               <View style={styles.priceValueRow}>
                 <Text style={styles.priceCurrency}>₹</Text>
-                <Text style={styles.priceValue}>{item.price}</Text>
-                <Text style={styles.priceUnit}>/{item.unit}</Text>
+                <Text style={styles.priceValue}>
+                  {Number(item.price).toLocaleString('en-IN')}
+                </Text>
+                {item.unit ? <Text style={styles.priceUnit}>/{item.unit}</Text> : null}
               </View>
+              {item.moq ? <Text style={styles.moqText}>MOQ: {item.moq}</Text> : null}
             </View>
-            <TouchableOpacity
-              style={styles.enquireBtn}
-              onPress={onPress}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.enquireBtnText}>Enquire</Text>
-              <Ionicons name="arrow-forward" size={11} color="#0078D7" />
+            <TouchableOpacity style={styles.enquireBtn} onPress={onPress} activeOpacity={0.82}>
+              <Text style={styles.enquireBtnText}>Enquire Now</Text>
+              <Ionicons name="arrow-forward" size={12} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -346,9 +373,10 @@ const HomeScreen = () => {
     );
   };
 
+  /* ─── MAIN RETURN ─── */
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0078D7" />
+      <StatusBar barStyle="light-content" backgroundColor="#005BB5" />
 
       {sellerStatus !== "approved" &&
         sellerStatus !== "accepted" &&
@@ -360,34 +388,34 @@ const HomeScreen = () => {
           />
         )}
 
-      {/* ── ULTRA PREMIUM HEADER ── */}
+      {/* ══════════════ ULTRA PREMIUM HEADER ══════════════ */}
       <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
-        {/* Layered decorative orbs */}
-        <View style={styles.headerOrb1} />
-        <View style={styles.headerOrb2} />
-        <View style={styles.headerOrb3} />
+        {/* Decorative blobs */}
+        <View style={styles.blob1} />
+        <View style={styles.blob2} />
+        <View style={styles.blob3} />
+        <View style={styles.blob4} />
 
         {/* Top Row */}
         <View style={styles.headerInner}>
           <View style={styles.headerLeft}>
+            {/* Avatar */}
             <View style={styles.avatarWrapper}>
               <View style={styles.avatarRing}>
                 <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>
-                    {displayName.charAt(0).toUpperCase()}
-                  </Text>
+                  <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
                 </View>
               </View>
-              <View style={styles.avatarOnlineDot} />
+              <Animated.View style={[styles.avatarOnlineDot, { transform: [{ scale: pulseAnim }] }]} />
             </View>
+
+            {/* Greeting + Name */}
             <View style={{ flex: 1 }}>
               <View style={styles.greetingRow}>
-                <Text style={styles.headerGreeting}>Good morning </Text>
-                <Text style={styles.greetingEmoji}>☀️</Text>
+                <Text style={styles.headerGreeting}>{greeting.text} </Text>
+                <Text style={styles.greetingEmoji}>{greeting.emoji}</Text>
               </View>
-              <Text style={styles.headerName} numberOfLines={1}>
-                {displayName}
-              </Text>
+              <Text style={styles.headerName} numberOfLines={1}>{displayName}</Text>
               <View style={styles.headerBadge}>
                 <View style={styles.headerBadgeDot} />
                 <Text style={styles.headerBadgeText}>Active Trader</Text>
@@ -395,23 +423,11 @@ const HomeScreen = () => {
             </View>
           </View>
 
+          {/* Right icons */}
           <View style={styles.headerRight}>
             <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.75}>
-              <Ionicons
-                name="notifications-outline"
-                size={19}
-                color="#FFFFFF"
-              />
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>3</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.75}>
-              <Ionicons
-                name="chatbox-ellipses-outline"
-                size={19}
-                color="#FFFFFF"
-              />
+              <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
+              <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>3</Text></View>
             </TouchableOpacity>
           </View>
         </View>
@@ -423,31 +439,24 @@ const HomeScreen = () => {
           </View>
           <TextInput
             style={styles.headerSearchInput}
-            placeholder="Search products, sellers, categories..."
+            placeholder="Search products, sellers, categories…"
             placeholderTextColor="#94A3B8"
           />
           <TouchableOpacity style={styles.searchFilterBtn} activeOpacity={0.8}>
             <Ionicons name="options-outline" size={15} color="#0078D7" />
           </TouchableOpacity>
         </View>
-
-        {/* Bottom curved mask */}
       </View>
 
-      <Animated.ScrollView
-        style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}
+      {/* ══════════════ SCROLL CONTENT ══════════════ */}
+      <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 32 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: 36 + insets.bottom }}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={["#0078D7"]}
-            tintColor="#0078D7"
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#0078D7"]} tintColor="#0078D7" />
         }
       >
-        {/* Banners */}
+        {/* ── BANNER CAROUSEL ── */}
         <FlatList
           data={BANNERS}
           horizontal
@@ -455,61 +464,57 @@ const HomeScreen = () => {
           showsHorizontalScrollIndicator={false}
           snapToInterval={width - 32}
           decelerationRate="fast"
-          style={{ marginTop: 16 }}
+          style={{ marginTop: 18 }}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
           onMomentumScrollEnd={(e) =>
-            setActiveBanner(
-              Math.round(e.nativeEvent.contentOffset.x / (width - 32)),
-            )
+            setActiveBanner(Math.round(e.nativeEvent.contentOffset.x / (width - 32)))
           }
           renderItem={({ item }) => (
             <View style={styles.bannerCard}>
-              <Image
-                source={item.image}
-                style={styles.bannerImg}
-                resizeMode="cover"
-              />
-              <View style={styles.bannerShine} />
+              <Image source={item.image} style={styles.bannerImg} resizeMode="cover" />
+              <View style={styles.bannerShineTop} />
             </View>
           )}
           keyExtractor={(i) => i.id}
         />
         <View style={styles.dotsRow}>
           {BANNERS.map((_, i) => (
-            <View
-              key={i}
-              style={[styles.dot, i === activeBanner && styles.dotActive]}
-            />
+            <View key={i} style={[styles.dot, i === activeBanner && styles.dotActive]} />
           ))}
         </View>
 
-        {/* Quick Actions */}
-        <View style={styles.quickSection}>
-          <Text style={styles.quickTitle}>Quick Actions</Text>
-          <View style={styles.quickGrid}>
+        {/* ── QUICK ACTIONS ── */}
+        <View style={styles.qaSection}>
+          <View style={styles.qaHeaderRow}>
+            <Text style={styles.qaTitle}>Quick Actions</Text>
+            <View style={styles.qaTitleAccent} />
+          </View>
+          <View style={styles.qaGrid}>
             {QUICK_ACTIONS.map((a) => (
               <TouchableOpacity
                 key={a.id}
-                style={styles.quickItem}
-                activeOpacity={0.8}
+                style={styles.qaItem}
+                activeOpacity={0.78}
                 onPress={() => router.push(a.route as any)}
               >
-                <View style={[styles.quickIconWrap, { backgroundColor: a.bg }]}>
-                  <Ionicons name={a.icon} size={22} color={a.color} />
+                <View style={[styles.qaIconOuter, { borderColor: a.color + "22" }]}>
+                  <View style={[styles.qaIconInner, { backgroundColor: a.bg }]}>
+                    <Ionicons name={a.icon} size={24} color={a.color} />
+                  </View>
                 </View>
-                <Text style={styles.quickLabel}>{a.label}</Text>
+                <Text style={[styles.qaLabel, { color: a.color }]}>{a.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* Categories */}
+        {/* ── CATEGORIES ── */}
         {categories.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View>
                 <Text style={styles.sectionTitle}>Categories</Text>
-                <Text style={styles.sectionSubtitle}>Browse by type</Text>
+                <Text style={styles.sectionSubtitle}>Browse by product type</Text>
               </View>
               <TouchableOpacity
                 style={styles.viewAllChip}
@@ -524,66 +529,66 @@ const HomeScreen = () => {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.catCard}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/pages/specificCategory",
-                      params: { id: item.id, name: item.name },
-                    })
-                  }
-                >
-                  {item.category_image ? (
-                    <Image
-                      source={{ uri: getImageUri(item.category_image)! }}
-                      style={styles.catImg}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={[styles.catImg, styles.catImgPlaceholder]}>
-                      <Ionicons name="leaf-outline" size={24} color="#0078D7" />
+              renderItem={({ item, index }) => {
+                const cc = CAT_COLORS[index % CAT_COLORS.length];
+                return (
+                  <TouchableOpacity
+                    style={styles.catCard}
+                    activeOpacity={0.82}
+                    onPress={() =>
+                      router.push({ pathname: "/pages/specificCategory", params: { id: item.id, name: item.name } })
+                    }
+                  >
+                    {item.category_image ? (
+                      <Image
+                        source={{ uri: getImageUri(item.category_image)! }}
+                        style={styles.catImg}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[styles.catImg, { backgroundColor: cc.bg, justifyContent: "center", alignItems: "center" }]}>
+                        <Ionicons name="leaf-outline" size={30} color={cc.icon} />
+                      </View>
+                    )}
+                    {/* Dark gradient label */}
+                    <View style={styles.catOverlay}>
+                      <Text style={styles.catLabel} numberOfLines={2}>{item.name}</Text>
                     </View>
-                  )}
-                  <View style={styles.catLabelWrap}>
-                    <Text style={styles.catLabel} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+                  </TouchableOpacity>
+                );
+              }}
               keyExtractor={(i) => i.id}
             />
           </View>
         )}
 
-        {/* Stats Bar */}
-        <View style={styles.statsBar}>
-          <View style={styles.statItem}>
+        {/* ── STATS STRIP ── */}
+        <View style={styles.statsStrip}>
+          <View style={styles.statCell}>
+            <Ionicons name="cube-outline" size={18} color="#fff" style={{ marginBottom: 3 }} />
             <Text style={styles.statValue}>{allProducts.length}+</Text>
             <Text style={styles.statLabel}>Products</Text>
           </View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}>
+          <View style={styles.statCell}>
+            <Ionicons name="layers-outline" size={18} color="#fff" style={{ marginBottom: 3 }} />
             <Text style={styles.statValue}>{categories.length}+</Text>
             <Text style={styles.statLabel}>Categories</Text>
           </View>
           <View style={styles.statDivider} />
-          <View style={styles.statItem}>
+          <View style={styles.statCell}>
+            <Ionicons name="people-outline" size={18} color="#fff" style={{ marginBottom: 3 }} />
             <Text style={styles.statValue}>{followerProducts.length}+</Text>
-            <Text style={styles.statLabel}>Following</Text>
+            <Text style={styles.statLabel}>From Network</Text>
           </View>
         </View>
 
-        {/* All Products */}
+        {/* ── ALL PRODUCTS ── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionTitle}>All Products</Text>
-              <Text style={styles.sectionSubtitle}>
-                Discover what's available
-              </Text>
+              <Text style={styles.sectionSubtitle}>Discover what's available</Text>
             </View>
             <TouchableOpacity
               style={styles.viewAllChip}
@@ -603,10 +608,7 @@ const HomeScreen = () => {
                 <ProductCard
                   item={item}
                   onPress={() =>
-                    router.push({
-                      pathname: "/pages/productDetail" as any,
-                      params: { product_id: item.id },
-                    })
+                    router.push({ pathname: "/pages/productDetail" as any, params: { product_id: item.id } })
                   }
                 />
               )}
@@ -615,20 +617,20 @@ const HomeScreen = () => {
           ) : (
             <View style={styles.emptySection}>
               <View style={styles.emptyIconWrap}>
-                <Ionicons name="cube-outline" size={28} color="#CBD5E1" />
+                <Ionicons name="cube-outline" size={32} color="#CBD5E1" />
               </View>
               <Text style={styles.emptyTitle}>No products available</Text>
-              <Text style={styles.emptySubtitle}>Check back soon</Text>
+              <Text style={styles.emptySubtitle}>Check back soon for new listings</Text>
             </View>
           )}
         </View>
 
-        {/* From Sellers You Follow */}
+        {/* ── FROM SELLERS YOU FOLLOW ── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionTitle}>From Sellers You Follow</Text>
-              <Text style={styles.sectionSubtitle}>Curated for you</Text>
+              <Text style={styles.sectionTitle}>From Your Network</Text>
+              <Text style={styles.sectionSubtitle}>Curated from sellers you follow</Text>
             </View>
             <TouchableOpacity
               style={styles.viewAllChip}
@@ -648,10 +650,7 @@ const HomeScreen = () => {
                 <ProductCard
                   item={item}
                   onPress={() =>
-                    router.push({
-                      pathname: "/pages/productDetail" as any,
-                      params: { product_id: item.id },
-                    })
+                    router.push({ pathname: "/pages/productDetail" as any, params: { product_id: item.id } })
                   }
                 />
               )}
@@ -660,16 +659,15 @@ const HomeScreen = () => {
           ) : (
             <View style={styles.emptySection}>
               <View style={styles.emptyIconWrap}>
-                <Ionicons name="people-outline" size={28} color="#CBD5E1" />
+                <Ionicons name="people-outline" size={32} color="#CBD5E1" />
               </View>
               <Text style={styles.emptyTitle}>No curated products yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Follow sellers to see their listings
-              </Text>
+              <Text style={styles.emptySubtitle}>Follow sellers to see their listings here</Text>
               <TouchableOpacity
                 style={styles.browseSellersBtn}
                 onPress={() => router.push("/pages/sellerDirectory" as any)}
               >
+                <Ionicons name="storefront-outline" size={14} color="#fff" style={{ marginRight: 6 }} />
                 <Text style={styles.browseSellersBtnText}>Browse Sellers</Text>
               </TouchableOpacity>
             </View>
@@ -678,371 +676,307 @@ const HomeScreen = () => {
 
         {!hasAnyProducts && !refreshing && (
           <View style={styles.emptyWrap}>
-            <Ionicons name="cube-outline" size={40} color="#E2E8F0" />
+            <View style={styles.emptyWrapIcon}>
+              <Ionicons name="cube-outline" size={40} color="#94A3B8" />
+            </View>
             <Text style={styles.emptyWrapTitle}>No active products yet</Text>
             <Text style={styles.emptyWrapSub}>Pull down to refresh</Text>
           </View>
         )}
-      </Animated.ScrollView>
+      </ScrollView>
     </View>
   );
 };
 
+/* ════════════════════════════════════════════
+   S T Y L E S
+════════════════════════════════════════════ */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F7F9FC" },
+  container: { flex: 1, backgroundColor: "#F0F5FB" },
 
+  /* ── LOADER ── */
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F7F9FC",
+    backgroundColor: "#F0F5FB",
   },
   loaderCard: {
     backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 32,
+    borderRadius: 28,
+    padding: 36,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 6,
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 10,
+    width: width * 0.72,
   },
-  loaderText: {
-    marginTop: 12,
-    fontSize: 13,
-    color: "#94A3B8",
-    fontWeight: "500",
+  loaderIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
   },
+  loaderTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 4,
+    letterSpacing: -0.3,
+  },
+  loaderText: { fontSize: 12, color: "#94A3B8", fontWeight: "500" },
 
-  // ── PREMIUM HEADER ──
-  // ─────────────────────────────────
-  // ULTRA PREMIUM HEADER STYLES
-  // ─────────────────────────────────
+  /* ── HEADER ── */
   headerWrapper: {
-    backgroundColor: "#0060B8",
+    backgroundColor: "#005BB5",
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 18,
     overflow: "hidden",
     shadowColor: "#003E80",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.45,
     shadowRadius: 24,
-    elevation: 18,
+    elevation: 20,
   },
-  headerOrb1: {
+  blob1: {
     position: "absolute",
-    width: 280,
-    height: 280,
-    borderRadius: 140,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
     backgroundColor: "rgba(255,255,255,0.06)",
-    top: -100,
-    right: -70,
+    top: -130,
+    right: -80,
   },
-  headerOrb2: {
+  blob2: {
     position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     backgroundColor: "rgba(255,255,255,0.04)",
-    bottom: 10,
+    bottom: -60,
     left: -60,
   },
-  headerOrb3: {
+  blob3: {
     position: "absolute",
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "rgba(100,180,255,0.08)",
-    top: 20,
-    right: width * 0.35,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(100,180,255,0.07)",
+    top: 30,
+    right: width * 0.38,
+  },
+  blob4: {
+    position: "absolute",
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    bottom: 10,
+    right: 30,
   },
   headerInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 16,
-    paddingBottom: 20,
+    paddingTop: 18,
+    paddingBottom: 18,
   },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1 },
   avatarWrapper: { position: "relative" },
   avatarRing: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "rgba(255,255,255,0.38)",
     padding: 3,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.1)",
     justifyContent: "center",
     alignItems: "center",
   },
   avatarCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "rgba(255,255,255,0.22)",
+    width: 47,
+    height: 47,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.5)",
   },
-  avatarText: {
-    color: "#FFFFFF",
-    fontWeight: "900",
-    fontSize: 20,
-    letterSpacing: 0.5,
-  },
+  avatarText: { color: "#FFFFFF", fontWeight: "900", fontSize: 21, letterSpacing: 0.5 },
   avatarOnlineDot: {
     position: "absolute",
     bottom: 2,
     right: 2,
-    width: 13,
-    height: 13,
+    width: 14,
+    height: 14,
     borderRadius: 7,
     backgroundColor: "#22C55E",
     borderWidth: 2.5,
-    borderColor: "#0060B8",
+    borderColor: "#005BB5",
   },
   greetingRow: { flexDirection: "row", alignItems: "center", marginBottom: 2 },
   greetingEmoji: { fontSize: 13 },
-  headerGreeting: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.68)",
-    fontWeight: "500",
-  },
+  headerGreeting: { fontSize: 12, color: "rgba(255,255,255,0.68)", fontWeight: "600" },
   headerName: {
-    fontSize: 19,
-    fontWeight: "800",
+    fontSize: 20,
+    fontWeight: "900",
     color: "#FFFFFF",
-    maxWidth: 180,
+    maxWidth: 190,
     letterSpacing: -0.5,
-    lineHeight: 24,
+    lineHeight: 25,
   },
   headerBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    marginTop: 5,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    marginTop: 6,
+    backgroundColor: "rgba(255,255,255,0.13)",
     alignSelf: "flex-start",
-    paddingHorizontal: 9,
+    paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
+    borderColor: "rgba(255,255,255,0.22)",
   },
-  headerBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#4ADE80",
-  },
-  headerBadgeText: {
-    fontSize: 10,
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "700",
-  },
+  headerBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#4ADE80" },
+  headerBadgeText: { fontSize: 10, color: "rgba(255,255,255,0.88)", fontWeight: "700" },
   headerRight: { flexDirection: "row", gap: 10 },
   headerIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.13)",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
+    borderColor: "rgba(255,255,255,0.22)",
   },
   notifBadge: {
     position: "absolute",
-    top: 7,
-    right: 7,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
+    top: 6,
+    right: 6,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
     backgroundColor: "#FF3B30",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1.5,
-    borderColor: "#0060B8",
+    borderColor: "#005BB5",
     paddingHorizontal: 3,
   },
-  notifBadgeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#fff",
-    lineHeight: 11,
-  },
+  notifBadgeText: { fontSize: 9, fontWeight: "900", color: "#fff" },
   headerSearchWrap: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    marginHorizontal: 0,
-    marginBottom: 0,
     paddingHorizontal: 12,
-    height: 46,
+    height: 48,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
     shadowColor: "#003E80",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
   },
   searchIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     backgroundColor: "#EBF5FF",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 8,
+    marginRight: 9,
   },
-  headerSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: "#0F172A",
-    fontWeight: "500",
-  },
+  headerSearchInput: { flex: 1, fontSize: 13, color: "#0F172A", fontWeight: "500" },
   searchFilterBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     backgroundColor: "#EBF5FF",
     justifyContent: "center",
     alignItems: "center",
     marginLeft: 6,
   },
-  headerBottomCurve: {
-    height: 28,
-    backgroundColor: "#F7F9FC",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    marginTop: 18,
-  },
 
-  // ── SEARCH ──
-  searchOuter: { paddingHorizontal: 16, marginTop: 2, marginBottom: 14 },
-  searchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#EDF2F7",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  searchInput: { flex: 1, marginLeft: 8, fontSize: 13, color: "#2D3748" },
-  filterBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    backgroundColor: "#EBF5FF",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
+  /* ── BANNER ── */
   bannerCard: {
     width: width - 32,
-    height: 160,
-    borderRadius: 20,
+    height: 168,
+    borderRadius: 22,
     overflow: "hidden",
-    marginRight: 12,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.13,
+    shadowRadius: 16,
+    elevation: 7,
   },
   bannerImg: { width: "100%", height: "100%" },
-  bannerShine: {
+  bannerShineTop: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    height: "45%",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    height: "40%",
+    backgroundColor: "rgba(255,255,255,0.07)",
   },
   dotsRow: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 5,
+    gap: 6,
     marginTop: 10,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#CBD5E1" },
-  dotActive: { width: 18, backgroundColor: "#0078D7", borderRadius: 3 },
+  dotActive: { width: 20, backgroundColor: "#0078D7", borderRadius: 3 },
 
-  quickSection: {
+  /* ── QUICK ACTIONS ── */
+  qaSection: {
     marginHorizontal: 16,
-    marginTop: 20,
+    marginTop: 22,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 18,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
+    borderRadius: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    shadowColor: "#64748B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
+    elevation: 5,
     borderWidth: 1,
-    borderColor: "#F0F4F8",
+    borderColor: "#EEF2F7",
   },
-  quickTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#94A3B8",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 14,
+  qaHeaderRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 18 },
+  qaTitle: { fontSize: 11, fontWeight: "800", color: "#64748B", letterSpacing: 1.2, textTransform: "uppercase" },
+  qaTitleAccent: { flex: 1, height: 1.5, backgroundColor: "#F0F4F8", borderRadius: 1 },
+  qaGrid: { flexDirection: "row", justifyContent: "space-between" },
+  qaItem: { alignItems: "center", gap: 9, flex: 1 },
+  qaIconOuter: {
+    width: 62,
+    height: 62,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
   },
-  quickGrid: { flexDirection: "row", justifyContent: "space-between" },
-  quickItem: { alignItems: "center", gap: 8, flex: 1 },
-  quickIconWrap: {
-    width: 52,
-    height: 52,
+  qaIconInner: {
+    width: 50,
+    height: 50,
     borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
   },
-  quickLabel: { fontSize: 11, fontWeight: "700", color: "#334155" },
+  qaLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.2 },
 
-  statsBar: {
-    flexDirection: "row",
-    marginHorizontal: 16,
-    marginTop: 22,
-    backgroundColor: "#0078D7",
-    borderRadius: 18,
-    paddingVertical: 18,
-    paddingHorizontal: 10,
-    shadowColor: "#0078D7",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  statItem: { flex: 1, alignItems: "center" },
-  statValue: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    letterSpacing: -0.5,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.72)",
-    marginTop: 2,
-    fontWeight: "600",
-  },
-  statDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.2)" },
-
+  /* ── SECTION COMMON ── */
   section: { marginTop: 28 },
   sectionHeader: {
     flexDirection: "row",
@@ -1052,242 +986,213 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
+    fontSize: 19,
+    fontWeight: "900",
     color: "#0F172A",
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
-  sectionSubtitle: {
-    fontSize: 12,
-    color: "#94A3B8",
-    marginTop: 2,
-    fontWeight: "500",
-  },
+  sectionSubtitle: { fontSize: 12, color: "#94A3B8", marginTop: 2, fontWeight: "500" },
   viewAllChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
     backgroundColor: "#EBF5FF",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 20,
   },
   viewAllChipText: { fontSize: 12, fontWeight: "700", color: "#0078D7" },
-  hList: { paddingHorizontal: 16, paddingBottom: 4 },
+  hList: { paddingHorizontal: 16, paddingBottom: 6 },
 
+  /* ── CATEGORIES ── */
   catCard: {
-    width: 120,
-    height: 120,
-    borderRadius: 18,
-    marginRight: 10,
+    width: 118,
+    height: 130,
+    borderRadius: 22,
+    marginRight: 12,
     overflow: "hidden",
-    backgroundColor: "#EBF5FF",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: "#0078D7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
   },
   catImg: { width: "100%", height: "100%" },
-  catImgPlaceholder: {
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F0F8FF",
-  },
-  catLabelWrap: {
+  catOverlay: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "rgba(15,23,42,0.58)",
-    paddingVertical: 7,
-    paddingHorizontal: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(10,20,40,0.62)",
   },
   catLabel: {
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "800",
     color: "#fff",
     textAlign: "center",
-    letterSpacing: 0.1,
+    letterSpacing: 0.2,
   },
 
-  productCard: {
-    width: 240,
-    backgroundColor: "#FFFFFF",
+  /* ── STATS STRIP ── */
+  statsStrip: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 24,
+    backgroundColor: "#0078D7",
     borderRadius: 22,
+    paddingVertical: 20,
+    paddingHorizontal: 8,
+    shadowColor: "#0060B0",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  statCell: { flex: 1, alignItems: "center" },
+  statValue: { fontSize: 22, fontWeight: "900", color: "#FFFFFF", letterSpacing: -0.5 },
+  statLabel: { fontSize: 10, color: "rgba(255,255,255,0.7)", fontWeight: "600", marginTop: 2 },
+  statDivider: { width: 1, backgroundColor: "rgba(255,255,255,0.2)", marginVertical: 4 },
+
+  /* ── PRODUCT CARD ── */
+  productCard: {
+    width: 230,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
     marginRight: 14,
     overflow: "hidden",
-    shadowColor: "#64748B",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.09,
-    shadowRadius: 16,
-    elevation: 6,
+    shadowColor: "#4A6FA5",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    elevation: 7,
     borderWidth: 1,
-    borderColor: "#F0F4F8",
+    borderColor: "#EEF2F8",
   },
-  productImgWrap: {
-    width: "100%",
-    height: 132,
-    backgroundColor: "#F7F9FC",
-    position: "relative",
-  },
-  productImg: { width: "100%", height: "100%" },
+  // ── Product card image ──
+  productImgWrap: { position: 'relative', width: '100%', height: 200, backgroundColor: '#EEF3F9' },
+  productImg: { width: '100%', height: '100%' },
   productImgPlaceholder: {
-    width: "100%",
-    height: 132,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F7F9FC",
+    width: '100%', height: '100%', backgroundColor: '#EEF3F9',
+    justifyContent: 'center', alignItems: 'center', gap: 6,
+  },
+  noImgText: { fontSize: 11, color: '#B8C8DC', fontWeight: '600' },
+  productImgOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 50,
+    backgroundColor: 'rgba(0,0,0,0.12)',
   },
   activePill: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(255,255,255,0.96)",
-    borderRadius: 20,
-    paddingHorizontal: 9,
+    position: 'absolute', top: 10, left: 10, flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 20,
+    paddingHorizontal: 8,
     paddingVertical: 5,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 3,
   },
-  activeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#10B981",
-  },
-  activeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#10B981",
-    letterSpacing: 0.5,
-  },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#10B981" },
+  activeText: { fontSize: 9, fontWeight: "800", color: "#10B981", letterSpacing: 0.5 },
   categoryPillImg: {
     position: "absolute",
     top: 10,
     right: 10,
-    backgroundColor: "rgba(0,0,0,0.48)",
+    backgroundColor: "rgba(0,0,0,0.52)",
     borderRadius: 20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     paddingVertical: 4,
     maxWidth: 90,
   },
-  categoryPillImgText: { fontSize: 9, color: "#fff", fontWeight: "600" },
-  productBody: { padding: 13 },
+  categoryPillImgText: { fontSize: 9, color: "#fff", fontWeight: "700" },
+  productBody: { padding: 14 },
   productName: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0F172A",
-    lineHeight: 20,
-    letterSpacing: -0.2,
-    marginBottom: 4,
-  },
-  bizRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    lineHeight: 22,
+    letterSpacing: -0.3,
     marginBottom: 6,
   },
-  bizName: { fontSize: 11, color: "#94A3B8", fontWeight: "500", flex: 1 },
-  productDesc: {
-    fontSize: 12,
-    color: "#64748B",
-    lineHeight: 17,
-    marginBottom: 8,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: "#F0F4F8",
-    marginBottom: 10,
-    marginTop: 2,
-  },
-  priceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  priceLabel: {
-    fontSize: 9,
-    color: "#A0AEC0",
-    fontWeight: "700",
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  priceValueRow: { flexDirection: "row", alignItems: "baseline", gap: 1 },
-  priceCurrency: { fontSize: 13, fontWeight: "700", color: "#0078D7" },
-  priceValue: {
-    fontSize: 20,
-    fontWeight: "900",
-    color: "#0078D7",
-    letterSpacing: -0.5,
-  },
-  priceUnit: { fontSize: 11, color: "#94A3B8", fontWeight: "500" },
+  bizRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
+  bizName: { fontSize: 12, color: '#0078D7', fontWeight: '600', flex: 1 },
+  bizDot: { fontSize: 10, color: '#CBD5E1', fontWeight: '700' },
+  bizCity: { fontSize: 11, color: '#94A3B8', fontWeight: '500' },
+  productDesc: { fontSize: 13, color: '#475569', lineHeight: 19, marginBottom: 10 },
+  separator: { height: 1, backgroundColor: '#F0F4F8', marginBottom: 10, marginTop: 2 },
+  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  priceLabel: { fontSize: 9, color: '#A0AEC0', fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 },
+  priceValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
+  priceCurrency: { fontSize: 14, fontWeight: '700', color: '#0060B0' },
+  priceValue: { fontSize: 22, fontWeight: '900', color: '#0060B0', letterSpacing: -0.5 },
+  priceUnit: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  moqText: { fontSize: 10, color: '#94A3B8', fontWeight: '600', marginTop: 2 },
   enquireBtn: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 5,
-    backgroundColor: "#EBF5FF",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
+    backgroundColor: '#0078D7',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    shadowColor: '#0060B0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.32,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  enquireBtnText: { fontSize: 11, fontWeight: "700", color: "#0078D7" },
+  enquireBtnText: { fontSize: 12, fontWeight: '800', color: '#fff' },
 
+  /* ── EMPTY STATES ── */
   emptySection: {
     alignItems: "center",
-    paddingVertical: 32,
+    paddingVertical: 36,
     marginHorizontal: 16,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1.5,
-    borderColor: "#F0F4F8",
+    borderColor: "#EEF4FB",
     borderStyle: "dashed",
   },
   emptyIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     backgroundColor: "#F7F9FC",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  emptyTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#94A3B8",
-    marginTop: 4,
-  },
-  emptySubtitle: { fontSize: 12, color: "#CBD5E1", marginTop: 3 },
+  emptyTitle: { fontSize: 14, fontWeight: "700", color: "#94A3B8", marginTop: 4 },
+  emptySubtitle: { fontSize: 12, color: "#CBD5E1", marginTop: 4, textAlign: "center", paddingHorizontal: 24 },
   browseSellersBtn: {
-    marginTop: 14,
+    marginTop: 16,
     backgroundColor: "#0078D7",
     paddingHorizontal: 22,
-    paddingVertical: 10,
-    borderRadius: 12,
-    shadowColor: "#0078D7",
+    paddingVertical: 11,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#0060B0",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.28,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 5,
   },
-  browseSellersBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  emptyWrap: { alignItems: "center", paddingVertical: 40 },
-  emptyWrapTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#CBD5E1",
-    marginTop: 10,
+  browseSellersBtnText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  emptyWrap: { alignItems: "center", paddingVertical: 48 },
+  emptyWrapIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "#F0F5FB",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
   },
-  emptyWrapSub: { fontSize: 12, color: "#E2E8F0", marginTop: 4 },
+  emptyWrapTitle: { fontSize: 16, fontWeight: "700", color: "#94A3B8", marginTop: 4 },
+  emptyWrapSub: { fontSize: 12, color: "#CBD5E1", marginTop: 4 },
 });
 
 export default HomeScreen;

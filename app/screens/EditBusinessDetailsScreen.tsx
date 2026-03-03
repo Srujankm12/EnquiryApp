@@ -1,27 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
+  ActivityIndicator, Dimensions,
+  Image,
+  KeyboardAvoidingView, Platform,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
   Text,
   TextInput,
-  StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Image,
-  StatusBar,
-  RefreshControl,
+  View
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
-import Constants from 'expo-constants';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
-const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
 
 const getImageUri = (url: string | null | undefined): string | null => {
   if (!url) return null;
@@ -31,19 +32,41 @@ const getImageUri = (url: string | null | undefined): string | null => {
   return `${S3_URL}${path}`;
 };
 
+// ── Styled Input Field ────────────────────────────────────────────────────
+const InputField = ({
+  icon, label, value, onChangeText, keyboardType, multiline, maxLength, placeholder,
+}: {
+  icon: keyof typeof Ionicons.glyphMap; label: string; value: string;
+  onChangeText: (t: string) => void; keyboardType?: any;
+  multiline?: boolean; maxLength?: number; placeholder?: string;
+}) => (
+  <View style={styles.inputGroup}>
+    <Text style={styles.inputLabel}>{label}</Text>
+    <View style={[styles.inputRow, multiline && { alignItems: 'flex-start' }]}>
+      <View style={styles.inputIconWrap}>
+        <Ionicons name={icon} size={16} color="#0078D7" />
+      </View>
+      <TextInput
+        style={[styles.input, multiline && { height: 90, textAlignVertical: 'top', paddingTop: 10 }]}
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType={keyboardType}
+        multiline={multiline}
+        maxLength={maxLength}
+        placeholder={placeholder || label}
+        placeholderTextColor="#CBD5E1"
+      />
+    </View>
+  </View>
+);
+
 interface BusinessData {
-  name: string;
-  email: string;
-  phone: string;
-  business_type: string;
-  address: string;
-  city: string;
-  state: string;
-  pincode: string;
-  description: string;
+  name: string; email: string; phone: string; business_type: string;
+  address: string; city: string; state: string; pincode: string; description: string;
 }
 
 const EditBusinessDetailsScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,308 +74,205 @@ const EditBusinessDetailsScreen: React.FC = () => {
   const [businessId, setBusinessId] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [form, setForm] = useState<BusinessData>({
-    name: '',
-    email: '',
-    phone: '',
-    business_type: '',
-    address: '',
-    city: '',
-    state: '',
-    pincode: '',
-    description: '',
+    name: '', email: '', phone: '', business_type: '',
+    address: '', city: '', state: '', pincode: '', description: '',
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-
+      const { jwtDecode } = await import('jwt-decode');
       const decoded: any = jwtDecode(token);
       const storedId = await AsyncStorage.getItem('companyId');
       const bId = storedId || decoded.business_id;
       setBusinessId(bId);
-
       if (bId) {
-        const res = await fetch(`${API_URL}/business/get/complete/${bId}`, {
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const res = await fetch(`${API_URL}/business/get/complete/${bId}`, { headers: { 'Content-Type': 'application/json' } });
         if (res.ok) {
           const result = await res.json();
           const biz = result.details?.business_details || {};
-          setForm({
-            name: biz.name || '',
-            email: biz.email || '',
-            phone: biz.phone || '',
-            business_type: biz.business_type || '',
-            address: biz.address || '',
-            city: biz.city || '',
-            state: biz.state || '',
-            pincode: biz.pincode || '',
-            description: biz.description || '',
-          });
-          if (biz.profile_image) {
-            setProfileImage(`${getImageUri(biz.profile_image)}?t=${Date.now()}`);
-          }
+          setForm({ name: biz.name || '', email: biz.email || '', phone: biz.phone || '', business_type: biz.business_type || '', address: biz.address || '', city: biz.city || '', state: biz.state || '', pincode: biz.pincode || '', description: biz.description || '' });
+          if (biz.profile_image) setProfileImage(`${getImageUri(biz.profile_image)}?t=${Date.now()}`);
         }
       }
-    } catch (error) {
-      console.error('Error fetching business details:', error);
-    } finally {
-      if (showLoader) setLoading(false);
-      setRefreshing(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { if (showLoader) setLoading(false); setRefreshing(false); }
   };
 
   const handleImagePick = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
       if (result.canceled || !result.assets?.[0]) return;
-
       setUploadingImage(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-
-      // Step 1: Get presigned URL
-      const presignRes = await fetch(`${API_URL}/business/get/presigned/${businessId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const presignRes = await fetch(`${API_URL}/business/get/presigned/${businessId}`, { headers: { Authorization: `Bearer ${token}` } });
       const presignData = await presignRes.json();
       const s3Url = presignData.data?.url || presignData.url;
       if (!s3Url) throw new Error('No presigned URL');
-
-      // Step 2: Upload to S3
       const imageResponse = await fetch(result.assets[0].uri);
       const blob = await imageResponse.blob();
-      await fetch(s3Url, {
-        method: 'PUT',
-        body: blob,
-        headers: { 'Content-Type': blob.type || 'image/jpeg' },
-      });
-
-      // Step 3: Save image path
-      await fetch(`${API_URL}/business/update/image/${businessId}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      await fetch(s3Url, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'image/jpeg' } });
+      await fetch(`${API_URL}/business/update/image/${businessId}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
       await fetchData(false);
+      const { Alert } = await import('react-native');
       Alert.alert('Success', 'Business photo updated!');
-    } catch (error) {
-      console.error('Image upload error:', error);
-      Alert.alert('Error', 'Failed to update photo.');
-    } finally {
-      setUploadingImage(false);
-    }
+    } catch { const { Alert } = await import('react-native'); Alert.alert('Error', 'Failed to update photo.'); }
+    finally { setUploadingImage(false); }
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      Alert.alert('Required', 'Business name is required.');
-      return;
-    }
+    const { Alert } = await import('react-native');
+    if (!form.name.trim()) { Alert.alert('Required', 'Business name is required.'); return; }
     try {
       setSaving(true);
       const token = await AsyncStorage.getItem('token');
       const res = await fetch(`${API_URL}/business/update/${businessId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),
       });
-      if (res.ok) {
-        Alert.alert('Success', 'Business details updated!');
-        router.back();
-      } else {
-        Alert.alert('Error', 'Failed to update details.');
-      }
-    } catch (error) {
-      console.error('Save error:', error);
-      Alert.alert('Error', 'Something went wrong.');
-    } finally {
-      setSaving(false);
-    }
+      if (res.ok) { Alert.alert('Success', 'Business details updated!'); router.back(); }
+      else Alert.alert('Error', 'Failed to update details.');
+    } catch { const { Alert } = await import('react-native'); Alert.alert('Error', 'Something went wrong.'); }
+    finally { setSaving(false); }
   };
 
-  const updateField = (key: keyof BusinessData, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color="#FFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Business</Text>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#177DDF" />
-        </View>
-      </View>
-    );
-  }
+  const updateField = (key: keyof BusinessData, value: string) => setForm(prev => ({ ...prev, [key]: value }));
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
-
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#FFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Edit Business</Text>
-        <View style={{ width: 40 }} />
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.orb1} /><View style={styles.orb2} />
+        <View style={styles.headerInner}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.eyebrow}>BUSINESS</Text>
+            <Text style={styles.headerTitle}>Edit Details</Text>
+          </View>
+          <TouchableOpacity style={[styles.saveHeaderBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveHeaderBtnText}>Save</Text>}
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(false); }} colors={['#177DDF']} />
-        }
-      >
-        {/* Profile Photo */}
-        <View style={styles.photoSection}>
-          <TouchableOpacity style={styles.photoContainer} onPress={handleImagePick} disabled={uploadingImage}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.photo} />
-            ) : (
-              <View style={styles.photoPlaceholder}>
-                <Ionicons name="business" size={40} color="#177DDF" />
-              </View>
-            )}
-            <View style={styles.cameraBtn}>
-              {uploadingImage ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Ionicons name="camera" size={16} color="#FFF" />
-              )}
+      {loading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#0078D7" />
+          <Text style={styles.loaderText}>Loading details...</Text>
+        </View>
+      ) : (
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(false); }} colors={['#0078D7']} tintColor="#0078D7" />}
+          >
+            {/* Photo */}
+            <View style={styles.photoSection}>
+              <TouchableOpacity style={styles.photoWrap} onPress={handleImagePick} disabled={uploadingImage} activeOpacity={0.85}>
+                {profileImage ? (
+                  <Image source={{ uri: profileImage }} style={styles.photo} resizeMode="cover" />
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Ionicons name="business" size={40} color="#0078D7" />
+                  </View>
+                )}
+                <View style={styles.cameraBtn}>
+                  {uploadingImage ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={14} color="#fff" />}
+                </View>
+              </TouchableOpacity>
+              <Text style={styles.photoHint}>Tap to change business photo</Text>
             </View>
-          </TouchableOpacity>
-          <Text style={styles.photoHint}>Tap to change business photo</Text>
-        </View>
 
-        {/* Form Fields */}
-        <View style={styles.card}>
-          <InputField icon="storefront-outline" label="Business Name" value={form.name} onChangeText={(v) => updateField('name', v)} />
-          <InputField icon="mail-outline" label="Email" value={form.email} onChangeText={(v) => updateField('email', v)} keyboardType="email-address" />
-          <InputField icon="call-outline" label="Phone" value={form.phone} onChangeText={(v) => updateField('phone', v)} keyboardType="phone-pad" />
-          <InputField icon="briefcase-outline" label="Business Type" value={form.business_type} onChangeText={(v) => updateField('business_type', v)} />
-          <InputField icon="document-text-outline" label="Description" value={form.description} onChangeText={(v) => updateField('description', v)} multiline />
-        </View>
+            {/* Business Info Card */}
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.cardIconWrap, { backgroundColor: '#EBF5FF' }]}>
+                  <Ionicons name="storefront-outline" size={16} color="#0078D7" />
+                </View>
+                <Text style={styles.cardTitle}>Business Information</Text>
+              </View>
+              <InputField icon="storefront-outline" label="Business Name" value={form.name} onChangeText={v => updateField('name', v)} placeholder="Enter business name" />
+              <InputField icon="mail-outline" label="Email" value={form.email} onChangeText={v => updateField('email', v)} keyboardType="email-address" placeholder="business@example.com" />
+              <InputField icon="call-outline" label="Phone" value={form.phone} onChangeText={v => updateField('phone', v)} keyboardType="phone-pad" placeholder="+91 00000 00000" />
+              <InputField icon="briefcase-outline" label="Business Type" value={form.business_type} onChangeText={v => updateField('business_type', v)} placeholder="e.g. Manufacturer, Wholesaler" />
+              <InputField icon="document-text-outline" label="Description" value={form.description} onChangeText={v => updateField('description', v)} multiline placeholder="Tell customers about your business..." />
+            </View>
 
-        <View style={styles.card}>
-          <View style={styles.cardTitle}>
-            <Ionicons name="location-outline" size={18} color="#FF9500" />
-            <Text style={styles.cardTitleText}>Address</Text>
-          </View>
-          <InputField icon="map-outline" label="Address" value={form.address} onChangeText={(v) => updateField('address', v)} multiline />
-          <InputField icon="navigate-outline" label="City" value={form.city} onChangeText={(v) => updateField('city', v)} />
-          <InputField icon="globe-outline" label="State" value={form.state} onChangeText={(v) => updateField('state', v)} />
-          <InputField icon="pin-outline" label="Pincode" value={form.pincode} onChangeText={(v) => updateField('pincode', v)} keyboardType="number-pad" maxLength={6} />
-        </View>
+            {/* Address Card */}
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.cardIconWrap, { backgroundColor: '#FEF3C7' }]}>
+                  <Ionicons name="location-outline" size={16} color="#F59E0B" />
+                </View>
+                <Text style={styles.cardTitle}>Address</Text>
+              </View>
+              <InputField icon="map-outline" label="Street Address" value={form.address} onChangeText={v => updateField('address', v)} multiline placeholder="Full address" />
+              <InputField icon="navigate-outline" label="City" value={form.city} onChangeText={v => updateField('city', v)} placeholder="City" />
+              <InputField icon="globe-outline" label="State" value={form.state} onChangeText={v => updateField('state', v)} placeholder="State" />
+              <InputField icon="pin-outline" label="Pincode" value={form.pincode} onChangeText={v => updateField('pincode', v)} keyboardType="number-pad" maxLength={6} placeholder="000000" />
+            </View>
 
-        {/* Save Button */}
-        <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
-          {saving ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <>
-              <Ionicons name="checkmark-circle-outline" size={20} color="#FFF" />
-              <Text style={styles.saveBtnText}>Save Changes</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
+            {/* Save Button */}
+            <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+              {saving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+                  <Text style={styles.saveBtnText}>Save Changes</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      )}
     </View>
   );
 };
 
-const InputField = ({
-  icon, label, value, onChangeText, keyboardType, multiline, maxLength,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  keyboardType?: any;
-  multiline?: boolean;
-  maxLength?: number;
-}) => (
-  <View style={styles.inputGroup}>
-    <Text style={styles.inputLabel}>{label}</Text>
-    <View style={styles.inputRow}>
-      <Ionicons name={icon} size={18} color="#888" style={{ marginRight: 10, marginTop: multiline ? 12 : 0 }} />
-      <TextInput
-        style={[styles.input, multiline && { height: 80, textAlignVertical: 'top' }]}
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        maxLength={maxLength}
-        placeholderTextColor="#CCC"
-      />
-    </View>
-  </View>
-);
+export default EditBusinessDetailsScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: {
-    backgroundColor: '#177DDF', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  container: { flex: 1, backgroundColor: '#F7F9FC' },
+  headerWrapper: {
+    backgroundColor: '#0060B8', paddingHorizontal: 20, paddingBottom: 22, overflow: 'hidden',
+    shadowColor: '#003E80', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#FFF' },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 16 },
-  photoSection: { alignItems: 'center', marginBottom: 20 },
-  photoContainer: { position: 'relative', width: 100, height: 100 },
-  photo: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#E0E0E0', borderWidth: 3, borderColor: '#FFF' },
-  photoPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFF' },
-  cameraBtn: {
-    position: 'absolute', bottom: 0, right: 0, width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#177DDF', justifyContent: 'center', alignItems: 'center',
-    borderWidth: 2, borderColor: '#FFF',
-  },
-  photoHint: { fontSize: 12, color: '#888', marginTop: 8 },
-  card: {
-    backgroundColor: '#FFF', borderRadius: 14, padding: 16, marginBottom: 12,
-    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
-  },
-  cardTitle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  cardTitleText: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
+  orb1: { position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: 'rgba(255,255,255,0.06)', top: -80, right: -60 },
+  orb2: { position: 'absolute', width: 160, height: 160, borderRadius: 80, backgroundColor: 'rgba(255,255,255,0.04)', bottom: 5, left: -50 },
+  headerInner: { flexDirection: 'row', alignItems: 'center', paddingTop: 16 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  eyebrow: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.4 },
+  saveHeaderBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' },
+  saveHeaderBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loaderText: { fontSize: 13, color: '#94A3B8', fontWeight: '500' },
+  photoSection: { alignItems: 'center', marginTop: 24, marginBottom: 6 },
+  photoWrap: { position: 'relative', width: 96, height: 96 },
+  photo: { width: 96, height: 96, borderRadius: 24, borderWidth: 3, borderColor: '#EBF5FF' },
+  photoPlaceholder: { width: 96, height: 96, borderRadius: 24, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#DBEAFE' },
+  cameraBtn: { position: 'absolute', bottom: -4, right: -4, width: 28, height: 28, borderRadius: 14, backgroundColor: '#0078D7', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fff' },
+  photoHint: { fontSize: 12, color: '#94A3B8', marginTop: 10, fontWeight: '500' },
+  card: { backgroundColor: '#fff', borderRadius: 22, marginHorizontal: 16, marginTop: 16, padding: 18, shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4, borderWidth: 1, borderColor: '#F0F4F8' },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  cardIconWrap: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  cardTitle: { fontSize: 14, fontWeight: '800', color: '#0F172A', letterSpacing: -0.2 },
   inputGroup: { marginBottom: 14 },
-  inputLabel: { fontSize: 12, fontWeight: '600', color: '#888', marginBottom: 6 },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  input: {
-    flex: 1, borderWidth: 1, borderColor: '#E8E8E8', borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#1A1A1A', backgroundColor: '#FAFAFA',
-  },
-  saveBtn: {
-    flexDirection: 'row', backgroundColor: '#177DDF', paddingVertical: 16, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
-  },
-  saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  inputLabel: { fontSize: 10, fontWeight: '700', color: '#94A3B8', marginBottom: 8, letterSpacing: 0.5, textTransform: 'uppercase' },
+  inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F7F9FC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12 },
+  inputIconWrap: { width: 28, height: 28, borderRadius: 9, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  input: { flex: 1, fontSize: 14, color: '#0F172A', fontWeight: '600', paddingVertical: 13 },
+  saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#0078D7', marginHorizontal: 16, marginTop: 20, paddingVertical: 16, borderRadius: 16, shadowColor: '#0078D7', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 7 },
+  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 });
-
-export default EditBusinessDetailsScreen;

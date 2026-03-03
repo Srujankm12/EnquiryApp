@@ -1,24 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  StatusBar,
-  Alert,
-  ScrollView,
-  RefreshControl,
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
+import { jwtDecode } from 'jwt-decode';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const S3_FETCH_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
 const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
@@ -40,7 +43,66 @@ interface DecodedToken {
   iat?: number;
 }
 
+// ── Sub-components ─────────────────────────────────────────────────────────
+const DetailRow = ({ icon, label, value, iconColor }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; iconColor?: string }) => (
+  <View style={styles.detailRow}>
+    <View style={styles.detailIconWrap}>
+      <Ionicons name={icon} size={14} color={iconColor || '#0078D7'} />
+    </View>
+    <View style={styles.detailContent}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue} numberOfLines={2}>{value || 'N/A'}</Text>
+    </View>
+  </View>
+);
+
+const LegalBadge = ({ label }: { label: string }) => (
+  <View style={styles.legalBadge}>
+    <Ionicons name="checkmark-circle" size={13} color="#16A34A" />
+    <Text style={styles.legalBadgeText}>{label}</Text>
+  </View>
+);
+
+const SectionCard = ({ iconName, iconBg, iconColor, title, children, onEdit }: {
+  iconName: any; iconBg: string; iconColor: string; title: string;
+  children: React.ReactNode; onEdit?: () => void;
+}) => (
+  <View style={styles.sectionCard}>
+    <View style={styles.sectionHeader}>
+      <View style={[styles.sectionIconBg, { backgroundColor: iconBg }]}>
+        <Ionicons name={iconName} size={16} color={iconColor} />
+      </View>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {onEdit && (
+        <TouchableOpacity style={styles.sectionEditBtn} onPress={onEdit}>
+          <Ionicons name="create-outline" size={14} color="#0078D7" />
+          <Text style={styles.sectionEditText}>Edit</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+    {children}
+  </View>
+);
+
+const ActionItem = ({ icon, iconBg, iconColor, title, subtitle, onPress, rightElement }: {
+  icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string;
+  title: string; subtitle?: string; onPress: () => void; rightElement?: React.ReactNode;
+}) => (
+  <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.75}>
+    <View style={[styles.actionItemIconWrap, { backgroundColor: iconBg }]}>
+      <Ionicons name={icon} size={20} color={iconColor} />
+    </View>
+    <View style={styles.actionItemContent}>
+      <Text style={styles.actionItemTitle}>{title}</Text>
+      {subtitle && <Text style={styles.actionItemSubtitle}>{subtitle}</Text>}
+    </View>
+    {rightElement || <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />}
+  </TouchableOpacity>
+);
+
+// ── Main Screen ────────────────────────────────────────────────────────────
 const ProfileSettingsScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
@@ -60,74 +122,39 @@ const ProfileSettingsScreen: React.FC = () => {
 
   const requestPermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    console.log('🔐 [Permissions] Media library permission status:', status);
     if (status !== 'granted') {
       Alert.alert('Permission Required', 'Please grant camera roll permissions to change profile picture.');
     }
   };
 
   const fetchProfileData = async (showLoader = true) => {
-    console.log('👤 [ProfileFetch] Starting fetchProfileData — showLoader:', showLoader);
     try {
       if (showLoader) setLoading(true);
-
       const token = await AsyncStorage.getItem('token');
       if (!token) {
-        console.error('👤 [ProfileFetch] ❌ No token found in AsyncStorage.');
         Alert.alert('Error', 'Authentication token not found. Please login again.');
         router.replace('/pages/loginMail' as any);
         return;
       }
-      console.log('👤 [ProfileFetch] ✅ Token found.');
-
       const decoded = jwtDecode<DecodedToken>(token);
-      console.log('👤 [ProfileFetch] Decoded token:', {
-        user_id: decoded.user_id,
-        user_name: decoded.user_name,
-        business_id: decoded.business_id,
-        exp: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'none',
-      });
       setTokenData(decoded);
       setUserId(decoded.user_id);
 
-      // ─── Fetch user details ──────────────────────────────────────────────────
-      console.log('👤 [ProfileFetch] Fetching user details for ID:', decoded.user_id);
       try {
-        const res = await axios.get(
-          `${API_URL}/user/get/user/${decoded.user_id}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        console.log('👤 [ProfileFetch] User details response status:', res.status);
-        console.log('👤 [ProfileFetch] User details raw data:', JSON.stringify(res.data, null, 2));
-
+        const res = await axios.get(`${API_URL}/user/get/user/${decoded.user_id}`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.data) {
           const details = res.data.user || res.data;
           setUserDetails(details);
-          console.log('👤 [ProfileFetch] User details set:', {
-            first_name: details.first_name,
-            last_name: details.last_name,
-            email: details.email,
-            phone: details.phone,
-            profile_image: details.profile_image,
-          });
-
           const profileUrl = details.profile_image;
           if (profileUrl) {
             const fullImageUrl = getImageUri(profileUrl);
-            const finalUrl = `${fullImageUrl}?t=${Date.now()}`;
-            console.log('👤 [ProfileFetch] Profile image raw path:', profileUrl);
-            console.log('👤 [ProfileFetch] Profile image resolved URL:', finalUrl);
-            setProfileImage(finalUrl);
+            setProfileImage(`${fullImageUrl}?t=${Date.now()}`);
           } else {
-            console.log('👤 [ProfileFetch] No profile image found for user.');
             setProfileImage(null);
           }
         }
-      } catch (e: any) {
-        console.error('👤 [ProfileFetch] ❌ Error fetching user details:', e?.response?.status, e?.response?.data ?? e?.message);
-      }
+      } catch (e: any) { console.error('Error fetching user details:', e?.message); }
 
-      // ─── Seller status ───────────────────────────────────────────────────────
       const normalizeStatus = (s: string | null): string | null => {
         if (!s) return null;
         const lower = s.toLowerCase().trim();
@@ -138,622 +165,508 @@ const ProfileSettingsScreen: React.FC = () => {
       };
 
       let status = normalizeStatus(await AsyncStorage.getItem('sellerStatus'));
-      console.log('👤 [ProfileFetch] Stored sellerStatus from AsyncStorage:', status);
-
       const businessId = decoded.business_id || await AsyncStorage.getItem('companyId');
-      console.log('👤 [ProfileFetch] Business ID:', businessId);
 
       if (businessId) {
-        // Try application endpoint
-        console.log('👤 [ProfileFetch] Fetching business application status...');
         try {
-          const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          });
-          console.log('👤 [ProfileFetch] Application endpoint status:', appRes.status);
+          const appRes = await fetch(`${API_URL}/business/application/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } });
           if (appRes.ok) {
             const appData = await appRes.json();
-            console.log('👤 [ProfileFetch] Application data:', JSON.stringify(appData, null, 2));
             const appStatus = appData.details?.status || appData.application?.status || appData.status;
-            console.log('👤 [ProfileFetch] Raw application status:', appStatus);
             if (appStatus) {
               status = normalizeStatus(appStatus);
-              console.log('👤 [ProfileFetch] Normalized status:', status);
               await AsyncStorage.setItem('sellerStatus', status || '');
             }
           }
-        } catch (e: any) {
-          console.warn('👤 [ProfileFetch] ⚠️ Application endpoint failed:', e?.message);
-          // Fallback: check business directly
+        } catch {
           try {
-            const bizCheckRes = await fetch(`${API_URL}/business/get/${businessId}`, {
-              headers: { 'Content-Type': 'application/json' },
-            });
-            console.log('👤 [ProfileFetch] Business check fallback status:', bizCheckRes.status);
+            const bizCheckRes = await fetch(`${API_URL}/business/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } });
             if (bizCheckRes.ok) {
               const bizCheck = await bizCheckRes.json();
-              console.log('👤 [ProfileFetch] Business check data:', JSON.stringify(bizCheck, null, 2));
               if (bizCheck.details?.is_business_approved || bizCheck.business?.is_business_approved) {
                 status = 'approved';
                 await AsyncStorage.setItem('sellerStatus', 'approved');
-                console.log('👤 [ProfileFetch] Status set to approved via business check.');
               }
             }
-          } catch (e2: any) {
-            console.error('👤 [ProfileFetch] ❌ Business check fallback also failed:', e2?.message);
-          }
+          } catch { }
         }
 
-        // Check simple status endpoint
         if (status !== 'approved') {
-          console.log('👤 [ProfileFetch] Checking simple status endpoint...');
           try {
-            const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, {
-              headers: { 'Content-Type': 'application/json' },
-            });
-            console.log('👤 [ProfileFetch] Simple status endpoint response:', statusRes.status);
+            const statusRes = await fetch(`${API_URL}/business/status/${businessId}`, { headers: { 'Content-Type': 'application/json' } });
             if (statusRes.ok) {
               const statusData = await statusRes.json();
-              console.log('👤 [ProfileFetch] Simple status data:', JSON.stringify(statusData, null, 2));
-              if (statusData?.is_approved === true || statusData?.details?.is_approved === true ||
-                  statusData?.is_business_approved === true || statusData?.details?.is_business_approved === true) {
+              if (statusData?.is_approved === true || statusData?.details?.is_approved === true || statusData?.is_business_approved === true) {
                 status = 'approved';
                 await AsyncStorage.setItem('sellerStatus', 'approved');
-                console.log('👤 [ProfileFetch] Status set to approved via simple status endpoint.');
               }
             }
-          } catch (e: any) {
-            console.error('👤 [ProfileFetch] ❌ Simple status endpoint failed:', e?.message);
-          }
+          } catch { }
         }
 
         await AsyncStorage.setItem('companyId', businessId);
       }
 
-      console.log('👤 [ProfileFetch] Final seller status:', status);
       setSellerStatus(status);
 
-      // ─── Fetch business details ──────────────────────────────────────────────
       if (businessId) {
-        console.log('👤 [ProfileFetch] Fetching business details for ID:', businessId);
         try {
-          const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, {
-            headers: { 'Content-Type': 'application/json' },
-          });
-          console.log('👤 [ProfileFetch] Business complete endpoint status:', completeRes.status);
-
+          const completeRes = await fetch(`${API_URL}/business/get/complete/${businessId}`, { headers: { 'Content-Type': 'application/json' } });
           if (completeRes.ok) {
             const result = await completeRes.json();
-            console.log('👤 [ProfileFetch] Business complete data:', JSON.stringify(result, null, 2));
             const details = result.details;
             setBusinessDetails({ ...details.business_details, id: businessId });
             setSocialDetails(details.social_details);
             setLegalDetails(details.legal_details);
-            console.log('👤 [ProfileFetch] ✅ Business/social/legal details set from complete endpoint.');
           } else {
-            console.warn('👤 [ProfileFetch] ⚠️ Complete endpoint failed, falling back to individual endpoints...');
             const [bizRes, socialRes, legalRes] = await Promise.allSettled([
               fetch(`${API_URL}/business/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
               fetch(`${API_URL}/business/social/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
               fetch(`${API_URL}/business/legal/get/${businessId}`, { headers: { 'Content-Type': 'application/json' } }),
             ]);
-
-            console.log('👤 [ProfileFetch] Fallback results — biz:', bizRes.status, '| social:', socialRes.status, '| legal:', legalRes.status);
-
-            if (bizRes.status === 'fulfilled' && bizRes.value.ok) {
-              const r = await bizRes.value.json();
-              console.log('👤 [ProfileFetch] Business fallback data:', JSON.stringify(r, null, 2));
-              setBusinessDetails({ ...r.details, id: businessId });
-            }
-            if (socialRes.status === 'fulfilled' && socialRes.value.ok) {
-              const r = await socialRes.value.json();
-              console.log('👤 [ProfileFetch] Social fallback data:', JSON.stringify(r, null, 2));
-              setSocialDetails(r.details);
-            }
-            if (legalRes.status === 'fulfilled' && legalRes.value.ok) {
-              const r = await legalRes.value.json();
-              console.log('👤 [ProfileFetch] Legal fallback data:', JSON.stringify(r, null, 2));
-              setLegalDetails(r.details);
-            }
+            if (bizRes.status === 'fulfilled' && bizRes.value.ok) { const r = await bizRes.value.json(); setBusinessDetails({ ...r.details, id: businessId }); }
+            if (socialRes.status === 'fulfilled' && socialRes.value.ok) { const r = await socialRes.value.json(); setSocialDetails(r.details); }
+            if (legalRes.status === 'fulfilled' && legalRes.value.ok) { const r = await legalRes.value.json(); setLegalDetails(r.details); }
           }
-        } catch (e: any) {
-          console.error('👤 [ProfileFetch] ❌ Error fetching business details:', e?.message);
-        }
-      } else {
-        console.log('👤 [ProfileFetch] No business ID — skipping business details fetch.');
+        } catch { }
       }
     } catch (error: any) {
-      console.error('👤 [ProfileFetch] ❌ Unhandled error in fetchProfileData:', error?.message, error?.stack);
+      console.error('Error in fetchProfileData:', error?.message);
     } finally {
       if (showLoader) setLoading(false);
       setRefreshing(false);
-      console.log('👤 [ProfileFetch] Done.');
     }
   };
 
-  const onRefresh = () => {
-    console.log('🔄 [Refresh] Pull-to-refresh triggered.');
-    setRefreshing(true);
-    fetchProfileData(false);
-  };
+  const onRefresh = () => { setRefreshing(true); fetchProfileData(false); };
+  const handleBack = () => router.back();
 
-  const handleBack = () => {
-    console.log('⬅️ [Nav] Back pressed.');
-    router.back();
-  };
-
-  // ─── S3 Upload via fetch ───────────────────────────────────────────────────
   const uploadImageToS3 = async (s3Url: string, imageUri: string) => {
-    console.log('☁️ [S3Upload] Fetching blob from local URI:', imageUri);
     const response = await fetch(imageUri);
     const blob = await response.blob();
-    console.log('☁️ [S3Upload] Blob — size:', blob.size, '| type:', blob.type);
-
-    if (blob.size === 0) throw new Error('Blob is empty — could not read image file.');
-
-    console.log('☁️ [S3Upload] Sending PUT to S3...');
-    const uploadResponse = await fetch(s3Url, {
-      method: 'PUT',
-      body: blob,
-      headers: { 'Content-Type': blob.type || 'image/jpeg' },
-    });
-    console.log('☁️ [S3Upload] S3 PUT response status:', uploadResponse.status);
-    if (!uploadResponse.ok) {
-      const responseText = await uploadResponse.text();
-      console.error('☁️ [S3Upload] ❌ S3 upload failed. Response body:', responseText.substring(0, 300));
-      throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
-    }
-    console.log('☁️ [S3Upload] ✅ S3 upload successful.');
+    if (blob.size === 0) throw new Error('Blob is empty');
+    const uploadResponse = await fetch(s3Url, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'image/jpeg' } });
+    if (!uploadResponse.ok) throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
     return true;
   };
 
-  // ─── Image Pick + Upload Flow ──────────────────────────────────────────────
   const handleImagePick = async () => {
-    console.log('📸 [ImagePick] Starting user profile image upload...');
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],     // ✅ fixes deprecation warning
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      console.log('📸 [ImagePick] Picker result — canceled:', result.canceled, '| assets:', result.assets?.length ?? 0);
-      if (result.canceled || !result.assets?.[0]) {
-        console.log('📸 [ImagePick] Aborted by user.');
-        return;
-      }
-
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+      if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
-      console.log('📸 [ImagePick] Selected asset:', {
-        uri: asset.uri,
-        width: asset.width,
-        height: asset.height,
-        fileSize: asset.fileSize,
-        mimeType: asset.mimeType,
-      });
-
       setUploadingImage(true);
-
       const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        console.error('📸 [ImagePick] ❌ No token in AsyncStorage.');
-        Alert.alert('Error', 'Authentication token not found.');
-        setUploadingImage(false);
-        return;
-      }
-
-      // STEP 1: Get presigned URL
-      const presignEndpoint = `${API_URL}/user/get/presigned/${userId}`;
-      console.log('📸 [ImagePick] STEP 1 — Fetching presigned URL from:', presignEndpoint);
-      const presignedUrlRes = await axios.get(presignEndpoint, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
-      });
-      console.log('📸 [ImagePick] Presign response status:', presignedUrlRes.status);
-      console.log('📸 [ImagePick] Presign response data:', JSON.stringify(presignedUrlRes.data, null, 2));
-
+      if (!token) { Alert.alert('Error', 'Authentication token not found.'); setUploadingImage(false); return; }
+      const presignedUrlRes = await axios.get(`${API_URL}/user/get/presigned/${userId}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
       const s3PresignedUrl = presignedUrlRes.data.data?.url || presignedUrlRes.data.url;
-      if (!s3PresignedUrl) {
-        console.error('📸 [ImagePick] ❌ No presigned URL in response:', presignedUrlRes.data);
-        throw new Error('Invalid response from server: missing presigned URL');
-      }
-      console.log('📸 [ImagePick] ✅ Got presigned URL:', s3PresignedUrl.substring(0, 120) + '...');
-
-      // STEP 2: Upload to S3
-      console.log('📸 [ImagePick] STEP 2 — Uploading to S3...');
+      if (!s3PresignedUrl) throw new Error('Invalid response from server: missing presigned URL');
       await uploadImageToS3(s3PresignedUrl, asset.uri);
-      console.log('📸 [ImagePick] ✅ S3 upload done.');
-
-      // STEP 3: Notify backend to save image path
-      const saveEndpoint = `${API_URL}/user/update/image/${userId}`;
-      console.log('📸 [ImagePick] STEP 3 — Saving image path to backend:', saveEndpoint);
-      const updateRes = await axios.put(saveEndpoint, null, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
-      });
-      console.log('📸 [ImagePick] Save response status:', updateRes.status);
-      console.log('📸 [ImagePick] Save response data:', JSON.stringify(updateRes.data, null, 2));
-
+      const updateRes = await axios.put(`${API_URL}/user/update/image/${userId}`, null, { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 });
       if (updateRes.status === 200 || updateRes.data.message) {
-        console.log('📸 [ImagePick] ✅ Image path saved. Refreshing profile...');
         await fetchProfileData(false);
         setUploadingImage(false);
         Alert.alert('Success', 'Profile picture updated successfully!');
       } else {
-        console.error('📸 [ImagePick] ❌ Backend save returned unexpected status:', updateRes.status);
         throw new Error('Failed to update profile image');
       }
     } catch (error: any) {
-      console.error('📸 [ImagePick] ❌ Unhandled error:');
-      console.error('  message:', error?.message);
-      console.error('  response status:', error?.response?.status);
-      console.error('  response data:', JSON.stringify(error?.response?.data, null, 2));
-      console.error('  stack:', error?.stack);
-
       let errorMessage = 'Failed to update profile picture. Please try again.';
-      if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-        errorMessage = 'Network error. Please check your connection.';
-      } else if (error.response) {
-        errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
-      }
+      if (error.code === 'ERR_NETWORK') errorMessage = 'Network error. Please check your connection.';
+      else if (error.response) errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
       Alert.alert('Error', errorMessage);
       setUploadingImage(false);
-    } finally {
-      console.log('📸 [ImagePick] uploadingImage reset to false.');
     }
   };
 
   const getUserName = () => {
-    if (userDetails?.first_name) {
-      return `${userDetails.first_name}${userDetails.last_name ? ' ' + userDetails.last_name : ''}`;
-    }
+    if (userDetails?.first_name) return `${userDetails.first_name}${userDetails.last_name ? ' ' + userDetails.last_name : ''}`;
     return tokenData?.user_name || 'N/A';
   };
-
   const getUserEmail = () => userDetails?.email || 'N/A';
   const getUserPhone = () => userDetails?.phone || '';
 
+  // ── Seller Status Card ─────────────────────────────────────────────────
+  const renderSellerStatusCard = () => {
+    if (sellerStatus === 'approved') {
+      return (
+        <View style={styles.sellerApprovedCard}>
+          <View style={styles.sellerApprovedHeader}>
+            <View style={styles.sellerApprovedIconWrap}>
+              <Ionicons name="shield-checkmark" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={styles.sellerApprovedTitle}>Seller Account Active</Text>
+              <Text style={styles.sellerApprovedSubtitle}>Your application has been approved</Text>
+            </View>
+            <View style={styles.activePill}>
+              <View style={styles.activeDot} />
+              <Text style={styles.activePillText}>Active</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.sellerActionBtn}
+            onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="eye-outline" size={16} color="#0078D7" />
+            <Text style={styles.sellerActionBtnText}>View & Edit Details</Text>
+            <Ionicons name="chevron-forward" size={16} color="#0078D7" />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (sellerStatus === 'pending') {
+      return (
+        <TouchableOpacity
+          style={[styles.sellerStatusCard, { borderColor: '#FDE68A' }]}
+          onPress={() => router.push('/pages/sellerApplicationStatus' as any)}
+        >
+          <View style={[styles.sellerStatusIconWrap, { backgroundColor: '#FEF3C7' }]}>
+            <Ionicons name="time" size={20} color="#F59E0B" />
+          </View>
+          <View style={{ flex: 1, marginHorizontal: 12 }}>
+            <Text style={styles.sellerStatusTitle}>Application Under Review</Text>
+            <Text style={styles.sellerStatusSubtitle}>Tap to check status</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+        </TouchableOpacity>
+      );
+    }
+    if (sellerStatus === 'rejected') {
+      return (
+        <TouchableOpacity
+          style={[styles.sellerStatusCard, { borderColor: '#FECACA' }]}
+          onPress={() => router.push('/pages/becomeSellerForm' as any)}
+        >
+          <View style={[styles.sellerStatusIconWrap, { backgroundColor: '#FEF2F2' }]}>
+            <Ionicons name="alert-circle" size={20} color="#EF4444" />
+          </View>
+          <View style={{ flex: 1, marginHorizontal: 12 }}>
+            <Text style={styles.sellerStatusTitle}>Application Rejected</Text>
+            <Text style={styles.sellerStatusSubtitle}>Tap to edit & resubmit</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  };
+
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" translucent={false} />
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
 
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile Settings</Text>
-        <View style={{ width: 40 }} />
+      {/* ── Premium Header ── */}
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.orb1} /><View style={styles.orb2} /><View style={styles.orb3} />
+        <View style={styles.headerInner}>
+          <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.eyebrow}>ACCOUNT</Text>
+            <Text style={styles.headerTitle}>Profile Settings</Text>
+          </View>
+        </View>
       </View>
 
       {loading ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#177DDF" />
-          <Text style={styles.loadingText}>Loading profile...</Text>
+          <View style={styles.loaderCard}>
+            <ActivityIndicator size="large" color="#0078D7" />
+            <Text style={styles.loaderText}>Loading profile...</Text>
+          </View>
         </View>
       ) : (
         <ScrollView
-          style={styles.scrollView}
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#177DDF']} />
-          }
+          contentContainerStyle={{ paddingBottom: 40 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0078D7']} tintColor="#0078D7" />}
         >
-          {/* Profile Image Section */}
-          <View style={styles.profileSection}>
-            <View style={styles.profileImageContainer}>
+          {/* ── Profile Hero ── */}
+          <View style={styles.profileHeroCard}>
+            <TouchableOpacity
+              style={styles.avatarWrap}
+              onPress={handleImagePick}
+              disabled={uploadingImage}
+              activeOpacity={0.8}
+            >
               {profileImage ? (
-                <Image
-                  source={{ uri: profileImage }}
-                  style={styles.profileImage}
-                  resizeMode="cover"
-                  onLoad={() => console.log('🖼️ [Image] ✅ Profile image loaded:', profileImage)}
-                  onError={(e) => console.error('🖼️ [Image] ❌ Profile image load error:', e.nativeEvent.error, '| URL:', profileImage)}
-                />
+                <Image source={{ uri: profileImage }} style={styles.avatar} resizeMode="cover" />
               ) : (
-                <View style={styles.profileImagePlaceholder}>
-                  <Ionicons name="person" size={60} color="#0078D7" />
+                <View style={styles.avatarPlaceholder}>
+                  <Ionicons name="person" size={44} color="#0078D7" />
                 </View>
               )}
-              <TouchableOpacity
-                style={styles.cameraButton}
-                onPress={handleImagePick}
-                disabled={uploadingImage}
-              >
+              <View style={styles.cameraBtn}>
                 {uploadingImage ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Ionicons name="camera" size={18} color="#FFFFFF" />
+                  <Ionicons name="camera" size={14} color="#fff" />
                 )}
-              </TouchableOpacity>
-            </View>
+              </View>
+            </TouchableOpacity>
+
             <Text style={styles.userName}>{getUserName()}</Text>
             <Text style={styles.userEmail}>{getUserEmail()}</Text>
             {getUserPhone() ? <Text style={styles.userPhone}>{getUserPhone()}</Text> : null}
+
+            {/* Quick stats row */}
+            {businessDetails && (
+              <View style={styles.statsStrip}>
+                <View style={styles.statItem}>
+                  <View style={[styles.statDot, { backgroundColor: businessDetails.is_business_verified ? '#16A34A' : '#94A3B8' }]} />
+                  <Text style={styles.statLabel}>{businessDetails.is_business_verified ? 'Verified' : 'Not Verified'}</Text>
+                </View>
+                <View style={styles.statSep} />
+                <View style={styles.statItem}>
+                  <View style={[styles.statDot, { backgroundColor: businessDetails.is_business_trusted ? '#F59E0B' : '#94A3B8' }]} />
+                  <Text style={styles.statLabel}>{businessDetails.is_business_trusted ? 'Trusted' : 'Not Trusted'}</Text>
+                </View>
+                <View style={styles.statSep} />
+                <View style={styles.statItem}>
+                  <View style={[styles.statDot, { backgroundColor: sellerStatus === 'approved' ? '#0078D7' : '#94A3B8' }]} />
+                  <Text style={styles.statLabel}>{sellerStatus === 'approved' ? 'Seller' : 'Buyer'}</Text>
+                </View>
+              </View>
+            )}
           </View>
 
-          {/* Login Details Section */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconBg, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="key-outline" size={18} color="#0078D7" />
-              </View>
-              <Text style={styles.sectionTitle}>Login Details</Text>
-            </View>
-            <DetailRow icon="person-outline" label="Name" value={getUserName()} />
-            <DetailRow icon="mail-outline" label="Email" value={getUserEmail()} />
-            {getUserPhone() ? <DetailRow icon="call-outline" label="Phone" value={getUserPhone()} /> : null}
-            <DetailRow icon="finger-print-outline" label="User ID" value={tokenData?.user_id?.substring(0, 8) + '...' || 'N/A'} />
-          </View>
+          {/* ── Seller Status ── */}
+          {renderSellerStatusCard()}
 
-          {/* Business Information Section */}
-          {businessDetails && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionIconBg, { backgroundColor: '#E8F5E9' }]}>
-                  <Ionicons name="business-outline" size={18} color="#28A745" />
-                </View>
-                <Text style={styles.sectionTitle}>Business Information</Text>
-              </View>
-              <DetailRow icon="storefront-outline" label="Business Name" value={businessDetails.name} />
-              <DetailRow icon="mail-outline" label="Business Email" value={businessDetails.email} />
-              <DetailRow icon="call-outline" label="Business Phone" value={businessDetails.phone} />
-              <DetailRow icon="location-outline" label="Location" value={`${businessDetails.city || ''}, ${businessDetails.state || ''}`} />
-              {businessDetails.pincode && <DetailRow icon="navigate-outline" label="Pincode" value={businessDetails.pincode} />}
-              {businessDetails.business_type && <DetailRow icon="briefcase-outline" label="Business Type" value={businessDetails.business_type} />}
-            </View>
-          )}
-
-          {/* Physical Business Directory */}
-          {businessDetails && businessDetails.address && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionIconBg, { backgroundColor: '#FFF3E0' }]}>
-                  <Ionicons name="map-outline" size={18} color="#FF9500" />
-                </View>
-                <Text style={styles.sectionTitle}>Physical Business Directory</Text>
-              </View>
-              <DetailRow icon="location-outline" label="Address" value={businessDetails.address} />
-              <DetailRow icon="business-outline" label="City" value={businessDetails.city} />
-              <DetailRow icon="globe-outline" label="State" value={businessDetails.state} />
-              {businessDetails.pincode && <DetailRow icon="navigate-outline" label="Pincode" value={businessDetails.pincode} />}
-            </View>
-          )}
-
-          {/* Business Verification */}
-          {businessDetails && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionIconBg, { backgroundColor: '#E8F5E9' }]}>
-                  <Ionicons name="shield-checkmark-outline" size={18} color="#28A745" />
-                </View>
-                <Text style={styles.sectionTitle}>Business Verification</Text>
-              </View>
-              <View style={styles.badgesRow}>
-                <View style={[styles.statusBadge, businessDetails.is_business_verified ? styles.verifiedBadge : styles.unverifiedBadge]}>
-                  <Ionicons name={businessDetails.is_business_verified ? 'checkmark-circle' : 'close-circle'} size={16} color={businessDetails.is_business_verified ? '#28A745' : '#999'} />
-                  <Text style={[styles.statusBadgeText, { color: businessDetails.is_business_verified ? '#28A745' : '#999' }]}>
-                    {businessDetails.is_business_verified ? 'Verified' : 'Not Verified'}
-                  </Text>
-                </View>
-                <View style={[styles.statusBadge, businessDetails.is_business_trusted ? styles.trustedBadge : styles.unverifiedBadge]}>
-                  <Ionicons name={businessDetails.is_business_trusted ? 'ribbon' : 'ribbon-outline'} size={16} color={businessDetails.is_business_trusted ? '#FF9500' : '#999'} />
-                  <Text style={[styles.statusBadgeText, { color: businessDetails.is_business_trusted ? '#FF9500' : '#999' }]}>
-                    {businessDetails.is_business_trusted ? 'Trusted' : 'Not Trusted'}
-                  </Text>
-                </View>
-                <View style={[styles.statusBadge, businessDetails.is_business_approved ? styles.approvedBadgePill : styles.unverifiedBadge]}>
-                  <Ionicons name={businessDetails.is_business_approved ? 'shield-checkmark' : 'shield-outline'} size={16} color={businessDetails.is_business_approved ? '#0078D7' : '#999'} />
-                  <Text style={[styles.statusBadgeText, { color: businessDetails.is_business_approved ? '#0078D7' : '#999' }]}>
-                    {businessDetails.is_business_approved ? 'Approved' : 'Not Approved'}
-                  </Text>
-                </View>
-              </View>
-              {legalDetails && (
-                <View style={styles.legalSummary}>
-                  {legalDetails.pan && <LegalBadge label="PAN" verified />}
-                  {legalDetails.gst && <LegalBadge label="GST" verified />}
-                  {legalDetails.msme && <LegalBadge label="MSME" verified />}
-                  {legalDetails.aadhaar && <LegalBadge label="Aadhaar" verified />}
-                  {legalDetails.fassi && <LegalBadge label="FSSAI" verified />}
-                  {legalDetails.export_import && <LegalBadge label="Export/Import" verified />}
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Social Media URLs */}
-          {socialDetails && (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook || socialDetails.website || socialDetails.youtube || socialDetails.telegram || socialDetails.x) && (
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionIconBg, { backgroundColor: '#FCE4EC' }]}>
-                  <Ionicons name="share-social-outline" size={18} color="#E91E63" />
-                </View>
-                <Text style={styles.sectionTitle}>Social Media URL</Text>
-              </View>
-              {socialDetails.instagram && <DetailRow icon="logo-instagram" label="Instagram" value={socialDetails.instagram} iconColor="#E4405F" />}
-              {socialDetails.facebook && <DetailRow icon="logo-facebook" label="Facebook" value={socialDetails.facebook} iconColor="#1877F2" />}
-              {socialDetails.linkedin && <DetailRow icon="logo-linkedin" label="LinkedIn" value={socialDetails.linkedin} iconColor="#0A66C2" />}
-              {socialDetails.youtube && <DetailRow icon="logo-youtube" label="YouTube" value={socialDetails.youtube} iconColor="#FF0000" />}
-              {socialDetails.x && <DetailRow icon="logo-twitter" label="X (Twitter)" value={socialDetails.x} iconColor="#000" />}
-              {socialDetails.telegram && <DetailRow icon="paper-plane-outline" label="Telegram" value={socialDetails.telegram} iconColor="#0088CC" />}
-              {socialDetails.website && <DetailRow icon="globe-outline" label="Website" value={socialDetails.website} iconColor="#666" />}
-            </View>
-          )}
-
-          {/* Seller Status */}
-          {sellerStatus === 'approved' ? (
-            <View style={[styles.approvedStatusCard]}>
-              <View style={styles.approvedStatusHeader}>
-                <View style={styles.approvedIconContainer}>
-                  <Ionicons name="shield-checkmark" size={28} color="#FFFFFF" />
-                </View>
-                <View style={styles.approvedStatusInfo}>
-                  <Text style={styles.approvedStatusTitle}>Seller Account Approved</Text>
-                  <Text style={styles.approvedStatusSubtitle}>Your seller application has been approved</Text>
-                </View>
-              </View>
-              <View style={styles.approvedBadgeRow}>
-                <View style={styles.approvedActiveBadge}>
-                  <Ionicons name="checkmark-circle" size={14} color="#28A745" />
-                  <Text style={styles.approvedActiveBadgeText}>Active</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.viewDetailsButton} onPress={() => router.push('/pages/sellerApplicationStatus' as any)} activeOpacity={0.7}>
-                <Ionicons name="eye-outline" size={18} color="#0078D7" />
-                <Text style={styles.viewDetailsButtonText}>View & Edit Details</Text>
-                <Ionicons name="chevron-forward" size={18} color="#0078D7" />
-              </TouchableOpacity>
-            </View>
-          ) : sellerStatus === 'pending' ? (
-            <TouchableOpacity style={[styles.applicationStatusCard, { borderColor: '#FFE0B2' }]} onPress={() => router.push('/pages/sellerApplicationStatus' as any)}>
-              <Ionicons name="time" size={24} color="#FFC107" />
-              <View style={styles.applicationStatusInfo}>
-                <Text style={styles.applicationStatusTitle}>Application Under Review</Text>
-                <Text style={styles.applicationStatusSubtitle}>Tap to check status</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#666" />
-            </TouchableOpacity>
-          ) : sellerStatus === 'rejected' ? (
-            <TouchableOpacity style={[styles.applicationStatusCard, { borderColor: '#F5C6CB' }]} onPress={() => router.push('/pages/becomeSellerForm' as any)}>
-              <Ionicons name="alert-circle" size={24} color="#DC3545" />
-              <View style={styles.applicationStatusInfo}>
-                <Text style={styles.applicationStatusTitle}>Application Rejected</Text>
-                <Text style={styles.applicationStatusSubtitle}>Tap to edit & resubmit</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#666" />
-            </TouchableOpacity>
-          ) : null}
-
-          {/* Action Items */}
-          <View style={styles.actionsContainer}>
+          {/* ── Quick Actions ── */}
+          <Text style={styles.groupLabel}>QUICK ACTIONS</Text>
+          <View style={styles.actionsCard}>
             {businessDetails && (
               <ActionItem
                 icon="business"
+                iconBg="#EBF5FF"
+                iconColor="#0078D7"
                 title="View Business Profile"
-                onPress={() => {
-                  router.push({
-                    pathname: '/pages/bussinesProfile' as any,
-                    params: { business_id: businessDetails.id || tokenData?.business_id },
-                  });
-                }}
+                subtitle="See your public business page"
+                onPress={() => router.push({ pathname: '/pages/bussinesProfile' as any, params: { business_id: businessDetails.id || tokenData?.business_id } })}
               />
             )}
-            <ActionItem icon="person-outline" title="Update Profile Details" onPress={() => router.push('/pages/updateUserProfileScreen' as any)} />
-            <ActionItem icon="key-outline" title="Update Password" onPress={() => router.push('/pages/upadetPasswordScreen' as any)} />
+            <ActionItem
+              icon="person-outline"
+              iconBg="#F0FDF4"
+              iconColor="#16A34A"
+              title="Update Profile Details"
+              subtitle="Edit your personal information"
+              onPress={() => router.push('/pages/updateUserProfileScreen' as any)}
+            />
+            <ActionItem
+              icon="key-outline"
+              iconBg="#FDF4FF"
+              iconColor="#9333EA"
+              title="Update Password"
+              subtitle="Change your account password"
+              onPress={() => router.push('/pages/upadetPasswordScreen' as any)}
+            />
           </View>
 
-          <View style={{ height: 40 }} />
+          {/* ── Login Details ── */}
+          <Text style={styles.groupLabel}>LOGIN DETAILS</Text>
+          <SectionCard iconName="key-outline" iconBg="#EBF5FF" iconColor="#0078D7" title="Account Information">
+            <DetailRow icon="person-outline" label="Full Name" value={getUserName()} />
+            <DetailRow icon="mail-outline" label="Email Address" value={getUserEmail()} />
+            {getUserPhone() ? <DetailRow icon="call-outline" label="Phone Number" value={getUserPhone()} /> : null}
+            <DetailRow icon="finger-print-outline" label="User ID" value={tokenData?.user_id?.substring(0, 8) + '...' || 'N/A'} />
+          </SectionCard>
+
+          {/* ── Business Information ── */}
+          {businessDetails && (
+            <>
+              <Text style={styles.groupLabel}>BUSINESS</Text>
+              <SectionCard
+                iconName="business-outline"
+                iconBg="#DCFCE7"
+                iconColor="#16A34A"
+                title="Business Information"
+                onEdit={() => router.push({ pathname: '/pages/editBusinessDetails' as any, params: { business_id: businessDetails.id || tokenData?.business_id } })}
+              >
+                <DetailRow icon="storefront-outline" label="Business Name" value={businessDetails.name} />
+                <DetailRow icon="mail-outline" label="Business Email" value={businessDetails.email} />
+                <DetailRow icon="call-outline" label="Business Phone" value={businessDetails.phone} />
+                <DetailRow icon="location-outline" label="Location" value={`${businessDetails.city || ''}, ${businessDetails.state || ''}`} />
+                {businessDetails.pincode && <DetailRow icon="navigate-outline" label="Pincode" value={businessDetails.pincode} />}
+                {businessDetails.business_type && <DetailRow icon="briefcase-outline" label="Business Type" value={businessDetails.business_type} />}
+              </SectionCard>
+
+              {/* ── Business Verification ── */}
+              <SectionCard iconName="shield-checkmark-outline" iconBg="#DCFCE7" iconColor="#16A34A" title="Verification Status">
+                <View style={styles.verificationBadgesRow}>
+                  <View style={[styles.verifyBadge, { borderColor: businessDetails.is_business_verified ? '#16A34A' : '#E2E8F0', backgroundColor: businessDetails.is_business_verified ? '#DCFCE7' : '#F8FAFC' }]}>
+                    <Ionicons name={businessDetails.is_business_verified ? 'checkmark-circle' : 'close-circle'} size={15} color={businessDetails.is_business_verified ? '#16A34A' : '#94A3B8'} />
+                    <Text style={[styles.verifyBadgeText, { color: businessDetails.is_business_verified ? '#16A34A' : '#94A3B8' }]}>
+                      {businessDetails.is_business_verified ? 'Verified' : 'Not Verified'}
+                    </Text>
+                  </View>
+                  <View style={[styles.verifyBadge, { borderColor: businessDetails.is_business_trusted ? '#F59E0B' : '#E2E8F0', backgroundColor: businessDetails.is_business_trusted ? '#FEF3C7' : '#F8FAFC' }]}>
+                    <Ionicons name={businessDetails.is_business_trusted ? 'ribbon' : 'ribbon-outline'} size={15} color={businessDetails.is_business_trusted ? '#F59E0B' : '#94A3B8'} />
+                    <Text style={[styles.verifyBadgeText, { color: businessDetails.is_business_trusted ? '#F59E0B' : '#94A3B8' }]}>
+                      {businessDetails.is_business_trusted ? 'Trusted' : 'Not Trusted'}
+                    </Text>
+                  </View>
+                  <View style={[styles.verifyBadge, { borderColor: businessDetails.is_business_approved ? '#0078D7' : '#E2E8F0', backgroundColor: businessDetails.is_business_approved ? '#EBF5FF' : '#F8FAFC' }]}>
+                    <Ionicons name={businessDetails.is_business_approved ? 'shield-checkmark' : 'shield-outline'} size={15} color={businessDetails.is_business_approved ? '#0078D7' : '#94A3B8'} />
+                    <Text style={[styles.verifyBadgeText, { color: businessDetails.is_business_approved ? '#0078D7' : '#94A3B8' }]}>
+                      {businessDetails.is_business_approved ? 'Approved' : 'Pending'}
+                    </Text>
+                  </View>
+                </View>
+                {legalDetails && (
+                  <View style={styles.legalBadgesWrap}>
+                    {legalDetails.pan && <LegalBadge label="PAN" />}
+                    {legalDetails.gst && <LegalBadge label="GST" />}
+                    {legalDetails.msme && <LegalBadge label="MSME" />}
+                    {legalDetails.aadhaar && <LegalBadge label="Aadhaar" />}
+                    {legalDetails.fassi && <LegalBadge label="FSSAI" />}
+                    {legalDetails.export_import && <LegalBadge label="Export/Import" />}
+                  </View>
+                )}
+              </SectionCard>
+            </>
+          )}
+
+          {/* ── Social Media ── */}
+          {socialDetails && (socialDetails.linkedin || socialDetails.instagram || socialDetails.facebook || socialDetails.website || socialDetails.youtube) && (
+            <>
+              <Text style={styles.groupLabel}>SOCIAL MEDIA</Text>
+              <SectionCard
+                iconName="share-social-outline"
+                iconBg="#FCE7F3"
+                iconColor="#EC4899"
+                title="Social Media URLs"
+                onEdit={() => router.push({ pathname: '/pages/editSocialMedia' as any, params: { business_id: businessDetails?.id || tokenData?.business_id } })}
+              >
+                {socialDetails.instagram && <DetailRow icon="logo-instagram" label="Instagram" value={socialDetails.instagram} iconColor="#E4405F" />}
+                {socialDetails.facebook && <DetailRow icon="logo-facebook" label="Facebook" value={socialDetails.facebook} iconColor="#1877F2" />}
+                {socialDetails.linkedin && <DetailRow icon="logo-linkedin" label="LinkedIn" value={socialDetails.linkedin} iconColor="#0A66C2" />}
+                {socialDetails.youtube && <DetailRow icon="logo-youtube" label="YouTube" value={socialDetails.youtube} iconColor="#FF0000" />}
+                {socialDetails.website && <DetailRow icon="globe-outline" label="Website" value={socialDetails.website} iconColor="#64748B" />}
+              </SectionCard>
+            </>
+          )}
+
+          <View style={{ height: 20 }} />
         </ScrollView>
       )}
     </View>
   );
 };
 
-const DetailRow = ({ icon, label, value, iconColor }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; iconColor?: string }) => (
-  <View style={styles.detailRow}>
-    <Ionicons name={icon} size={18} color={iconColor || '#888'} style={{ marginRight: 10, marginTop: 2 }} />
-    <View style={styles.detailRowContent}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue} numberOfLines={2}>{value || 'N/A'}</Text>
-    </View>
-  </View>
-);
-
-const LegalBadge = ({ label, verified }: { label: string; verified: boolean }) => (
-  <View style={styles.legalBadgeItem}>
-    <Ionicons name="checkmark-circle" size={14} color="#28A745" />
-    <Text style={styles.legalBadgeText}>{label}</Text>
-  </View>
-);
-
-const ActionItem = ({ icon, title, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; onPress: () => void }) => (
-  <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
-    <Ionicons name={icon} size={22} color="#0078D7" />
-    <Text style={styles.actionItemText}>{title}</Text>
-    <Ionicons name="chevron-forward" size={20} color="#999" />
-  </TouchableOpacity>
-);
+export default ProfileSettingsScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: {
-    backgroundColor: '#177DDF', paddingTop: 50, paddingBottom: 15, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 12, fontSize: 16, color: '#666' },
-  scrollView: { flex: 1 },
-  profileSection: {
-    backgroundColor: '#FFFFFF', alignItems: 'center', paddingVertical: 24, marginBottom: 12,
-    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
-  },
-  profileImageContainer: { position: 'relative', width: 110, height: 110, marginBottom: 14 },
-  profileImage: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#E0E0E0', borderWidth: 3, borderColor: '#FFFFFF' },
-  profileImagePlaceholder: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFFFFF' },
-  cameraButton: {
-    position: 'absolute', bottom: 2, right: 2, width: 34, height: 34, borderRadius: 17,
-    backgroundColor: '#177DDF', justifyContent: 'center', alignItems: 'center', elevation: 4,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4,
-    borderWidth: 2, borderColor: '#FFFFFF',
-  },
-  userName: { fontSize: 20, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
-  userEmail: { fontSize: 14, color: '#888', marginBottom: 2 },
-  userPhone: { fontSize: 14, color: '#888' },
-  sectionCard: {
-    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
-    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3,
-  },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  sectionIconBg: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-  detailRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F8F8F8' },
-  detailRowContent: { flex: 1 },
-  detailLabel: { fontSize: 12, color: '#888', marginBottom: 2 },
-  detailValue: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
-  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
-  verifiedBadge: { backgroundColor: '#E8F5E9' },
-  trustedBadge: { backgroundColor: '#FFF3E0' },
-  approvedBadgePill: { backgroundColor: '#E3F2FD' },
-  unverifiedBadge: { backgroundColor: '#F5F5F5' },
-  statusBadgeText: { fontSize: 12, fontWeight: '600' },
-  legalSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
-  legalBadgeItem: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F0FFF0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-  legalBadgeText: { fontSize: 11, fontWeight: '600', color: '#28A745' },
-  applicationStatusCard: {
-    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
-    flexDirection: 'row', alignItems: 'center', elevation: 1,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
-    borderWidth: 1, borderColor: '#FFE0B2',
-  },
-  applicationStatusInfo: { flex: 1, marginLeft: 12 },
-  applicationStatusTitle: { fontSize: 15, fontWeight: '600', color: '#1A1A1A' },
-  applicationStatusSubtitle: { fontSize: 12, color: '#888', marginTop: 2 },
-  approvedStatusCard: {
-    backgroundColor: '#FFFFFF', marginHorizontal: 16, marginBottom: 12, borderRadius: 14, padding: 16,
-    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4,
-    borderWidth: 1.5, borderColor: '#C3E6CB',
-  },
-  approvedStatusHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  approvedIconContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#28A745', justifyContent: 'center', alignItems: 'center' },
-  approvedStatusInfo: { flex: 1, marginLeft: 12 },
-  approvedStatusTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
-  approvedStatusSubtitle: { fontSize: 13, color: '#666', marginTop: 3 },
-  approvedBadgeRow: { flexDirection: 'row', marginBottom: 14 },
-  approvedActiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
-  approvedActiveBadgeText: { fontSize: 12, fontWeight: '600', color: '#28A745' },
-  viewDetailsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#E3F2FD', paddingVertical: 12, borderRadius: 10 },
-  viewDetailsButtonText: { fontSize: 14, fontWeight: '600', color: '#0078D7' },
-  actionsContainer: { paddingHorizontal: 16, marginTop: 4 },
-  actionItem: {
-    backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 16, paddingHorizontal: 16, marginBottom: 8, borderRadius: 12,
-    elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2,
-  },
-  actionItemText: { flex: 1, fontSize: 15, fontWeight: '500', color: '#1A1A1A', marginLeft: 14 },
-});
+  container: { flex: 1, backgroundColor: '#F7F9FC' },
 
-export default ProfileSettingsScreen;
+  // ── Premium Header ──
+  headerWrapper: {
+    backgroundColor: '#0060B8', paddingHorizontal: 20, paddingBottom: 22,
+    overflow: 'hidden', shadowColor: '#003E80',
+    shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18,
+  },
+  orb1: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: 'rgba(255,255,255,0.06)', top: -100, right: -70 },
+  orb2: { position: 'absolute', width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(255,255,255,0.04)', bottom: 10, left: -60 },
+  orb3: { position: 'absolute', width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(100,180,255,0.08)', top: 20, right: width * 0.35 },
+  headerInner: { flexDirection: 'row', alignItems: 'center', paddingTop: 16 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  eyebrow: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5 },
+
+  // ── Loader ──
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+  loaderCard: { backgroundColor: '#fff', borderRadius: 20, padding: 32, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 6 },
+  loaderText: { marginTop: 12, fontSize: 13, color: '#94A3B8', fontWeight: '500' },
+
+  // ── Profile Hero ──
+  profileHeroCard: {
+    backgroundColor: '#fff', marginHorizontal: 16, marginTop: 20, borderRadius: 24,
+    alignItems: 'center', paddingVertical: 28, paddingHorizontal: 20,
+    shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1, shadowRadius: 20, elevation: 8,
+    borderWidth: 1, borderColor: '#F0F4F8',
+  },
+  avatarWrap: { position: 'relative', marginBottom: 14 },
+  avatar: { width: 100, height: 100, borderRadius: 30, backgroundColor: '#E2E8F0', borderWidth: 4, borderColor: '#EBF5FF' },
+  avatarPlaceholder: { width: 100, height: 100, borderRadius: 30, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', borderWidth: 4, borderColor: '#DBEAFE' },
+  cameraBtn: { position: 'absolute', bottom: -4, right: -4, width: 30, height: 30, borderRadius: 15, backgroundColor: '#0078D7', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fff', shadowColor: '#0078D7', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 4, elevation: 4 },
+  userName: { fontSize: 20, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3, marginBottom: 4 },
+  userEmail: { fontSize: 13, color: '#64748B', fontWeight: '500', marginBottom: 2 },
+  userPhone: { fontSize: 13, color: '#94A3B8', fontWeight: '500' },
+
+  statsStrip: { flexDirection: 'row', alignItems: 'center', marginTop: 18, backgroundColor: '#F7F9FC', borderRadius: 14, paddingVertical: 12, paddingHorizontal: 10, width: '100%', borderWidth: 1, borderColor: '#F0F4F8' },
+  statItem: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  statDot: { width: 8, height: 8, borderRadius: 4 },
+  statLabel: { fontSize: 11, fontWeight: '700', color: '#64748B' },
+  statSep: { width: 1, height: 20, backgroundColor: '#E2E8F0' },
+
+  // ── Seller Status Cards ──
+  sellerApprovedCard: {
+    marginHorizontal: 16, marginTop: 14, backgroundColor: '#fff', borderRadius: 20,
+    padding: 16, shadowColor: '#16A34A', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, shadowRadius: 14, elevation: 5,
+    borderWidth: 1.5, borderColor: '#BBF7D0',
+  },
+  sellerApprovedHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  sellerApprovedIconWrap: { width: 46, height: 46, borderRadius: 16, backgroundColor: '#16A34A', justifyContent: 'center', alignItems: 'center' },
+  sellerApprovedTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
+  sellerApprovedSubtitle: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  activePill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#16A34A' },
+  activePillText: { fontSize: 11, fontWeight: '800', color: '#16A34A' },
+  sellerActionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#EBF5FF', paddingVertical: 12, borderRadius: 12 },
+  sellerActionBtnText: { fontSize: 14, fontWeight: '700', color: '#0078D7' },
+
+  sellerStatusCard: {
+    marginHorizontal: 16, marginTop: 14, backgroundColor: '#fff', borderRadius: 16,
+    padding: 14, flexDirection: 'row', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
+    borderWidth: 1,
+  },
+  sellerStatusIconWrap: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  sellerStatusTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  sellerStatusSubtitle: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
+
+  // ── Group Labels ──
+  groupLabel: { fontSize: 10, fontWeight: '800', color: '#94A3B8', letterSpacing: 2, marginHorizontal: 20, marginTop: 22, marginBottom: 6 },
+
+  // ── Actions Card ──
+  actionsCard: { marginHorizontal: 16, backgroundColor: '#fff', borderRadius: 20, shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4, borderWidth: 1, borderColor: '#F0F4F8', overflow: 'hidden' },
+  actionItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#F8FAFC' },
+  actionItemIconWrap: { width: 42, height: 42, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  actionItemContent: { flex: 1, marginHorizontal: 14 },
+  actionItemTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  actionItemSubtitle: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
+
+  // ── Section Card ──
+  sectionCard: {
+    backgroundColor: '#fff', borderRadius: 20, marginHorizontal: 16,
+    shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 14, elevation: 4,
+    borderWidth: 1, borderColor: '#F0F4F8', padding: 18,
+  },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  sectionIconBg: { width: 32, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  sectionTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0F172A', letterSpacing: -0.2 },
+  sectionEditBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EBF5FF', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  sectionEditText: { fontSize: 12, fontWeight: '700', color: '#0078D7' },
+
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, gap: 12, borderBottomWidth: 1, borderBottomColor: '#F8FAFC' },
+  detailIconWrap: { width: 28, height: 28, borderRadius: 9, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', marginTop: 2 },
+  detailContent: { flex: 1 },
+  detailLabel: { fontSize: 10, color: '#94A3B8', fontWeight: '600', marginBottom: 3, letterSpacing: 0.3, textTransform: 'uppercase' },
+  detailValue: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+
+  // ── Verification ──
+  verificationBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  verifyBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, borderWidth: 1.5 },
+  verifyBadgeText: { fontSize: 12, fontWeight: '700' },
+
+  legalBadgesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  legalBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  legalBadgeText: { fontSize: 12, fontWeight: '700', color: '#16A34A' },
+});

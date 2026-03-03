@@ -131,56 +131,47 @@ const GridTile = ({
 const QuickActionRow = ({
   icon,
   label,
+  subtitle,
   onPress,
   danger,
+  iconColor,
+  iconBg,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  subtitle?: string;
   onPress: () => void;
   danger?: boolean;
+  iconColor?: string;
+  iconBg?: string;
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const resolvedIconColor = danger ? '#EF4444' : (iconColor || '#0078D7');
+  const resolvedIconBg = danger ? '#FEF2F2' : (iconBg || '#EBF5FF');
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
         style={[styles.quickAction, danger && styles.quickActionDanger]}
         onPress={onPress}
         onPressIn={() =>
-          Animated.spring(scaleAnim, {
-            toValue: 0.97,
-            useNativeDriver: true,
-            speed: 20,
-          }).start()
+          Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start()
         }
         onPressOut={() =>
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            useNativeDriver: true,
-            speed: 20,
-          }).start()
+          Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 20 }).start()
         }
         activeOpacity={1}
       >
-        <View
-          style={[
-            styles.qaIconWrap,
-            { backgroundColor: danger ? "#FFF0F0" : "#EBF5FF" },
-          ]}
-        >
-          <Ionicons
-            name={icon}
-            size={18}
-            color={danger ? "#DC3545" : "#0078D7"}
-          />
+        <View style={[styles.qaAccentBar, { backgroundColor: resolvedIconColor }]} />
+        <View style={[styles.qaIconWrap, { backgroundColor: resolvedIconBg }]}>
+          <Ionicons name={icon} size={20} color={resolvedIconColor} />
         </View>
-        <Text style={[styles.quickActionText, danger && { color: "#DC3545" }]}>
-          {label}
-        </Text>
-        <Ionicons
-          name="chevron-forward"
-          size={16}
-          color={danger ? "#DC3545" : "#CBD5E1"}
-        />
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.quickActionText, danger && { color: '#EF4444' }]}>{label}</Text>
+          {subtitle ? <Text style={styles.quickActionSub}>{subtitle}</Text> : null}
+        </View>
+        <View style={styles.qaChevronWrap}>
+          <Ionicons name="chevron-forward" size={14} color={danger ? '#EF4444' : '#CBD5E1'} />
+        </View>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -189,8 +180,6 @@ const QuickActionRow = ({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const MenuScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -202,19 +191,6 @@ const MenuScreen: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 60,
-        friction: 9,
-        useNativeDriver: true,
-      }),
-    ]).start();
   }, []);
 
   useFocusEffect(
@@ -280,7 +256,7 @@ const MenuScreen: React.FC = () => {
                 await AsyncStorage.setItem("sellerStatus", "approved");
               }
             }
-          } catch {}
+          } catch { }
         }
         if (status !== "approved") {
           try {
@@ -299,7 +275,7 @@ const MenuScreen: React.FC = () => {
                 await AsyncStorage.setItem("sellerStatus", "approved");
               }
             }
-          } catch {}
+          } catch { }
         }
       }
       setSellerStatus(status);
@@ -322,7 +298,7 @@ const MenuScreen: React.FC = () => {
             setProfileImage(`${getImageUri(profileUrl)}?t=${Date.now()}`);
           }
         }
-      } catch {}
+      } catch { }
     } catch (error) {
       console.error("Error loading menu data:", error);
     } finally {
@@ -527,13 +503,7 @@ const MenuScreen: React.FC = () => {
       <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
       <Header />
 
-      <Animated.View
-        style={{
-          flex: 1,
-          opacity: fadeAnim,
-          transform: [{ scale: scaleAnim }],
-        }}
-      >
+      <View style={{ flex: 1 }}>
         <ScrollView
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
@@ -577,11 +547,16 @@ const MenuScreen: React.FC = () => {
 
           {/* Quick Actions */}
           <View style={styles.sectionContainer}>
+            <Text style={styles.sectionEyebrow}>ACCOUNT</Text>
             <Text style={styles.sectionLabel}>Quick Actions</Text>
+
             {isApproved && (
               <QuickActionRow
                 icon="storefront-outline"
                 label="View Seller Profile"
+                subtitle="See your public business page"
+                iconColor="#0078D7"
+                iconBg="#EBF5FF"
                 onPress={() => {
                   const bId = companyId || businessId;
                   if (bId) {
@@ -593,27 +568,23 @@ const MenuScreen: React.FC = () => {
                 }}
               />
             )}
+
             <QuickActionRow
-              icon="person-outline"
+              icon="person-circle-outline"
               label="Update Profile"
-              onPress={() =>
-                router.push("/pages/updateUserProfileScreen" as any)
-              }
+              subtitle="Edit name, photo & contact info"
+              iconColor="#7C3AED"
+              iconBg="#F3EEFF"
+              onPress={() => router.push("/pages/updateUserProfileScreen" as any)}
             />
+
             <QuickActionRow
-              icon="key-outline"
+              icon="lock-closed-outline"
               label="Update Password"
+              subtitle="Change your login password"
+              iconColor="#F59E0B"
+              iconBg="#FEF3C7"
               onPress={() => router.push("/pages/upadetPasswordScreen" as any)}
-            />
-            <QuickActionRow
-              icon="settings-outline"
-              label="Settings"
-              onPress={() => router.push("/pages/profileSetting" as any)}
-            />
-            <QuickActionRow
-              icon="share-social-outline"
-              label="Share App"
-              onPress={() => {}}
             />
           </View>
 
@@ -627,7 +598,7 @@ const MenuScreen: React.FC = () => {
             />
           </View>
         </ScrollView>
-      </Animated.View>
+      </View>
     </View>
   );
 };
@@ -892,39 +863,68 @@ const styles = StyleSheet.create({
   },
 
   // ── Quick Actions ─────────────────────────────────────────────────────────
+  sectionEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
   quickAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
     paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-    shadowColor: "#64748B",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    paddingHorizontal: 0,
+    marginBottom: 10,
+    shadowColor: '#1B4FBF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
-    borderColor: "#F0F4F8",
-    gap: 12,
+    borderColor: '#F0F4F8',
+    overflow: 'hidden',
   },
   quickActionDanger: {
-    borderColor: "#FFE5E5",
-    backgroundColor: "#FFFAFA",
+    borderColor: '#FECACA',
+    backgroundColor: '#FFFBFB',
+  },
+  qaAccentBar: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    marginRight: 14,
   },
   qaIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    justifyContent: "center",
-    alignItems: "center",
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
   },
   quickActionText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  quickActionSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '500',
+    marginTop: 3,
+  },
+  qaChevronWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#F7F9FC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
   },
 });
 

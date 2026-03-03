@@ -1,13 +1,23 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  ActivityIndicator, RefreshControl, StatusBar, Linking, AppState, Animated, Dimensions,
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  AppState,
+  Dimensions,
+  Linking,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput, TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
@@ -33,8 +43,6 @@ interface RFQ {
 
 const EnquiriesScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,10 +54,6 @@ const EnquiriesScreen: React.FC = () => {
 
   useEffect(() => {
     fetchRFQs();
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.spring(scaleAnim, { toValue: 1, tension: 60, friction: 9, useNativeDriver: true }),
-    ]).start();
   }, []);
 
   useFocusEffect(useCallback(() => { fetchRFQs(false); }, []));
@@ -275,8 +279,8 @@ const EnquiriesScreen: React.FC = () => {
         </View>
       </View>
 
-      <Animated.ScrollView
-        style={{ flex: 1, opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}
+      <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 110 }}
         refreshControl={
@@ -341,7 +345,7 @@ const EnquiriesScreen: React.FC = () => {
             ))}
           </View>
         )}
-      </Animated.ScrollView>
+      </ScrollView>
     </View>
   );
 };

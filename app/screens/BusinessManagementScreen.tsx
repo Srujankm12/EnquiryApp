@@ -1,20 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import { router, useFocusEffect } from 'expo-router';
+import { jwtDecode } from 'jwt-decode';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
   ActivityIndicator,
   Image,
   RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
-import Constants from 'expo-constants';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
 const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
@@ -28,13 +29,17 @@ const getImageUri = (url: string | null | undefined): string | null => {
   return `${S3_URL}${path}`;
 };
 
-interface DecodedToken {
-  user_id: string;
-  user_name: string;
-  business_id: string;
-}
+interface DecodedToken { user_id: string; user_name: string; business_id: string; }
+
+const menuItems = [
+  { id: 'business-profile', title: 'Business Profile', subtitle: 'View your public business page', icon: 'eye-outline' as any, color: '#0078D7', bgColor: '#EBF5FF', emoji: '🏢' },
+  { id: 'edit-business', title: 'Edit Business Details', subtitle: 'Name, photo, contact info, address', icon: 'create-outline' as any, color: '#F59E0B', bgColor: '#FEF3C7', emoji: '✏️' },
+  { id: 'legal-details', title: 'Legal & Compliance', subtitle: 'GST, PAN, MSME, FSSAI, Aadhaar', icon: 'document-text-outline' as any, color: '#16A34A', bgColor: '#DCFCE7', emoji: '🛡️' },
+  { id: 'social-media', title: 'Social Media URLs', subtitle: 'Website, Instagram, LinkedIn & more', icon: 'share-social-outline' as any, color: '#EC4899', bgColor: '#FCE7F3', emoji: '🌐' },
+];
 
 const BusinessManagementScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [businessId, setBusinessId] = useState<string>('');
@@ -44,33 +49,22 @@ const BusinessManagementScreen: React.FC = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
+  const [isTrusted, setIsTrusted] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  // Refresh data when screen comes back into focus (e.g. after editing)
-  useFocusEffect(
-    useCallback(() => {
-      loadData(false);
-    }, [])
-  );
+  useEffect(() => { loadData(); }, []);
+  useFocusEffect(useCallback(() => { loadData(false); }, []));
 
   const loadData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
-
       const decoded = jwtDecode<DecodedToken>(token);
       const storedCompanyId = await AsyncStorage.getItem('companyId');
       const bId = storedCompanyId || decoded.business_id;
       setBusinessId(bId);
-
       if (bId) {
-        const res = await fetch(`${API_URL}/business/get/complete/${bId}`, {
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const res = await fetch(`${API_URL}/business/get/complete/${bId}`, { headers: { 'Content-Type': 'application/json' } });
         if (res.ok) {
           const result = await res.json();
           const biz = result.details?.business_details || {};
@@ -79,319 +73,207 @@ const BusinessManagementScreen: React.FC = () => {
           setBusinessState(biz.state || '');
           setIsVerified(biz.is_business_verified || false);
           setIsApproved(biz.is_business_approved || false);
-          if (biz.profile_image) {
-            setProfileImage(`${getImageUri(biz.profile_image)}?t=${Date.now()}`);
-          } else {
-            setProfileImage(null);
-          }
+          setIsTrusted(biz.is_business_trusted || false);
+          if (biz.profile_image) setProfileImage(`${getImageUri(biz.profile_image)}?t=${Date.now()}`);
+          else setProfileImage(null);
         }
       }
-    } catch (error) {
-      console.error('Error loading business data:', error);
-    } finally {
-      if (showLoader) setLoading(false);
-      setRefreshing(false);
+    } catch (error) { console.error(error); }
+    finally { if (showLoader) setLoading(false); setRefreshing(false); }
+  };
+
+  const handleMenuPress = (id: string) => {
+    switch (id) {
+      case 'business-profile': if (businessId) router.push({ pathname: '/pages/bussinesProfile' as any, params: { business_id: businessId } }); break;
+      case 'edit-business': router.push('/pages/editBusinessDetails' as any); break;
+      case 'legal-details': router.push('/pages/editLegalDetails' as any); break;
+      case 'social-media': router.push('/pages/editSocialMedia' as any); break;
     }
   };
 
-  const menuItems = [
-    {
-      id: 'business-profile',
-      title: 'Business Profile',
-      subtitle: 'View your complete business profile',
-      icon: 'eye-outline' as keyof typeof Ionicons.glyphMap,
-      color: '#0078D7',
-      bgColor: '#E3F2FD',
-      onPress: () => {
-        if (businessId) {
-          router.push({
-            pathname: '/pages/bussinesProfile' as any,
-            params: { business_id: businessId },
-          });
-        }
-      },
-    },
-    {
-      id: 'edit-business',
-      title: 'Edit Business Details',
-      subtitle: 'Business photo, name, address, contact info',
-      icon: 'create-outline' as keyof typeof Ionicons.glyphMap,
-      color: '#FF9500',
-      bgColor: '#FFF3E0',
-      onPress: () => {
-        router.push('/pages/editBusinessDetails' as any);
-      },
-    },
-    {
-      id: 'legal-details',
-      title: 'Legal Details',
-      subtitle: 'GST, PAN, MSME, FSSAI, Aadhaar',
-      icon: 'document-text-outline' as keyof typeof Ionicons.glyphMap,
-      color: '#28A745',
-      bgColor: '#E8F5E9',
-      onPress: () => {
-        router.push('/pages/editLegalDetails' as any);
-      },
-    },
-    {
-      id: 'social-media',
-      title: 'Social Media',
-      subtitle: 'Website, Instagram, Facebook, LinkedIn & more',
-      icon: 'share-social-outline' as keyof typeof Ionicons.glyphMap,
-      color: '#E91E63',
-      bgColor: '#FCE4EC',
-      onPress: () => {
-        router.push('/pages/editSocialMedia' as any);
-      },
-    },
-  ];
-
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Business</Text>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#177DDF" />
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#177DDF" />
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Business</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); loadData(false); }}
-            colors={['#177DDF']}
-          />
-        }
-      >
-        {/* Business Profile Card with Image */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileImageContainer}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.profileImage} />
-            ) : (
-              <View style={styles.profileImagePlaceholder}>
-                <Ionicons name="business" size={36} color="#177DDF" />
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.businessNameText}>{businessName || 'Your Business'}</Text>
-
-          {(businessCity || businessState) && (
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={14} color="#888" />
-              <Text style={styles.locationText}>
-                {[businessCity, businessState].filter(Boolean).join(', ')}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.badgesRow}>
-            {isApproved && (
-              <View style={styles.approvedBadge}>
-                <Ionicons name="shield-checkmark" size={14} color="#28A745" />
-                <Text style={styles.approvedBadgeText}>Approved Seller</Text>
-              </View>
-            )}
-            {isVerified && (
-              <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={14} color="#0078D7" />
-                <Text style={styles.verifiedBadgeText}>Verified</Text>
-              </View>
-            )}
+      {/* ── Premium Header ── */}
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.orb1} /><View style={styles.orb2} /><View style={styles.orb3} />
+        <View style={styles.headerInner}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.eyebrow}>ACCOUNT</Text>
+            <Text style={styles.headerTitle}>Business Hub</Text>
           </View>
         </View>
+      </View>
 
-        {/* Menu Items */}
-        <Text style={styles.sectionLabel}>Manage Business</Text>
-        {menuItems.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.menuItem}
-            activeOpacity={0.7}
-            onPress={item.onPress}
-          >
-            <View style={[styles.menuIconContainer, { backgroundColor: item.bgColor }]}>
-              <Ionicons name={item.icon} size={22} color={item.color} />
+      {loading ? (
+        <View style={styles.loaderWrap}>
+          <ActivityIndicator size="large" color="#0078D7" />
+          <Text style={styles.loaderText}>Loading...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(false); }} colors={['#0078D7']} tintColor="#0078D7" />}
+        >
+          {/* ── Business Hero Card ── */}
+          <View style={styles.heroCard}>
+            <View style={styles.heroCardBg} />
+            <View style={styles.heroContent}>
+              <TouchableOpacity
+                onPress={() => businessId && router.push({ pathname: '/pages/bussinesProfile' as any, params: { business_id: businessId } })}
+                style={styles.avatarWrap}
+                activeOpacity={0.85}
+              >
+                {profileImage ? (
+                  <Image source={{ uri: profileImage }} style={styles.avatar} resizeMode="cover" />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Ionicons name="business" size={30} color="#0078D7" />
+                  </View>
+                )}
+                <View style={styles.cameraBtn}>
+                  <Ionicons name="eye-outline" size={10} color="#fff" />
+                </View>
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.heroName}>{businessName || 'Your Business'}</Text>
+                {(businessCity || businessState) && (
+                  <View style={styles.heroLocationRow}>
+                    <Ionicons name="location-outline" size={13} color="#64748B" />
+                    <Text style={styles.heroLocation}>{[businessCity, businessState].filter(Boolean).join(', ')}</Text>
+                  </View>
+                )}
+                {/* Status badges */}
+                <View style={styles.heroBadges}>
+                  {isApproved && (
+                    <View style={styles.badge}>
+                      <Ionicons name="shield-checkmark" size={11} color="#16A34A" />
+                      <Text style={[styles.badgeText, { color: '#16A34A' }]}>Approved</Text>
+                    </View>
+                  )}
+                  {isVerified && (
+                    <View style={[styles.badge, { backgroundColor: '#EBF5FF' }]}>
+                      <Ionicons name="checkmark-circle" size={11} color="#0078D7" />
+                      <Text style={[styles.badgeText, { color: '#0078D7' }]}>Verified</Text>
+                    </View>
+                  )}
+                  {isTrusted && (
+                    <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
+                      <Ionicons name="ribbon" size={11} color="#F59E0B" />
+                      <Text style={[styles.badgeText, { color: '#F59E0B' }]}>Trusted</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
             </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuTitle}>{item.title}</Text>
-              <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#CCC" />
-          </TouchableOpacity>
-        ))}
 
-        <View style={{ height: 40 }} />
-      </ScrollView>
+            {/* Quick shortcut pills */}
+            <View style={styles.quickPills}>
+              <TouchableOpacity style={styles.quickPill} onPress={() => router.push('/pages/addProduct' as any)}>
+                <Ionicons name="add-circle-outline" size={16} color="#0078D7" />
+                <Text style={styles.quickPillText}>Add Product</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickPill} onPress={() => router.push('/pages/myProducts' as any)}>
+                <Ionicons name="cube-outline" size={16} color="#0078D7" />
+                <Text style={styles.quickPillText}>My Products</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickPill} onPress={() => router.push('/pages/myRfqs' as any)}>
+                <Ionicons name="document-text-outline" size={16} color="#0078D7" />
+                <Text style={styles.quickPillText}>My RFQs</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* ── Section heading ── */}
+          <Text style={styles.sectionLabel}>MANAGE BUSINESS</Text>
+
+          {/* ── Menu Items ── */}
+          {menuItems.map((item, index) => (
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.menuItem, index === menuItems.length - 1 && { marginBottom: 0 }]}
+              activeOpacity={0.8}
+              onPress={() => handleMenuPress(item.id)}
+            >
+              <View style={[styles.menuIconWrap, { backgroundColor: item.bgColor }]}>
+                <Ionicons name={item.icon} size={22} color={item.color} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={styles.menuTitle}>{item.title}</Text>
+                <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
+              </View>
+              <View style={styles.menuArrow}>
+                <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: {
-    backgroundColor: '#177DDF',
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 16 },
-
-  // Profile card
-  profileCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    marginBottom: 20,
-    alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  profileImageContainer: {
-    width: 90,
-    height: 90,
-    marginBottom: 14,
-  },
-  profileImage: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: '#E0E0E0',
-    borderWidth: 3,
-    borderColor: '#FFF',
-  },
-  profileImagePlaceholder: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: '#E3F2FD',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFF',
-  },
-  businessNameText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 12,
-  },
-  locationText: {
-    fontSize: 13,
-    color: '#888',
-  },
-  badgesRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  approvedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-  },
-  approvedBadgeText: { fontSize: 11, fontWeight: '600', color: '#28A745' },
-  verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-  },
-  verifiedBadgeText: { fontSize: 11, fontWeight: '600', color: '#0078D7' },
-
-  // Section label
-  sectionLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-
-  // Menu items
-  menuItem: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-  },
-  menuIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  menuTextContainer: { flex: 1 },
-  menuTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A1A1A',
-    marginBottom: 3,
-  },
-  menuSubtitle: {
-    fontSize: 12,
-    color: '#888',
-  },
-});
-
 export default BusinessManagementScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F7F9FC' },
+
+  // ── Header ──
+  headerWrapper: {
+    backgroundColor: '#0060B8', paddingHorizontal: 20, paddingBottom: 22, overflow: 'hidden',
+    shadowColor: '#003E80', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 18,
+  },
+  orb1: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: 'rgba(255,255,255,0.06)', top: -100, right: -70 },
+  orb2: { position: 'absolute', width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(255,255,255,0.04)', bottom: 10, left: -60 },
+  orb3: { position: 'absolute', width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(100,180,255,0.08)', top: 10, right: 100 },
+  headerInner: { flexDirection: 'row', alignItems: 'center', paddingTop: 16 },
+  backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  eyebrow: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginBottom: 2 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.4 },
+
+  loaderWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loaderText: { fontSize: 13, color: '#94A3B8', fontWeight: '500' },
+
+  // ── Hero Card ──
+  heroCard: {
+    backgroundColor: '#fff', marginHorizontal: 16, marginTop: 20, borderRadius: 24, padding: 20,
+    shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 8,
+    borderWidth: 1, borderColor: '#F0F4F8', overflow: 'hidden',
+  },
+  heroCardBg: { position: 'absolute', top: 0, left: 0, right: 0, height: 6, backgroundColor: '#0060B8' },
+  heroContent: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 8, marginBottom: 18 },
+  avatarWrap: { position: 'relative' },
+  avatar: { width: 76, height: 76, borderRadius: 20, borderWidth: 3, borderColor: '#EBF5FF' },
+  avatarPlaceholder: { width: 76, height: 76, borderRadius: 20, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#DBEAFE' },
+  cameraBtn: { position: 'absolute', bottom: -4, right: -4, width: 22, height: 22, borderRadius: 11, backgroundColor: '#0078D7', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fff' },
+  heroName: { fontSize: 17, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3, marginBottom: 4 },
+  heroLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
+  heroLocation: { fontSize: 12, color: '#64748B', fontWeight: '500' },
+  heroBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  badgeText: { fontSize: 10, fontWeight: '800' },
+
+  quickPills: { flexDirection: 'row', gap: 8, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  quickPill: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: '#EBF5FF', paddingVertical: 10, borderRadius: 12 },
+  quickPillText: { fontSize: 11, fontWeight: '700', color: '#0078D7' },
+
+  sectionLabel: { fontSize: 10, fontWeight: '800', color: '#94A3B8', letterSpacing: 2, marginHorizontal: 20, marginTop: 22, marginBottom: 10 },
+
+  // ── Menu Items ──
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20,
+    marginHorizontal: 16, marginBottom: 10, padding: 16,
+    shadowColor: '#1B4FBF', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
+    borderWidth: 1, borderColor: '#F0F4F8',
+  },
+  menuIconWrap: { width: 50, height: 50, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
+  menuContent: { flex: 1 },
+  menuTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A', marginBottom: 3 },
+  menuSubtitle: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  menuArrow: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#F7F9FC', justifyContent: 'center', alignItems: 'center' },
+});

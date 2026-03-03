@@ -112,8 +112,6 @@ const CategoryCard = ({
 const CategoriesScreen = () => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.97)).current;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -124,19 +122,6 @@ const CategoriesScreen = () => {
 
   useEffect(() => {
     fetchCategories();
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 60,
-        friction: 9,
-        useNativeDriver: true,
-      }),
-    ]).start();
   }, []);
 
   const fetchCategories = async () => {
@@ -279,13 +264,7 @@ const CategoriesScreen = () => {
           )}
         </View>
       ) : (
-        <Animated.View
-          style={{
-            flex: 1,
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }],
-          }}
-        >
+        <View style={{ flex: 1 }}>
           <FlatList
             data={filteredCategories}
             numColumns={numColumns}
@@ -311,16 +290,6 @@ const CategoriesScreen = () => {
                     <Text style={styles.statValue}>{categories.length}+</Text>
                     <Text style={styles.statLabel}>Categories</Text>
                   </View>
-                  <View style={styles.statDivider} />
-                  <View style={styles.statItem}>
-                    <Text style={styles.statValue}>Live</Text>
-                    <Text style={styles.statLabel}>Updated</Text>
-                  </View>
-                  <View style={styles.statDivider} />
-                  <View style={styles.statItem}>
-                    <Text style={styles.statValue}>All</Text>
-                    <Text style={styles.statLabel}>Industries</Text>
-                  </View>
                 </View>
               )
             }
@@ -333,7 +302,7 @@ const CategoriesScreen = () => {
               />
             }
           />
-        </Animated.View>
+        </View>
       )}
     </View>
   );

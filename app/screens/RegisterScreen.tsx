@@ -1,645 +1,547 @@
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
+import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { SafeAreaView } from "react-native-safe-area-context";
-import Constants from "expo-constants";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const API_URL = Constants.expoConfig?.extra?.API_URL;
-
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const PASSWORD_REGEX = /^[A-Za-z\d@$!%*?&]{8,}$/;
 const PHONE_REGEX = /^\d{7,15}$/;
 
-interface FieldErrors {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-  password?: string;
-  confirmPassword?: string;
-  terms?: string;
+// ─── Field defined OUTSIDE RegisterScreen to prevent remount on each keystroke ───
+interface FieldProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  keyboard?: any;
+  secure?: boolean;
+  toggle?: boolean;
+  onToggle?: () => void;
+  hasError?: boolean;
+  isValid?: boolean;
+  isFocused?: boolean;
+  onFocus: () => void;
+  onBlur: () => void;
 }
 
-type FieldName = keyof FieldErrors;
+const Field = React.memo(function Field({
+  icon, placeholder, value, onChange, keyboard,
+  secure, toggle, onToggle,
+  hasError, isValid, isFocused,
+  onFocus, onBlur,
+}: FieldProps) {
+  const borderColor = hasError ? "#EF4444" : isValid ? "#10B981" : isFocused ? "#0078D7" : "#E2E8F0";
+  const bgColor = hasError ? "#FFF5F5" : isValid ? "#F0FFF4" : isFocused ? "#EBF5FF" : "#F8FAFC";
+  const iconColor = hasError ? "#EF4444" : isValid ? "#10B981" : isFocused ? "#0078D7" : "#94A3B8";
+  const iconBg = isFocused ? "#DBEAFE" : isValid ? "#DCFCE7" : "#F1F5F9";
 
-const RegisterScreen: React.FC = () => {
+  return (
+    <View style={[fs.row, { borderColor, backgroundColor: bgColor }]}>
+      <View style={[fs.iconWrap, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={16} color={iconColor} />
+      </View>
+      <TextInput
+        style={fs.input}
+        placeholder={placeholder}
+        placeholderTextColor="#CBD5E1"
+        value={value}
+        onChangeText={onChange}
+        keyboardType={keyboard}
+        secureTextEntry={secure}
+        autoCapitalize={keyboard === "email-address" || keyboard === "phone-pad" ? "none" : "words"}
+        autoCorrect={false}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        returnKeyType="next"
+        blurOnSubmit={false}
+      />
+      {toggle && onToggle && (
+        <TouchableOpacity onPress={onToggle} style={fs.eyeBtn}>
+          <Ionicons name={secure ? "eye-off-outline" : "eye-outline"} size={17} color="#94A3B8" />
+        </TouchableOpacity>
+      )}
+      {!toggle && isValid && <Ionicons name="checkmark-circle" size={18} color="#10B981" />}
+      {hasError && <Ionicons name="alert-circle" size={18} color="#EF4444" />}
+    </View>
+  );
+});
+
+const fs = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    height: 54,
+  },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: "#0F172A",
+    fontWeight: "500",
+  },
+  eyeBtn: { padding: 6 },
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+type FN = "firstName" | "lastName" | "email" | "phone" | "password" | "confirmPassword";
+interface FieldErrors {
+  firstName?: string; email?: string; phone?: string;
+  password?: string; confirmPassword?: string; terms?: string;
+}
+
+export default function RegisterScreen() {
+  const insets = useSafeAreaInsets();
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [showCPw, setShowCPw] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [validFields, setValidFields] = useState<Set<FieldName>>(new Set());
+  const [valid, setValid] = useState<Set<FN>>(new Set());
+  const [focused, setFocused] = useState<FN | null>(null);
 
-  // --- Live field validation ---
-  const markValid = (field: FieldName) => {
-    setValidFields((prev) => {
-      const next = new Set(prev);
-      next.add(field);
-      return next;
-    });
-    setErrors((prev) => ({ ...prev, [field]: undefined }));
+  const markValid = (f: FN) => {
+    setValid(p => { const n = new Set(p); n.add(f); return n; });
+    setErrors(p => ({ ...p, [f]: undefined }));
+  };
+  const markInvalid = (f: FN, msg?: string) => {
+    setValid(p => { const n = new Set(p); n.delete(f); return n; });
+    setErrors(p => ({ ...p, [f]: msg }));
   };
 
-  const markInvalid = (field: FieldName, msg?: string) => {
-    setValidFields((prev) => {
-      const next = new Set(prev);
-      next.delete(field);
-      return next;
-    });
-    if (msg) setErrors((prev) => ({ ...prev, [field]: msg }));
-    else setErrors((prev) => ({ ...prev, [field]: undefined }));
-  };
+  const isV = (f: FN) => valid.has(f);
+  const isF = (f: FN) => focused === f;
+  const hasErr = (f: string) => !!(errors as any)[f];
 
-  const onFirstNameChange = (v: string) => {
-    setFirstName(v);
-    if (v.trim().length > 0) markValid("firstName");
-    else markInvalid("firstName");
-  };
-
-  const onEmailChange = (v: string) => {
-    setEmail(v);
-    if (EMAIL_REGEX.test(v.trim())) {
-      markValid("email");
-    } else {
-      markInvalid("email", v.trim().length > 3 ? "Enter a valid email address" : undefined);
-    }
-  };
-
-  const onPhoneChange = (v: string) => {
-    setPhone(v);
-    if (PHONE_REGEX.test(v.trim())) {
-      markValid("phone");
-    } else {
-      markInvalid("phone", v.trim().length > 3 ? "Phone must be 7–15 digits, numbers only" : undefined);
-    }
-  };
-
-  const onPasswordChange = (v: string) => {
+  const onFirstName = (v: string) => { setFirstName(v); v.trim() ? markValid("firstName") : markInvalid("firstName"); };
+  const onLastName = (v: string) => setLastName(v);
+  const onEmail = (v: string) => { setEmail(v); EMAIL_REGEX.test(v.trim()) ? markValid("email") : markInvalid("email", v.trim().length > 3 ? "Enter a valid email" : undefined); };
+  const onPhone = (v: string) => { setPhone(v); PHONE_REGEX.test(v.trim()) ? markValid("phone") : markInvalid("phone", v.trim().length > 3 ? "7–15 digits only" : undefined); };
+  const onPassword = (v: string) => {
     setPassword(v);
-    if (PASSWORD_REGEX.test(v)) {
-      markValid("password");
-    } else {
-      markInvalid("password", v.length > 2 ? "Min 8 chars — letters, digits or @$!%*?&" : undefined);
-    }
-    // Recheck confirm
-    if (confirmPassword.length > 0) {
-      if (v === confirmPassword) markValid("confirmPassword");
-      else markInvalid("confirmPassword", "Passwords do not match");
-    }
+    PASSWORD_REGEX.test(v) ? markValid("password") : markInvalid("password", v.length > 2 ? "Min 8 chars" : undefined);
+    if (confirm.length > 0) { v === confirm ? markValid("confirmPassword") : markInvalid("confirmPassword", "Passwords do not match"); }
+  };
+  const onConfirm = (v: string) => {
+    setConfirm(v);
+    v.length ? (v === password ? markValid("confirmPassword") : markInvalid("confirmPassword", "Passwords do not match")) : markInvalid("confirmPassword");
   };
 
-  const onConfirmPasswordChange = (v: string) => {
-    setConfirmPassword(v);
-    if (v.length === 0) {
-      markInvalid("confirmPassword");
-      return;
-    }
-    if (v === password) markValid("confirmPassword");
-    else markInvalid("confirmPassword", "Passwords do not match");
-  };
+  const pwStrength = (() => {
+    if (!password.length) return 0;
+    let s = 0;
+    if (password.length >= 8) s++;
+    if (/[A-Z]/.test(password) && /[a-z]/.test(password)) s++;
+    if (/[0-9]/.test(password) || /[@$!%*?&]/.test(password)) s++;
+    return s;
+  })();
+  const strengthColor = ["#E2E8F0", "#EF4444", "#F59E0B", "#10B981"][pwStrength];
+  const strengthLabel = ["", "Weak", "Fair", "Strong"][pwStrength];
 
-  // Password strength: 0-3
-  const getPasswordStrength = (): number => {
-    if (password.length === 0) return 0;
-    let score = 0;
-    if (password.length >= 8) score++;
-    if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
-    if (/[0-9]/.test(password) || /[@$!%*?&]/.test(password)) score++;
-    return score;
-  };
-
-  const strengthColors = ["#E0E0E0", "#E53E3E", "#FFA500", "#28A745"];
-  const strengthLabels = ["", "Weak", "Fair", "Strong"];
-  const pwStrength = getPasswordStrength();
-
-  // --- Full validation on submit ---
-  const validate = (): boolean => {
-    const newErrors: FieldErrors = {};
-    if (!firstName.trim()) newErrors.firstName = "First name is required";
-    if (!EMAIL_REGEX.test(email.trim())) newErrors.email = "Enter a valid email address";
-    if (!PHONE_REGEX.test(phone.trim())) newErrors.phone = "Phone must be 7–15 digits, numbers only";
-    if (!PASSWORD_REGEX.test(password)) newErrors.password = "Min 8 chars — letters, digits or @$!%*?&";
-    if (!confirmPassword) newErrors.confirmPassword = "Please confirm your password";
-    else if (password !== confirmPassword) newErrors.confirmPassword = "Passwords do not match";
-    if (!agreeToTerms) newErrors.terms = "You must agree to the terms and conditions";
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const validate = () => {
+    const e: FieldErrors = {};
+    if (!firstName.trim()) e.firstName = "First name is required";
+    if (!EMAIL_REGEX.test(email.trim())) e.email = "Enter a valid email";
+    if (!PHONE_REGEX.test(phone.trim())) e.phone = "7–15 digits only";
+    if (!PASSWORD_REGEX.test(password)) e.password = "Min 8 chars";
+    if (!confirm) e.confirmPassword = "Please confirm your password";
+    else if (password !== confirm) e.confirmPassword = "Passwords do not match";
+    if (!agreeToTerms) e.terms = "Please agree to the Terms & Conditions";
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handlePickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission required", "Please allow access to your photo library.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (!result.canceled) {
-      setProfileImage(result.assets[0].uri);
-    }
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert("Permission required", "Allow access to your photo library."); return; }
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!r.canceled) setProfileImage(r.assets[0].uri);
   };
 
-  const uploadProfileImage = async (userId: string, imageUri: string) => {
-    const presignedRes = await axios.get(`${API_URL}/user/get/presigned/${userId}`);
-    const uploadUrl: string = presignedRes.data.data.url;
-    const imageResponse = await fetch(imageUri);
-    const blob = await imageResponse.blob();
-    await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": "image/jpeg" },
-      body: blob,
-    });
+  const uploadImage = async (userId: string, uri: string) => {
+    const res = await axios.get(`${API_URL}/user/get/presigned/${userId}`);
+    const blob = await (await fetch(uri)).blob();
+    await fetch(res.data.data.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob });
     await axios.put(`${API_URL}/user/update/image/${userId}`);
   };
 
   const handleRegister = async () => {
     if (!validate()) return;
-
-    const body: Record<string, string> = {
-      first_name: firstName.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      password,
-    };
+    const body: Record<string, string> = { first_name: firstName.trim(), email: email.trim(), phone: phone.trim(), password };
     if (lastName.trim()) body.last_name = lastName.trim();
-
     try {
       setLoading(true);
       const res = await axios.post(`${API_URL}/user/create`, body);
-
       const userId: string = res.data.user_id;
-
-      if (profileImage && userId) {
-        try {
-          await uploadProfileImage(userId, profileImage);
-        } catch (imgErr) {
-          console.warn("Profile image upload failed:", imgErr);
-        }
-      }
-
-      Alert.alert(
-        "Success",
-        res.data.message || "Account created successfully!",
-        [{ text: "Login", onPress: () => router.replace("/pages/loginMail") }]
-      );
+      if (profileImage && userId) { try { await uploadImage(userId, profileImage); } catch { } }
+      Alert.alert("Account Created! 🎉", "Welcome to Agro Mart. Please sign in.", [
+        { text: "Sign In", onPress: () => router.replace("/pages/loginMail") }
+      ]);
     } catch (error: any) {
-      if (error.code === "ERR_NETWORK" || error.message === "Network Error") {
-        Alert.alert("Cannot Reach Server", `Check WiFi and server.\n\nURL: ${API_URL}`);
-        return;
-      }
-      const serverMessage: string = error.response?.data?.error ?? "";
-      const statusCode: number = error.response?.status ?? 0;
-
-      if (serverMessage.toLowerCase().includes("email")) {
-        setErrors((prev) => ({ ...prev, email: "This email is already registered" }));
-      } else if (serverMessage.toLowerCase().includes("phone")) {
-        setErrors((prev) => ({ ...prev, phone: "This phone number is already in use" }));
-      } else if (statusCode === 409) {
-        Alert.alert("Already Registered", "An account with these details already exists.");
-      } else if (statusCode === 500) {
-        Alert.alert("Server Error", "Server error. Please try again later.");
-      } else {
-        Alert.alert("Registration Failed", serverMessage || `Error ${statusCode || "unknown"}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fieldBorderColor = (field: FieldName) => {
-    if (errors[field]) return "#E53E3E";
-    if (validFields.has(field)) return "#28A745";
-    return "transparent";
-  };
-
-  const fieldBgColor = (field: FieldName) => {
-    if (errors[field]) return "#FFF5F5";
-    if (validFields.has(field)) return "#F0FFF4";
-    return "#F5F5F5";
-  };
-
-  const fieldIconColor = (field: FieldName, defaultColor = "#999") => {
-    if (errors[field]) return "#E53E3E";
-    if (validFields.has(field)) return "#28A745";
-    return defaultColor;
+      if (error.code === "ERR_NETWORK") { Alert.alert("Cannot Reach Server", `URL: ${API_URL}`); return; }
+      const msg: string = error.response?.data?.error ?? "";
+      const code: number = error.response?.status ?? 0;
+      if (msg.toLowerCase().includes("email")) setErrors(p => ({ ...p, email: "Email already registered" }));
+      else if (msg.toLowerCase().includes("phone")) setErrors(p => ({ ...p, phone: "Phone already in use" }));
+      else Alert.alert("Registration Failed", msg || `Error ${code || "unknown"}`);
+    } finally { setLoading(false); }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
+    // Root is white so there's no black gap anywhere
+    <View style={{ flex: 1, backgroundColor: "#0060B8" }}>
+      <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
+
+      {/*
+       * THE KEY FIX: The ENTIRE screen (blue header + white form) is inside
+       * KeyboardAwareScrollView. When keyboard opens the whole page scrolls up,
+       * so the header scrolls away and the focused field is always visible.
+       * No more "field hidden under header" problem.
+       */}
       <KeyboardAwareScrollView
-        contentContainerStyle={styles.scrollContainer}
+        style={{ flex: 1, backgroundColor: "#0060B8" }}
+        contentContainerStyle={{ flexGrow: 1, backgroundColor: "#0060B8" }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         enableOnAndroid={true}
         enableAutomaticScroll={true}
-        extraScrollHeight={Platform.OS === "ios" ? 20 : 80}
-        extraHeight={Platform.OS === "ios" ? 20 : 80}
+        extraScrollHeight={Platform.OS === "ios" ? 40 : 80}
         bounces={false}
       >
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require("../../assets/images/Small Logo.png")}
-            resizeMode="contain"
-            style={styles.logo}
-          />
-        </View>
+        {/* ── Blue Hero Header ── */}
+        <View style={[s.hero, { paddingTop: insets.top + 12 }]}>
+          <View style={s.orb1} />
+          <View style={s.orb2} />
 
-        {/* Title */}
-        <View style={styles.titleContainer}>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>
-            Enter your details below to create your Agromart account
-          </Text>
-        </View>
-
-        {/* Profile Image Picker */}
-        <View style={styles.avatarSection}>
-          <TouchableOpacity style={styles.avatarWrapper} onPress={handlePickImage} activeOpacity={0.8}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person-outline" size={30} color="#999" />
-              </View>
-            )}
-            <View style={styles.avatarBadge}>
-              <Ionicons name="camera" size={12} color="#FFF" />
+          {/* Brand + Back row */}
+          <View style={s.brandRow}>
+            <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={18} color="#fff" />
+            </TouchableOpacity>
+            <View style={s.logoBox}>
+              <Image source={require("../../assets/images/icon.png")} style={s.logo} resizeMode="contain" />
             </View>
-          </TouchableOpacity>
-          <Text style={styles.avatarHint}>Profile photo (optional)</Text>
-        </View>
-
-        {/* First Name */}
-        <View style={[styles.inputContainer, { borderColor: fieldBorderColor("firstName"), backgroundColor: fieldBgColor("firstName") }]}>
-          <View style={styles.inputIconContainer}>
-            <Ionicons name="person-outline" size={20} color={fieldIconColor("firstName")} />
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="First Name *"
-            placeholderTextColor="#999"
-            value={firstName}
-            onChangeText={onFirstNameChange}
-            autoCapitalize="words"
-            autoCorrect={false}
-            returnKeyType="next"
-          />
-          {validFields.has("firstName") && (
-            <Ionicons name="checkmark-circle" size={18} color="#28A745" style={styles.statusIcon} />
-          )}
-          {errors.firstName && (
-            <Ionicons name="alert-circle" size={18} color="#E53E3E" style={styles.statusIcon} />
-          )}
-        </View>
-        {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
-
-        {/* Last Name */}
-        <View style={[styles.inputContainer, { borderColor: "transparent", backgroundColor: "#F5F5F5" }]}>
-          <View style={styles.inputIconContainer}>
-            <Ionicons name="person-outline" size={20} color="#999" />
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Last Name (optional)"
-            placeholderTextColor="#999"
-            value={lastName}
-            onChangeText={setLastName}
-            autoCapitalize="words"
-            autoCorrect={false}
-            returnKeyType="next"
-          />
-        </View>
-
-        {/* Email */}
-        <View style={[styles.inputContainer, { borderColor: fieldBorderColor("email"), backgroundColor: fieldBgColor("email") }]}>
-          <View style={styles.inputIconContainer}>
-            <Ionicons name="mail-outline" size={20} color={fieldIconColor("email")} />
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor="#999"
-            value={email}
-            onChangeText={onEmailChange}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            autoCorrect={false}
-            returnKeyType="next"
-          />
-          {validFields.has("email") && (
-            <Ionicons name="checkmark-circle" size={18} color="#28A745" style={styles.statusIcon} />
-          )}
-          {errors.email && (
-            <Ionicons name="alert-circle" size={18} color="#E53E3E" style={styles.statusIcon} />
-          )}
-        </View>
-        {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-
-        {/* Phone */}
-        <View style={[styles.inputContainer, { borderColor: fieldBorderColor("phone"), backgroundColor: fieldBgColor("phone") }]}>
-          <View style={styles.inputIconContainer}>
-            <Ionicons name="call-outline" size={20} color={fieldIconColor("phone")} />
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Phone Number"
-            placeholderTextColor="#999"
-            value={phone}
-            onChangeText={onPhoneChange}
-            keyboardType="phone-pad"
-            maxLength={15}
-            returnKeyType="next"
-          />
-          {validFields.has("phone") && (
-            <Ionicons name="checkmark-circle" size={18} color="#28A745" style={styles.statusIcon} />
-          )}
-          {errors.phone && (
-            <Ionicons name="alert-circle" size={18} color="#E53E3E" style={styles.statusIcon} />
-          )}
-        </View>
-        {errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
-
-        {/* Password */}
-        <View style={[styles.inputContainer, { borderColor: fieldBorderColor("password"), backgroundColor: fieldBgColor("password") }]}>
-          <View style={styles.inputIconContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color={fieldIconColor("password")} />
-          </View>
-          <TextInput
-            style={[styles.input, styles.passwordInput]}
-            placeholder="Password (min 8 characters)"
-            placeholderTextColor="#999"
-            value={password}
-            onChangeText={onPasswordChange}
-            secureTextEntry={!isPasswordVisible}
-            autoCapitalize="none"
-            returnKeyType="next"
-          />
-          <TouchableOpacity style={styles.eyeIcon} onPress={() => setIsPasswordVisible(!isPasswordVisible)}>
-            <Ionicons
-              name={isPasswordVisible ? "eye-outline" : "eye-off-outline"}
-              size={20}
-              color={fieldIconColor("password")}
-            />
-          </TouchableOpacity>
-        </View>
-        {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
-
-        {/* Password strength meter */}
-        {password.length > 0 && (
-          <View style={styles.strengthContainer}>
-            <View style={styles.strengthBars}>
-              {[1, 2, 3].map((level) => (
-                <View
-                  key={level}
-                  style={[
-                    styles.strengthBar,
-                    { backgroundColor: pwStrength >= level ? strengthColors[pwStrength] : "#E0E0E0" },
-                  ]}
-                />
-              ))}
+            <View style={{ flex: 1 }}>
+              <Text style={s.brandName}>South Canara Agro Mart</Text>
+              <Text style={s.brandTag}>B2B Dry Fruits Marketplace</Text>
             </View>
-            {pwStrength > 0 && (
-              <Text style={[styles.strengthLabel, { color: strengthColors[pwStrength] }]}>
-                {strengthLabels[pwStrength]}
+          </View>
+
+          <Text style={s.heroHeading}>Create Account</Text>
+          <Text style={s.heroSub}>Join thousands of dry fruit traders across India</Text>
+        </View>
+
+        {/* ── White Form Card ── */}
+        <View style={[s.formCard, { paddingBottom: insets.bottom + 36 }]}>
+          {/* Handle bar */}
+          <View style={s.handle} />
+
+          {/* Profile photo */}
+          <TouchableOpacity style={s.avatarRow} onPress={handlePickImage} activeOpacity={0.85}>
+            {profileImage
+              ? <Image source={{ uri: profileImage }} style={s.avatar} />
+              : (
+                <View style={s.avatarPlaceholder}>
+                  <Ionicons name="person-outline" size={26} color="#0078D7" />
+                </View>
+              )
+            }
+            <View style={s.cameraBadge}>
+              <Ionicons name="camera" size={11} color="#fff" />
+            </View>
+            <View>
+              <Text style={s.avatarLabel}>
+                {firstName ? `${firstName} ${lastName}`.trim() : "Add Profile Photo"}
               </Text>
-            )}
-          </View>
-        )}
+              <Text style={s.avatarSub}>Optional — tap to choose</Text>
+            </View>
+          </TouchableOpacity>
 
-        {/* Confirm Password */}
-        <View style={[styles.inputContainer, { borderColor: fieldBorderColor("confirmPassword"), backgroundColor: fieldBgColor("confirmPassword") }]}>
-          <View style={styles.inputIconContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color={fieldIconColor("confirmPassword")} />
-          </View>
-          <TextInput
-            style={[styles.input, styles.passwordInput]}
-            placeholder="Confirm Password"
-            placeholderTextColor="#999"
-            value={confirmPassword}
-            onChangeText={onConfirmPasswordChange}
-            secureTextEntry={!isConfirmPasswordVisible}
-            autoCapitalize="none"
-            returnKeyType="done"
+          {/* ── Personal Info ── */}
+          <Text style={s.sectionTitle}>Personal Information</Text>
+
+          <Text style={s.label}>First Name <Text style={s.req}>*</Text></Text>
+          <Field
+            icon="person-outline" placeholder="Enter first name"
+            value={firstName} onChange={onFirstName}
+            hasError={hasErr("firstName")} isValid={isV("firstName")} isFocused={isF("firstName")}
+            onFocus={() => setFocused("firstName")} onBlur={() => setFocused(null)}
           />
-          <TouchableOpacity
-            style={styles.eyeIcon}
-            onPress={() => setIsConfirmPasswordVisible(!isConfirmPasswordVisible)}
-          >
-            <Ionicons
-              name={isConfirmPasswordVisible ? "eye-outline" : "eye-off-outline"}
-              size={20}
-              color={fieldIconColor("confirmPassword")}
-            />
-          </TouchableOpacity>
-        </View>
-        {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
-        {!errors.confirmPassword && validFields.has("confirmPassword") && (
-          <Text style={styles.matchText}>Passwords match</Text>
-        )}
+          {errors.firstName && <Text style={s.err}>{errors.firstName}</Text>}
 
-        {/* Terms */}
-        <TouchableOpacity
-          style={styles.checkboxContainer}
-          onPress={() => {
-            setAgreeToTerms(!agreeToTerms);
-            setErrors((prev) => ({ ...prev, terms: undefined }));
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.checkbox, agreeToTerms && styles.checkboxChecked, !!errors.terms && styles.checkboxErrorBorder]}>
-            {agreeToTerms && <Ionicons name="checkmark" size={14} color="#FFF" />}
-          </View>
-          <Text style={styles.checkboxLabel}>
-            I agree to all the{" "}
-            <Text style={styles.termsLink}>terms & conditions</Text>
-            {" "}mentioned while using this.
-          </Text>
-        </TouchableOpacity>
-        {errors.terms && <Text style={[styles.errorText, styles.termsError]}>{errors.terms}</Text>}
+          <Text style={s.label}>Last Name</Text>
+          <Field
+            icon="person-outline" placeholder="Enter last name (optional)"
+            value={lastName} onChange={onLastName}
+            hasError={false} isValid={false} isFocused={isF("lastName")}
+            onFocus={() => setFocused("lastName")} onBlur={() => setFocused(null)}
+          />
 
-        {/* Submit */}
-        <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-          onPress={handleRegister}
-          activeOpacity={0.8}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <Text style={styles.submitButtonText}>Create Account</Text>
+          <Text style={s.label}>Email Address <Text style={s.req}>*</Text></Text>
+          <Field
+            icon="mail-outline" placeholder="you@example.com"
+            value={email} onChange={onEmail} keyboard="email-address"
+            hasError={hasErr("email")} isValid={isV("email")} isFocused={isF("email")}
+            onFocus={() => setFocused("email")} onBlur={() => setFocused(null)}
+          />
+          {errors.email && <Text style={s.err}>{errors.email}</Text>}
+
+          <Text style={s.label}>Phone Number <Text style={s.req}>*</Text></Text>
+          <Field
+            icon="call-outline" placeholder="Mobile number"
+            value={phone} onChange={onPhone} keyboard="phone-pad"
+            hasError={hasErr("phone")} isValid={isV("phone")} isFocused={isF("phone")}
+            onFocus={() => setFocused("phone")} onBlur={() => setFocused(null)}
+          />
+          {errors.phone && <Text style={s.err}>{errors.phone}</Text>}
+
+          {/* ── Security ── */}
+          <Text style={[s.sectionTitle, { marginTop: 28 }]}>Security</Text>
+
+          <Text style={s.label}>Password <Text style={s.req}>*</Text></Text>
+          <Field
+            icon="lock-closed-outline" placeholder="Minimum 8 characters"
+            value={password} onChange={onPassword}
+            secure={!showPw} toggle onToggle={() => setShowPw(p => !p)}
+            hasError={hasErr("password")} isValid={isV("password")} isFocused={isF("password")}
+            onFocus={() => setFocused("password")} onBlur={() => setFocused(null)}
+          />
+          {errors.password && <Text style={s.err}>{errors.password}</Text>}
+
+          {/* Strength bars */}
+          {password.length > 0 && (
+            <View style={s.strengthRow}>
+              {[1, 2, 3].map(l => (
+                <View key={l} style={[s.strengthBar, { backgroundColor: pwStrength >= l ? strengthColor : "#E2E8F0" }]} />
+              ))}
+              {pwStrength > 0 && (
+                <Text style={[s.strengthLbl, { color: strengthColor }]}>{strengthLabel}</Text>
+              )}
+            </View>
           )}
-        </TouchableOpacity>
 
-        {/* Login Link */}
-        <View style={styles.loginContainer}>
-          <Text style={styles.loginText}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => router.replace("/pages/loginMail")}>
-            <Text style={styles.loginLink}>Sign In</Text>
+          <Text style={s.label}>Confirm Password <Text style={s.req}>*</Text></Text>
+          <Field
+            icon="lock-closed-outline" placeholder="Re-enter your password"
+            value={confirm} onChange={onConfirm}
+            secure={!showCPw} toggle onToggle={() => setShowCPw(p => !p)}
+            hasError={hasErr("confirmPassword")} isValid={isV("confirmPassword")} isFocused={isF("confirmPassword")}
+            onFocus={() => setFocused("confirmPassword")} onBlur={() => setFocused(null)}
+          />
+          {errors.confirmPassword && <Text style={s.err}>{errors.confirmPassword}</Text>}
+          {!errors.confirmPassword && isV("confirmPassword") && (
+            <Text style={s.matchText}>✓ Passwords match</Text>
+          )}
+
+          {/* Terms */}
+          <TouchableOpacity
+            style={s.checkRow}
+            onPress={() => { setAgreeToTerms(p => !p); setErrors(p => ({ ...p, terms: undefined })); }}
+            activeOpacity={0.8}
+          >
+            <View style={[s.checkbox, agreeToTerms && s.checkboxOn]}>
+              {agreeToTerms && <Ionicons name="checkmark" size={12} color="#fff" />}
+            </View>
+            <Text style={s.checkLabel}>
+              I agree to the{" "}
+              <Text style={s.checkLink}>Terms & Conditions</Text>
+            </Text>
           </TouchableOpacity>
+          {errors.terms && <Text style={s.err}>{errors.terms}</Text>}
+
+          {/* CTA */}
+          <TouchableOpacity
+            style={[s.ctaBtn, loading && { opacity: 0.75 }]}
+            onPress={handleRegister}
+            disabled={loading}
+            activeOpacity={0.88}
+          >
+            {loading
+              ? <ActivityIndicator color="#fff" size="small" />
+              : (
+                <View style={s.ctaInner}>
+                  <Text style={s.ctaText}>Create Account</Text>
+                  <View style={s.ctaArrow}>
+                    <Ionicons name="arrow-forward" size={16} color="#0078D7" />
+                  </View>
+                </View>
+              )
+            }
+          </TouchableOpacity>
+
+          {/* Sign in */}
+          <View style={s.signinRow}>
+            <Text style={s.signinLabel}>Already a member? </Text>
+            <TouchableOpacity onPress={() => router.replace("/pages/loginMail")}>
+              <Text style={s.signinLink}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAwareScrollView>
-    </SafeAreaView>
+    </View>
   );
-};
+}
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
-  scrollContainer: {
-    flexGrow: 1,
+const s = StyleSheet.create({
+  /* Hero */
+  hero: {
+    backgroundColor: "#0060B8",
+    paddingHorizontal: 22,
+    paddingBottom: 30,
+    overflow: "hidden",
+  },
+  orb1: { position: "absolute", width: 260, height: 260, borderRadius: 130, backgroundColor: "rgba(255,255,255,0.05)", top: -80, right: -70 },
+  orb2: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.04)", bottom: -50, left: -60 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 22 },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    justifyContent: "center", alignItems: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.2)",
+  },
+  logoBox: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: "#fff",
+    justifyContent: "center", alignItems: "center",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12, shadowRadius: 6, elevation: 4,
+  },
+  logo: { width: 28, height: 28 },
+  brandName: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  brandTag: { fontSize: 10, color: "rgba(255,255,255,0.6)", fontWeight: "500", marginTop: 1 },
+  heroHeading: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: -0.5, marginBottom: 6 },
+  heroSub: { fontSize: 13, color: "rgba(255,255,255,0.65)" },
+
+  /* White Form Card */
+  formCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 60,
+    paddingTop: 12,
+    // stretch to fill remaining space
+    flexGrow: 1,
   },
-  logoContainer: { marginBottom: 32 },
-  logo: { width: 56, height: 56 },
-  titleContainer: { marginBottom: 28 },
-  title: { fontSize: 28, fontWeight: "700", color: "#000", marginBottom: 8 },
-  subtitle: { fontSize: 14, color: "#666", lineHeight: 20 },
-  avatarSection: { alignItems: "center", marginBottom: 28 },
-  avatarWrapper: { position: "relative", marginBottom: 8 },
-  avatarImage: { width: 86, height: 86, borderRadius: 43 },
-  avatarPlaceholder: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    backgroundColor: "#F5F5F5",
-    justifyContent: "center",
-    alignItems: "center",
+  handle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: "#E2E8F0",
+    alignSelf: "center",
+    marginBottom: 24,
   },
-  avatarBadge: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#0078D7",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#FFF",
-  },
-  avatarHint: { fontSize: 12, color: "#999" },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 12,
-    marginBottom: 4,
-    paddingHorizontal: 16,
-    height: 56,
-    borderWidth: 1.5,
-  },
-  inputIconContainer: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16, color: "#000" },
-  passwordInput: { paddingRight: 40 },
-  eyeIcon: { position: "absolute", right: 16, padding: 4 },
-  statusIcon: { marginLeft: 4 },
-  errorText: {
-    fontSize: 12,
-    color: "#E53E3E",
-    marginBottom: 12,
-    marginLeft: 4,
-  },
-  matchText: {
-    fontSize: 12,
-    color: "#28A745",
-    marginBottom: 12,
-    marginLeft: 4,
-  },
-  strengthContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-    marginTop: -2,
-    gap: 8,
-  },
-  strengthBars: { flexDirection: "row", gap: 6, flex: 1 },
-  strengthBar: { flex: 1, height: 4, borderRadius: 2 },
-  strengthLabel: { fontSize: 12, fontWeight: "600", minWidth: 40 },
-  termsError: { marginTop: -4, marginBottom: 16 },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 8,
-    marginTop: 8,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "#DDD",
-    marginRight: 10,
-    marginTop: 2,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  checkboxChecked: { backgroundColor: "#0078D7", borderColor: "#0078D7" },
-  checkboxErrorBorder: { borderColor: "#E53E3E" },
-  checkboxLabel: { flex: 1, fontSize: 13, color: "#999", lineHeight: 20 },
-  termsLink: { color: "#0078D7", textDecorationLine: "underline" },
-  submitButton: {
-    backgroundColor: "#0078D7",
-    borderRadius: 12,
-    height: 56,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 30,
-    marginTop: 8,
-    shadowColor: "#0078D7",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  submitButtonDisabled: {
-    backgroundColor: "#B0C4DE",
-    shadowOpacity: 0.1,
-    elevation: 0,
-  },
-  submitButtonText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-  loginContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loginText: { fontSize: 14, color: "#666" },
-  loginLink: { fontSize: 14, color: "#0078D7", fontWeight: "600" },
-});
 
-export default RegisterScreen;
+  /* Avatar */
+  avatarRow: {
+    flexDirection: "row", alignItems: "center", gap: 16,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 16, padding: 16,
+    marginBottom: 28,
+    borderWidth: 1, borderColor: "#F1F5F9",
+    position: "relative",
+  },
+  avatar: { width: 56, height: 56, borderRadius: 16, borderWidth: 2, borderColor: "#0078D7" },
+  avatarPlaceholder: {
+    width: 56, height: 56, borderRadius: 16,
+    backgroundColor: "#EBF5FF",
+    justifyContent: "center", alignItems: "center",
+    borderWidth: 1.5, borderColor: "#BFDBFE",
+  },
+  cameraBadge: {
+    position: "absolute", left: 52, top: 44,
+    width: 20, height: 20, borderRadius: 7,
+    backgroundColor: "#0078D7",
+    justifyContent: "center", alignItems: "center",
+    borderWidth: 2, borderColor: "#fff",
+  },
+  avatarLabel: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+  avatarSub: { fontSize: 12, color: "#94A3B8", marginTop: 3 },
+
+  /* Section titles */
+  sectionTitle: {
+    fontSize: 12, fontWeight: "800", color: "#0078D7",
+    textTransform: "uppercase", letterSpacing: 1,
+    marginBottom: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1, borderBottomColor: "#EBF5FF",
+  },
+
+  /* Field labels */
+  label: {
+    fontSize: 12, fontWeight: "700", color: "#374151",
+    marginBottom: 8, marginTop: 18,
+  },
+  req: { color: "#EF4444" },
+  err: { fontSize: 12, color: "#EF4444", fontWeight: "600", marginTop: 5, marginLeft: 2 },
+
+  /* Password strength */
+  strengthRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
+  strengthBar: { flex: 1, height: 4, borderRadius: 2 },
+  strengthLbl: { fontSize: 11, fontWeight: "700", minWidth: 38 },
+  matchText: { fontSize: 12, color: "#10B981", fontWeight: "700", marginTop: 6, marginLeft: 2 },
+
+  /* Terms */
+  checkRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 24, marginBottom: 8 },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 7,
+    borderWidth: 2, borderColor: "#CBD5E1",
+    justifyContent: "center", alignItems: "center",
+  },
+  checkboxOn: { backgroundColor: "#0078D7", borderColor: "#0078D7" },
+  checkLabel: { flex: 1, fontSize: 13, color: "#64748B", lineHeight: 20 },
+  checkLink: { color: "#0078D7", fontWeight: "700", textDecorationLine: "underline" },
+
+  /* CTA */
+  ctaBtn: {
+    backgroundColor: "#0078D7",
+    borderRadius: 16, height: 56,
+    justifyContent: "center", alignItems: "center",
+    marginTop: 20, marginBottom: 20,
+    shadowColor: "#0060B8",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3, shadowRadius: 16, elevation: 10,
+  },
+  ctaInner: { flexDirection: "row", alignItems: "center", gap: 14 },
+  ctaText: { fontSize: 16, fontWeight: "800", color: "#fff", letterSpacing: 0.3 },
+  ctaArrow: {
+    width: 28, height: 28, borderRadius: 8,
+    backgroundColor: "#fff",
+    justifyContent: "center", alignItems: "center",
+  },
+
+  signinRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  signinLabel: { fontSize: 14, color: "#94A3B8" },
+  signinLink: { fontSize: 14, fontWeight: "800", color: "#0078D7" },
+});
