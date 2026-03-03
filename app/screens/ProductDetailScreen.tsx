@@ -131,12 +131,33 @@ export default function ProductDetailScreen() {
         }
       }
 
-      // Similar products
+      // Similar products (exclude own products)
       if (data.category_id) {
         try {
-          const sim = await axios.get(`${API_URL}/product/get/category/${data.category_id}`, { headers: h });
-          const raw: any[] = sim.data?.products || [];
-          setSimilarProducts(raw.filter((p) => p.id !== data.id && p.is_product_active !== false).slice(0, 8));
+          const companyId = await AsyncStorage.getItem("companyId");
+          const simFetches: Promise<any>[] = [
+            axios.get(`${API_URL}/product/get/category/${data.category_id}`, { headers: h }),
+          ];
+          if (companyId) {
+            simFetches.push(axios.get(`${API_URL}/product/get/business/${companyId}`, { headers: h }).catch(() => ({ data: { products: [] } })));
+          }
+          const [simRes, ownRes] = await Promise.all(simFetches);
+          const ownIds = new Set<string>();
+          if (ownRes) {
+            const ownList = ownRes.data?.products || [];
+            (Array.isArray(ownList) ? ownList : []).forEach((op: any) => {
+              if (op.id) ownIds.add(String(op.id));
+              if (op.product_id) ownIds.add(String(op.product_id));
+            });
+          }
+          const raw: any[] = simRes.data?.products || [];
+          setSimilarProducts(raw.filter((p) => {
+            if (p.id === data.id) return false;
+            if (p.is_product_active === false) return false;
+            if (ownIds.has(String(p.id))) return false;
+            if (p.product_id && ownIds.has(String(p.product_id))) return false;
+            return true;
+          }).slice(0, 8));
         } catch { setSimilarProducts([]); }
       }
 

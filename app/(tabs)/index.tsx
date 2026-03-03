@@ -214,22 +214,30 @@ const HomeScreen = () => {
     try {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
-      const dec: any = jwtDecode(token);
-      const myUserId = String(dec.user_id || "");
-      const myBizId = String(dec.business_id || "");
-      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
-      const res = await axios.get(`${API_URL}/product/get/all`, { headers: { Authorization: `Bearer ${token}` } });
-      const raw: any[] = res.data?.products || [];
-      /* ── Exclude OWN products by user_id OR business_id ── */
+      const headers = { Authorization: `Bearer ${token}` };
+      const companyId = await AsyncStorage.getItem("companyId");
+      const fetches: Promise<any>[] = [
+        axios.get(`${API_URL}/product/get/all`, { headers }),
+      ];
+      if (companyId) {
+        fetches.push(axios.get(`${API_URL}/product/get/business/${companyId}`, { headers }).catch(() => ({ data: { products: [] } })));
+      }
+      const [allRes, ownRes] = await Promise.all(fetches);
+      const ownIds = new Set<string>();
+      if (ownRes) {
+        const ownList = ownRes.data?.products || [];
+        (Array.isArray(ownList) ? ownList : []).forEach((p: any) => {
+          if (p.id) ownIds.add(String(p.id));
+          if (p.product_id) ownIds.add(String(p.product_id));
+        });
+      }
+      const raw: any[] = allRes.data?.products || [];
       setAllProducts(
         raw
           .filter((p) => {
             if (p.is_product_active === false) return false;
-            const pUid = String(p.user_id || "");
-            const pBid = String(p.business_id || "");
-            if (myUserId && pUid === myUserId) return false;
-            if (myBizId && pBid === myBizId) return false;
-            if (storedBizId && pBid === storedBizId) return false;
+            if (ownIds.has(String(p.id))) return false;
+            if (p.product_id && ownIds.has(String(p.product_id))) return false;
             return true;
           })
           .slice(0, 20),
@@ -242,21 +250,30 @@ const HomeScreen = () => {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
       const dec: any = jwtDecode(token);
-      const myUserId = String(dec.user_id || "");
-      const myBizId = String(dec.business_id || "");
-      const storedBizId = String((await AsyncStorage.getItem("companyId")) || "");
-      const res = await axios.get(`${API_URL}/product/get/followers/${dec.user_id}`, { headers: { Authorization: `Bearer ${token}` } });
-      const raw: any[] = res.data?.products || [];
-      /* ── Exclude OWN products by user_id OR business_id ── */
+      const headers = { Authorization: `Bearer ${token}` };
+      const companyId = await AsyncStorage.getItem("companyId");
+      const fetches: Promise<any>[] = [
+        axios.get(`${API_URL}/product/get/followers/${dec.user_id}`, { headers }),
+      ];
+      if (companyId) {
+        fetches.push(axios.get(`${API_URL}/product/get/business/${companyId}`, { headers }).catch(() => ({ data: { products: [] } })));
+      }
+      const [follRes, ownRes] = await Promise.all(fetches);
+      const ownIds = new Set<string>();
+      if (ownRes) {
+        const ownList = ownRes.data?.products || [];
+        (Array.isArray(ownList) ? ownList : []).forEach((p: any) => {
+          if (p.id) ownIds.add(String(p.id));
+          if (p.product_id) ownIds.add(String(p.product_id));
+        });
+      }
+      const raw: any[] = follRes.data?.products || [];
       setFollowerProducts(
         raw
           .filter((p) => {
             if (p.is_product_active === false) return false;
-            const pUid = String(p.user_id || "");
-            const pBid = String(p.business_id || "");
-            if (myUserId && pUid === myUserId) return false;
-            if (myBizId && pBid === myBizId) return false;
-            if (storedBizId && pBid === storedBizId) return false;
+            if (ownIds.has(String(p.id))) return false;
+            if (p.product_id && ownIds.has(String(p.product_id))) return false;
             return true;
           })
           .slice(0, 20),
