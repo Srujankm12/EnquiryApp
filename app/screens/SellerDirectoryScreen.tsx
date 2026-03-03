@@ -295,7 +295,7 @@ const SellerDirectoryScreen: React.FC = () => {
           </View>
           <View style={styles.headerBadge}>
             <View style={styles.badgeDot} />
-            <Text style={styles.badgeText}>{companies.length} sellers</Text>
+            <Text style={styles.badgeText}>{filteredCompanies.length} sellers</Text>
           </View>
         </View>
         <View style={[styles.searchWrap, searchFocused && styles.searchWrapFocused]}>

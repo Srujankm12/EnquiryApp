@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Constants from "expo-constants";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -9,6 +10,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -24,6 +26,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
 const API_URL = Constants.expoConfig?.extra?.API_URL;
+const S3_URL = Constants.expoConfig?.extra?.S3_FETCH_URL;
+const CLOUDFRONT_URL = Constants.expoConfig?.extra?.CLOUDFRONT_URL;
+
+const getImageUri = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  if (CLOUDFRONT_URL) return `${CLOUDFRONT_URL}${path}`;
+  return `${S3_URL}${path}`;
+};
 
 interface Category { id: string; name: string; category_image: string | null; description: string; }
 interface SubCategory { id: string; category_id: string; name: string; category_image: string | null; description: string; }
@@ -150,6 +162,11 @@ const EditProductScreen: React.FC = () => {
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
 
+  // Image state
+  const [existingImages, setExistingImages] = useState<{ id: string; image: string; index: number }[]>([]);
+  const [newImages, setNewImages] = useState<string[]>([]); // local URIs to upload
+  const [uploadingImages, setUploadingImages] = useState(false);
+
   useEffect(() => { loadProductDetails(); fetchCategories(); }, [product_id]);
 
   const loadProductDetails = async () => {
@@ -170,10 +187,34 @@ const EditProductScreen: React.FC = () => {
         if (data.category_id && data.category_name) setSelectedCategory({ id: data.category_id, name: data.category_name, category_image: null, description: "" });
         if (data.sub_category_id && data.sub_category_name) setSelectedSubCategory({ id: data.sub_category_id, category_id: data.category_id, name: data.sub_category_name, category_image: null, description: "" });
         if (data.category_id) fetchSubCategories(data.category_id);
+        // Load existing product images
+        if (data.product_images && Array.isArray(data.product_images)) {
+          setExistingImages(data.product_images.map((img: any) => ({
+            id: img.id || "",
+            image: getImageUri(img.image) || "",
+            index: img.index || 0,
+          })));
+        }
       }
     } catch {
       Alert.alert("Error", "Unable to load product details.", [{ text: "OK", onPress: () => router.back() }]);
     } finally { setLoading(false); }
+  };
+
+  const handlePickImage = async () => {
+    const totalImages = existingImages.length + newImages.length;
+    if (totalImages >= 3) { Alert.alert("Limit Reached", "Max 3 images per product."); return; }
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert("Permission Required", "Allow photo library access."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!result.canceled && result.assets[0]?.uri) setNewImages(prev => [...prev, result.assets[0].uri]);
+  };
+
+  const handleDeleteExistingImage = (imgId: string) => {
+    Alert.alert("Remove Image", "Remove this image from the product?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => setExistingImages(prev => prev.filter(img => img.id !== imgId)) },
+    ]);
   };
 
   const fetchCategories = async () => {
@@ -234,6 +275,29 @@ const EditProductScreen: React.FC = () => {
       const res = await axios.put(`${API_URL}/product/update/${product_id}`, payload, {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
+
+      // Upload any new images via presigned URLs
+      if (newImages.length > 0) {
+        setUploadingImages(true);
+        const startIndex = existingImages.length + 1; // continue from last existing slot
+        for (let i = 0; i < newImages.length; i++) {
+          const localUri = newImages[i];
+          const imgIndex = startIndex + i;
+          if (imgIndex > 3) break; // max 3 images
+          try {
+            const presignPayload = { product_id: String(product_id), index: imgIndex, id: "", image: "", created_at: 0, updated_at: 0 };
+            const imgRes = await axios.put(`${API_URL}/product/update/image`, presignPayload,
+              { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
+            const presignedUrl = imgRes.data?.url;
+            if (presignedUrl) {
+              const blob = await (await fetch(localUri)).blob();
+              await fetch(presignedUrl, { method: "PUT", body: blob, headers: { "Content-Type": blob.type || "image/jpeg" } });
+            }
+          } catch { /* continue uploading rest */ }
+        }
+        setUploadingImages(false);
+      }
+
       Alert.alert("Updated ✓", res.data?.message || "Product updated successfully!", [{ text: "OK", onPress: () => router.back() }]);
     } catch (error: any) {
       const msg = error.response?.data?.error || error.response?.data?.message || "Failed to update product.";
@@ -347,6 +411,55 @@ const EditProductScreen: React.FC = () => {
           contentContainerStyle={{ padding: 16, paddingBottom: 48 }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* ── Images Card ── */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#EBF5FF' }]}>
+                <Ionicons name="images-outline" size={16} color="#0078D7" />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Product Images</Text>
+                <Text style={styles.cardSubtitle}>Up to 3 photos · tap to change</Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {/* Existing images */}
+              {existingImages.map((img, i) => (
+                <View key={img.id || i} style={styles.imgBox}>
+                  <Image source={{ uri: `${img.image}?t=${Date.now()}` }} style={styles.imgPreview} resizeMode="cover" />
+                  {i === 0 && <View style={styles.imgCoverBadge}><Text style={styles.imgCoverText}>Cover</Text></View>}
+                  <TouchableOpacity style={styles.imgRemoveBtn} onPress={() => handleDeleteExistingImage(img.id)}>
+                    <Ionicons name="close-circle" size={20} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {/* New local images to upload */}
+              {newImages.map((uri, i) => (
+                <View key={`new-${i}`} style={styles.imgBox}>
+                  <Image source={{ uri }} style={styles.imgPreview} resizeMode="cover" />
+                  <View style={styles.imgNewBadge}><Text style={styles.imgNewText}>New</Text></View>
+                  <TouchableOpacity style={styles.imgRemoveBtn} onPress={() => setNewImages(prev => prev.filter((_, j) => j !== i))}>
+                    <Ionicons name="close-circle" size={20} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {/* Add photo button */}
+              {existingImages.length + newImages.length < 3 && (
+                <TouchableOpacity style={styles.imgAddBox} onPress={handlePickImage} activeOpacity={0.85}>
+                  <View style={styles.imgAddIcon}><Ionicons name="camera-outline" size={22} color="#0078D7" /></View>
+                  <Text style={styles.imgAddText}>Add Photo</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {uploadingImages && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                <ActivityIndicator size="small" color="#0078D7" />
+                <Text style={{ fontSize: 12, color: '#64748B', fontWeight: '600' }}>Uploading images...</Text>
+              </View>
+            )}
+          </View>
+
           {/* ── Basic Details Card ── */}
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -562,4 +675,15 @@ const styles = StyleSheet.create({
   unitChipSelected: { backgroundColor: '#0078D7', borderColor: '#0060B8' },
   unitChipText: { fontSize: 13, fontWeight: '700', color: '#475569', textTransform: 'lowercase' },
   unitChipTextSelected: { color: '#fff' },
+  // Image styles
+  imgBox: { width: 92, height: 92, borderRadius: 16, position: 'relative' },
+  imgPreview: { width: 92, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' },
+  imgCoverBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: '#0078D7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  imgCoverText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  imgNewBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: '#16A34A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  imgNewText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  imgRemoveBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: '#fff', borderRadius: 10 },
+  imgAddBox: { width: 92, height: 92, borderRadius: 16, borderWidth: 2, borderColor: '#CBD5E1', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F7F9FC' },
+  imgAddIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#EBF5FF', justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
+  imgAddText: { fontSize: 10, fontWeight: '700', color: '#0078D7' },
 });

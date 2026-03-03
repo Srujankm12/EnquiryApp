@@ -134,7 +134,12 @@ const MyProductsScreen: React.FC = () => {
   };
 
   const getProductImageUrl = (product: Product): string | null => {
-    if (product.product_images && product.product_images.length > 0) return getImageUri(product.product_images[0].image);
+    if (product.product_images && product.product_images.length > 0) {
+      const img = product.product_images[0];
+      // Try multiple field names the API might use
+      const rawUrl = img.image || img.image_url || img.url || img.product_image || null;
+      return getImageUri(rawUrl);
+    }
     return null;
   };
 

@@ -160,7 +160,7 @@ export default function SellerApplicationStatus() {
       const decoded: any = jwtDecode(token);
       const userId = decoded.user_id;
 
-      let bId = decoded.business_id || (await AsyncStorage.getItem("businessId")) || "";
+      let bId = decoded.business_id || (await AsyncStorage.getItem("businessId")) || (await AsyncStorage.getItem("companyId")) || "";
       if (!bId) {
         try {
           const r = await fetch(`${API_URL}/business/get/user/${userId}`, { headers: { "Content-Type": "application/json" } });
@@ -170,17 +170,29 @@ export default function SellerApplicationStatus() {
       if (!bId) { setLoading(false); return; }
       setBusinessId(bId);
       await AsyncStorage.setItem("businessId", bId);
+      await AsyncStorage.setItem("companyId", bId);
 
-      // Fetch status
-      const statusVal = await AsyncStorage.getItem("sellerStatus");
-      if (statusVal) setAppStatus(statusVal.toLowerCase());
+      // 1. Normalize helper
+      const normalize = (s: string) => {
+        const lower = s.toLowerCase().trim();
+        if (lower === "applied" || lower === "under_review") return "pending";
+        if (lower === "accepted" || lower === "active") return "approved";
+        if (lower === "declined") return "rejected";
+        return lower;
+      };
 
-      // Fetch complete
+      // 2. Start with stored status
+      const stored = await AsyncStorage.getItem("sellerStatus");
+      if (stored) setAppStatus(normalize(stored));
+
+      // 3. Fetch complete business data (includes application status)
       const res = await fetch(`${API_URL}/business/get/complete/${bId}`, { headers: { "Content-Type": "application/json" } });
       if (res.ok) {
         const { details } = await res.json();
         if (details.business_application?.status) {
-          setAppStatus(details.business_application.status.toLowerCase() === "applied" ? "pending" : details.business_application.status.toLowerCase());
+          const normalizedStatus = normalize(details.business_application.status);
+          setAppStatus(normalizedStatus);
+          await AsyncStorage.setItem("sellerStatus", normalizedStatus);
         }
         if (details.business_details) {
           const bd = details.business_details;
@@ -195,6 +207,20 @@ export default function SellerApplicationStatus() {
           setSocial({ linkedin: sd.linkedin || "", instagram: sd.instagram || "", facebook: sd.facebook || "", website: sd.website || "", telegram: sd.telegram || "", youtube: sd.youtube || "", x: sd.x || "" });
         }
       }
+
+      // 4. Cross-check via /business/status/{id} to catch real-time admin approvals
+      try {
+        const statusRes = await fetch(`${API_URL}/business/status/${bId}`, { headers: { "Content-Type": "application/json" } });
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          if (statusData?.is_approved === true || statusData?.is_business_approved === true ||
+            statusData?.details?.is_approved === true || statusData?.details?.is_business_approved === true) {
+            setAppStatus("approved");
+            await AsyncStorage.setItem("sellerStatus", "approved");
+          }
+        }
+      } catch { }
+
     } catch (e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
   };

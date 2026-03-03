@@ -107,6 +107,8 @@ const HomeScreen = () => {
   const [activeBanner, setActiveBanner] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [greeting, setGreeting] = useState({ text: "", emoji: "" });
+  const [showApprovedBanner, setShowApprovedBanner] = useState(false);
+  const approvedBannerAnim = useRef(new Animated.Value(80)).current;
 
   /* subtle pulse animation for the online dot */
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -155,29 +157,80 @@ const HomeScreen = () => {
     await Promise.all([fetchAllProducts(), fetchFollowerProducts()]);
   };
 
+  const normalizeSellerStatus = (s: string | null): string | null => {
+    if (!s) return null;
+    const lower = s.toLowerCase().trim();
+    if (lower === "approved" || lower === "accepted" || lower === "active") return "approved";
+    if (lower === "applied" || lower === "under_review") return "pending";
+    if (lower === "declined") return "rejected";
+    return lower;
+  };
+
+  const showApprovedNotification = () => {
+    setShowApprovedBanner(true);
+    Animated.sequence([
+      Animated.spring(approvedBannerAnim, { toValue: 0, tension: 60, friction: 10, useNativeDriver: true }),
+      Animated.delay(4000),
+      Animated.timing(approvedBannerAnim, { toValue: 80, duration: 400, useNativeDriver: true }),
+    ]).start(() => setShowApprovedBanner(false));
+  };
+
   const checkSellerStatus = async () => {
     try {
-      const s = await AsyncStorage.getItem("sellerStatus");
-      const n = s?.toLowerCase()?.trim() || null;
-      if (n === "approved" || n === "accepted" || n === "active") { setSellerStatus("approved"); return; }
-      setSellerStatus(n);
+      const prevStatus = await AsyncStorage.getItem("sellerStatus");
+      const normalizedPrev = normalizeSellerStatus(prevStatus);
+
+      // If already known as approved, no need to re-check
+      if (normalizedPrev === "approved") { setSellerStatus("approved"); return; }
+
       const token = await AsyncStorage.getItem("token");
-      if (token) {
-        const dec: any = jwtDecode(token);
-        const bId = dec.business_id;
-        if (bId) {
-          await AsyncStorage.setItem("companyId", bId);
+      if (!token) { setSellerStatus(normalizedPrev); return; }
+
+      const dec: any = jwtDecode(token);
+      // Use business_id from token OR fall back to stored companyId
+      const storedCompanyId = await AsyncStorage.getItem("companyId");
+      const bId = dec.business_id || storedCompanyId;
+
+      if (bId) {
+        await AsyncStorage.setItem("companyId", bId);
+
+        let newStatus = normalizedPrev;
+
+        // 1. Check via /business/status/{id} endpoint
+        try {
+          const r = await fetch(`${API_URL}/business/status/${bId}`, { headers: { "Content-Type": "application/json" } });
+          if (r.ok) {
+            const d = await r.json();
+            if (d?.is_approved === true || d?.is_business_approved === true ||
+              d?.details?.is_approved === true || d?.details?.is_business_approved === true) {
+              newStatus = "approved";
+            }
+          }
+        } catch { }
+
+        // 2. If not yet approved, check via application status endpoint
+        if (newStatus !== "approved") {
           try {
-            const r = await fetch(`${API_URL}/business/status/${bId}`, { headers: { "Content-Type": "application/json" } });
-            if (r.ok) {
-              const d = await r.json();
-              if (d?.is_approved === true || d?.is_business_approved === true) {
-                await AsyncStorage.setItem("sellerStatus", "approved");
-                setSellerStatus("approved");
-              }
+            const appRes = await fetch(`${API_URL}/business/application/get/${bId}`, { headers: { "Content-Type": "application/json" } });
+            if (appRes.ok) {
+              const appData = await appRes.json();
+              const appStatus = (appData.details?.status || appData.application?.status || appData.status || "").toLowerCase().trim();
+              const normalized = normalizeSellerStatus(appStatus);
+              if (normalized) newStatus = normalized;
             }
           } catch { }
         }
+
+        if (newStatus && newStatus !== normalizedPrev) {
+          await AsyncStorage.setItem("sellerStatus", newStatus);
+          // Show in-app notification when status just became approved
+          if (newStatus === "approved" && normalizedPrev !== "approved") {
+            showApprovedNotification();
+          }
+        }
+        setSellerStatus(newStatus);
+      } else {
+        setSellerStatus(normalizedPrev);
       }
     } catch { }
   };
@@ -316,7 +369,7 @@ const HomeScreen = () => {
     return (
       <TouchableOpacity style={styles.productCard} activeOpacity={0.9} onPress={onPress}>
 
-        {/* ── IMAGE (full-width, tall) ── */}
+        {/* ── IMAGE ── */}
         <View style={styles.productImgWrap}>
           {img ? (
             <Image source={{ uri: img }} style={styles.productImg} resizeMode="cover" />
@@ -326,12 +379,12 @@ const HomeScreen = () => {
               <Text style={styles.noImgText}>No Image</Text>
             </View>
           )}
-          {/* Active badge - top left */}
+          {/* Active badge */}
           <View style={styles.activePill}>
             <View style={styles.activeDot} />
             <Text style={styles.activeText}>Active</Text>
           </View>
-          {/* Category chip - top right */}
+          {/* Category chip */}
           {item.category_name && (
             <View style={styles.categoryPillImg}>
               <Text style={styles.categoryPillImgText} numberOfLines={1}>{item.category_name}</Text>
@@ -341,11 +394,8 @@ const HomeScreen = () => {
 
         {/* ── CONTENT BODY ── */}
         <View style={styles.productBody}>
-
-          {/* Product name - large + bold */}
           <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
 
-          {/* Seller row */}
           {item.business_name && (
             <View style={styles.bizRow}>
               <Ionicons name="storefront-outline" size={11} color="#0078D7" />
@@ -360,10 +410,7 @@ const HomeScreen = () => {
             </View>
           )}
 
-          {/* Description */}
-          {desc ? (
-            <Text style={styles.productDesc} numberOfLines={3}>{desc}</Text>
-          ) : null}
+          {desc ? <Text style={styles.productDesc} numberOfLines={2}>{desc}</Text> : null}
 
           <View style={styles.separator} />
 
@@ -373,16 +420,13 @@ const HomeScreen = () => {
               <Text style={styles.priceLabel}>BEST PRICE</Text>
               <View style={styles.priceValueRow}>
                 <Text style={styles.priceCurrency}>₹</Text>
-                <Text style={styles.priceValue}>
-                  {Number(item.price).toLocaleString('en-IN')}
-                </Text>
+                <Text style={styles.priceValue}>{Number(item.price).toLocaleString('en-IN')}</Text>
                 {item.unit ? <Text style={styles.priceUnit}>/{item.unit}</Text> : null}
               </View>
               {item.moq ? <Text style={styles.moqText}>MOQ: {item.moq}</Text> : null}
             </View>
             <TouchableOpacity style={styles.enquireBtn} onPress={onPress} activeOpacity={0.82}>
-              <Text style={styles.enquireBtnText}>Enquire Now</Text>
-              <Ionicons name="arrow-forward" size={12} color="#fff" />
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -405,6 +449,22 @@ const HomeScreen = () => {
           />
         )}
 
+      {/* ── Business Approved Notification Banner ── */}
+      {showApprovedBanner && (
+        <Animated.View style={[styles.approvedBanner, { transform: [{ translateY: approvedBannerAnim }] }]}>
+          <View style={styles.approvedBannerIcon}>
+            <Ionicons name="shield-checkmark" size={20} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.approvedBannerTitle}>Business Approved! 🎉</Text>
+            <Text style={styles.approvedBannerSub}>Your seller account is now active</Text>
+          </View>
+          <TouchableOpacity onPress={() => setShowApprovedBanner(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={16} color="#fff" />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
       {/* ══════════════ ULTRA PREMIUM HEADER ══════════════ */}
       <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
         {/* Decorative blobs */}
@@ -419,9 +479,17 @@ const HomeScreen = () => {
             {/* Avatar */}
             <View style={styles.avatarWrapper}>
               <View style={styles.avatarRing}>
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
-                </View>
+                {userDetails?.profile_image ? (
+                  <Image
+                    source={{ uri: `${getImageUri(userDetails.profile_image)}?t=${Date.now()}` }}
+                    style={styles.avatarCircle}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.avatarCircle}>
+                    <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+                  </View>
+                )}
               </View>
               <Animated.View style={[styles.avatarOnlineDot, { transform: [{ scale: pulseAnim }] }]} />
             </View>
@@ -440,13 +508,7 @@ const HomeScreen = () => {
             </View>
           </View>
 
-          {/* Right icons */}
-          <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.75}>
-              <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
-              <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>3</Text></View>
-            </TouchableOpacity>
-          </View>
+
         </View>
 
         {/* Search Bar */}
@@ -825,6 +887,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.5)",
+    overflow: "hidden",
   },
   avatarText: { color: "#FFFFFF", fontWeight: "900", fontSize: 21, letterSpacing: 0.5 },
   avatarOnlineDot: {
@@ -1074,21 +1137,21 @@ const styles = StyleSheet.create({
 
   /* ── PRODUCT CARD ── */
   productCard: {
-    width: 230,
+    width: 200,
     backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    marginRight: 14,
+    borderRadius: 20,
+    marginRight: 12,
     overflow: "hidden",
     shadowColor: "#4A6FA5",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
-    elevation: 7,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.09,
+    shadowRadius: 14,
+    elevation: 5,
     borderWidth: 1,
     borderColor: "#EEF2F8",
   },
   // ── Product card image ──
-  productImgWrap: { position: 'relative', width: '100%', height: 200, backgroundColor: '#EEF3F9' },
+  productImgWrap: { position: 'relative', width: '100%', height: 140, backgroundColor: '#EEF3F9' },
   productImg: { width: '100%', height: '100%' },
   productImgPlaceholder: {
     width: '100%', height: '100%', backgroundColor: '#EEF3F9',
@@ -1123,41 +1186,40 @@ const styles = StyleSheet.create({
     maxWidth: 90,
   },
   categoryPillImgText: { fontSize: 9, color: "#fff", fontWeight: "700" },
-  productBody: { padding: 14 },
+  productBody: { padding: 12 },
   productName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '800',
     color: '#0F172A',
-    lineHeight: 22,
+    lineHeight: 20,
     letterSpacing: -0.3,
-    marginBottom: 6,
+    marginBottom: 5,
   },
-  bizRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
-  bizName: { fontSize: 12, color: '#0078D7', fontWeight: '600', flex: 1 },
+  bizRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
+  bizName: { fontSize: 11, color: '#0078D7', fontWeight: '600', flex: 1 },
   bizDot: { fontSize: 10, color: '#CBD5E1', fontWeight: '700' },
-  bizCity: { fontSize: 11, color: '#94A3B8', fontWeight: '500' },
-  productDesc: { fontSize: 13, color: '#475569', lineHeight: 19, marginBottom: 10 },
-  separator: { height: 1, backgroundColor: '#F0F4F8', marginBottom: 10, marginTop: 2 },
+  bizCity: { fontSize: 10, color: '#94A3B8', fontWeight: '500' },
+  productDesc: { fontSize: 12, color: '#475569', lineHeight: 17, marginBottom: 8 },
+  separator: { height: 1, backgroundColor: '#F0F4F8', marginBottom: 8, marginTop: 2 },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   priceLabel: { fontSize: 9, color: '#A0AEC0', fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 },
   priceValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
-  priceCurrency: { fontSize: 14, fontWeight: '700', color: '#0060B0' },
-  priceValue: { fontSize: 22, fontWeight: '900', color: '#0060B0', letterSpacing: -0.5 },
-  priceUnit: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
-  moqText: { fontSize: 10, color: '#94A3B8', fontWeight: '600', marginTop: 2 },
+  priceCurrency: { fontSize: 13, fontWeight: '700', color: '#0060B0' },
+  priceValue: { fontSize: 18, fontWeight: '900', color: '#0060B0', letterSpacing: -0.5 },
+  priceUnit: { fontSize: 11, color: '#94A3B8', fontWeight: '500' },
+  moqText: { fontSize: 9, color: '#94A3B8', fontWeight: '600', marginTop: 2 },
   enquireBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     backgroundColor: '#0078D7',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: '#0060B0',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.32,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
   },
   enquireBtnText: { fontSize: 12, fontWeight: '800', color: '#fff' },
 
@@ -1210,6 +1272,37 @@ const styles = StyleSheet.create({
   },
   emptyWrapTitle: { fontSize: 16, fontWeight: "700", color: "#94A3B8", marginTop: 4 },
   emptyWrapSub: { fontSize: 12, color: "#CBD5E1", marginTop: 4 },
+
+  /* ── Approved Banner ── */
+  approvedBanner: {
+    position: "absolute",
+    bottom: 100,
+    left: 16,
+    right: 16,
+    zIndex: 9999,
+    backgroundColor: "#059669",
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+    shadowColor: "#059669",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  approvedBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  approvedBannerTitle: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  approvedBannerSub: { fontSize: 11, color: "rgba(255,255,255,0.85)", marginTop: 2 },
 });
 
 export default HomeScreen;
