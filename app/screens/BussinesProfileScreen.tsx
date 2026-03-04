@@ -220,8 +220,6 @@ const BusinessProfileScreen: React.FC = () => {
   const fetchProducts = async (businessId: string, headers: any, ownProfile: boolean = false) => {
     try {
       setProductsLoading(true);
-      // Own profile: fetch ALL products (incl. inactive) via /business endpoint
-      // Other profiles: fetch only active products via /company endpoint
       let productsList: any[] = [];
       try {
         if (ownProfile) {
@@ -235,29 +233,19 @@ const BusinessProfileScreen: React.FC = () => {
           productsList = productsList.filter((p: any) => p.is_product_active !== false);
         }
       } catch {
-        // Fallback: try the business endpoint
         try {
           const res = await axios.get(`${API_URL}/product/get/business/${businessId}`, { headers });
           const data = res.data?.products || res.data?.data?.products || [];
           productsList = Array.isArray(data) ? data : [];
         } catch { productsList = []; }
       }
-
-      // Fetch images for first 20 products – normalize id field
-      const productsWithImages = await Promise.all(
-        productsList.slice(0, 20).map(async (product: any) => {
-          const pid = product.product_id || product.id || "";
-          try {
-            if (!pid) return { ...product, images: [] };
-            const imgRes = await axios.get(`${API_URL}/product/image/get/${pid}`, { headers });
-            return { ...product, product_id: pid, images: imgRes.data.data?.images || imgRes.data?.images || [] };
-          } catch { return { ...product, product_id: pid, images: [] }; }
-        }),
+      // Normalise id — images already embedded in product_images, no extra API calls needed
+      setProducts(
+        productsList.map((p: any) => ({
+          ...p,
+          product_id: p.product_id || p.id || "",
+        }))
       );
-      const remaining = productsList.slice(20).map((p: any) => ({
-        ...p, product_id: p.product_id || p.id || "", images: [],
-      }));
-      setProducts([...productsWithImages, ...remaining]);
     } catch { setProducts([]); }
     finally { setProductsLoading(false); }
   };
@@ -317,37 +305,69 @@ const BusinessProfileScreen: React.FC = () => {
       } catch (err) { reject(err); }
     });
 
-  const handleProfileImageUpload = async () => {
+  // ── Pick image from a source (camera or gallery) and upload ──
+  const pickAndUpload = async (useCamera: boolean) => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) { Alert.alert("Permission required", "Please allow photo library access."); return; }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-      if (result.canceled || !result.assets?.[0]) return;
-      const imageAsset = result.assets[0];
-      const token = await AsyncStorage.getItem("token");
-      if (!token) { Alert.alert("Error", "Authentication token not found."); return; }
+      let pickerResult;
+      if (useCamera) {
+        const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!camPerm.granted) { Alert.alert('Permission required', 'Please allow camera access.'); return; }
+        pickerResult = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+      } else {
+        const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!libPerm.granted) { Alert.alert('Permission required', 'Please allow photo library access.'); return; }
+        pickerResult = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+      }
+      if (pickerResult.canceled || !pickerResult.assets?.[0]) return;
+      const imageAsset = pickerResult.assets[0];
+      const token = await AsyncStorage.getItem('token');
+      if (!token) { Alert.alert('Error', 'Authentication token not found.'); return; }
       const businessId = resolvedBusinessIdRef.current;
-      if (!businessId) { Alert.alert("Error", "Business ID not found."); return; }
+      if (!businessId) { Alert.alert('Error', 'Business ID not found.'); return; }
       setImageUploading(true);
-      let presignedUrl = "";
+
+      // Step 1: get presigned URL
+      let presignedUrl = '';
       try {
-        const presignRes = await axios.get(`${API_URL}/business/get/presigned/${businessId}`, { headers: { Authorization: `Bearer ${token}` } });
-        presignedUrl = presignRes.data?.url || presignRes.data?.data?.url || "";
-        if (!presignedUrl) { Alert.alert("Error", "Failed to get upload URL."); return; }
-      } catch (e: any) { Alert.alert("Error", `Upload URL failed`); return; }
+        const presignRes = await fetch(
+          `${API_URL}/business/update/image/${businessId}`,
+          { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }
+        );
+        const presignData = await presignRes.json();
+        presignedUrl = presignData?.url || '';
+        if (!presignedUrl) { Alert.alert('Error', 'Failed to get upload URL.'); return; }
+      } catch { Alert.alert('Error', 'Upload URL request failed.'); return; }
+
+      // Step 2: upload to S3
       try {
-        await uploadToS3WithXHR(presignedUrl, imageAsset.uri, imageAsset.mimeType ?? "image/jpeg");
-      } catch { Alert.alert("Error", "Failed to upload image."); return; }
-      const imagePath = `profile/business/${businessId}.png`;
-      try {
-        await axios.put(`${API_URL}/business/update/image/${businessId}`, { profile_image: imagePath }, { headers: { Authorization: `Bearer ${token}` } });
-      } catch { }
+        const imageResponse = await fetch(imageAsset.uri);
+        const blob = await imageResponse.blob();
+        await fetch(presignedUrl, {
+          method: 'PUT',
+          body: blob,
+          headers: { 'Content-Type': blob.type || 'image/jpeg' },
+        });
+      } catch { Alert.alert('Error', 'Failed to upload image.'); return; }
+
+      // Step 3: refresh profile & bust cache
       const cacheBust = `?t=${Date.now()}`;
-      const newImageUri = CLOUDFRONT_URL ? `${CLOUDFRONT_URL}/${imagePath}${cacheBust}` : `${S3_URL}/${imagePath}${cacheBust}`;
-      setBusinessDetails((prev: any) => ({ ...prev, profile_image: newImageUri }));
-      Alert.alert("Success", "Profile image updated successfully!");
-    } catch { Alert.alert("Error", "Something went wrong."); }
+      await fetchBusinessProfile();
+      Alert.alert('Success', 'Business photo updated successfully!');
+    } catch { Alert.alert('Error', 'Something went wrong.'); }
     finally { setImageUploading(false); }
+  };
+
+  const handleProfileImageUpload = () => {
+    Alert.alert(
+      'Update Business Photo',
+      'Choose how you want to update the photo',
+      [
+        { text: '📷  Take Photo', onPress: () => pickAndUpload(true) },
+        { text: '🖼️  Choose from Gallery', onPress: () => pickAndUpload(false) },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
   };
 
   const onRefresh = async () => { setRefreshing(true); await fetchBusinessProfile(); };
@@ -358,9 +378,16 @@ const BusinessProfileScreen: React.FC = () => {
   const handleWhatsApp = () => { const phone = getBizField("phone"); if (phone) Linking.openURL(`https://wa.me/${phone.replace(/[^0-9]/g, "")}`); };
   const handleSocialMedia = (url?: string | null) => { if (url) Linking.openURL(url); };
   const getProductImageUrl = (product: any): string | null => {
-    if (product.images?.length > 0) {
-      const sorted = [...product.images].sort((a: any, b: any) => a.product_image_sequence_number - b.product_image_sequence_number);
-      return getImageUri(sorted[0].product_image_url);
+    // Check product_images array first (embedded in product data)
+    const imgs = product.product_images || product.images || [];
+    if (imgs.length > 0) {
+      const sorted = [...imgs].sort(
+        (a: any, b: any) =>
+          (a.product_image_sequence_number ?? 0) - (b.product_image_sequence_number ?? 0)
+      );
+      const img = sorted[0];
+      const raw = img.image || img.image_url || img.url || img.product_image || img.product_image_url || null;
+      return getImageUri(raw);
     }
     return null;
   };
@@ -502,6 +529,7 @@ const BusinessProfileScreen: React.FC = () => {
                 )}
               </View>
             </TouchableOpacity>
+
 
             <View style={styles.bizInfo}>
               <Text style={styles.bizName}>{businessName}</Text>
@@ -961,4 +989,19 @@ const styles = StyleSheet.create({
   socialPillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   socialPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
   socialPillText: { fontSize: 12, fontWeight: "700" },
+
+  // Photo upload card (own profile)
+  photoUploadCard: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: "#EBF5FF", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12,
+    marginTop: 12, borderWidth: 1, borderColor: "#DBEAFE",
+  },
+  photoUploadLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  photoUploadIconWrap: {
+    width: 38, height: 38, borderRadius: 11, backgroundColor: "#fff",
+    justifyContent: "center", alignItems: "center",
+    shadowColor: "#0078D7", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 3,
+  },
+  photoUploadTitle: { fontSize: 13, fontWeight: "700", color: "#0F172A" },
+  photoUploadSub: { fontSize: 11, color: "#64748B", marginTop: 1 },
 });

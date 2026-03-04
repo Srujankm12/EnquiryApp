@@ -71,8 +71,18 @@ const SellerTab: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sellerStatus, setSellerStatus] = useState<string | null>(null);
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);       // 'All' products
+  const [displayProducts, setDisplayProducts] = useState<Product[]>([]); // currently shown
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [subCategories, setSubCategories] = useState<any[]>([]);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
+  const [subCatLoading, setSubCatLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [categoryLoading, setCategoryLoading] = useState(false);
+
+  // Cache: categoryId/subCategoryId → already-filtered product list
+  const catCacheRef = useRef<Record<string, Product[]>>({});
+  const ownIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     loadData();
@@ -94,44 +104,45 @@ const SellerTab: React.FC = () => {
 
       const status = await AsyncStorage.getItem("sellerStatus");
       const norm = status?.toLowerCase()?.trim() || null;
-      const approved =
-        norm === "approved" || norm === "accepted" || norm === "active";
-      setSellerStatus(approved ? "approved" : norm);
+      setSellerStatus(norm === "approved" || norm === "accepted" || norm === "active" ? "approved" : norm);
 
       const companyId = await AsyncStorage.getItem("companyId");
 
-      const fetches: Promise<any>[] = [
+      const [catRes, allProdRes, ownRes] = await Promise.allSettled([
         axios.get(`${API_URL}/category/get/all`, { headers }),
         axios.get(`${API_URL}/product/get/all`, { headers }),
-      ];
-      if (companyId) {
-        fetches.push(axios.get(`${API_URL}/product/get/business/${companyId}`, { headers }).catch(() => ({ data: { products: [] } })));
-      }
-      const results = await Promise.allSettled(fetches);
+        companyId
+          ? axios.get(`${API_URL}/product/get/business/${companyId}`, { headers })
+          : Promise.resolve({ data: { products: [] } }),
+      ]);
 
-      if (results[0].status === "fulfilled")
-        setCategories(results[0].value.data?.categories || []);
+      if (catRes.status === "fulfilled")
+        setCategories(catRes.value.data?.categories || []);
 
+      // Build own-product id set
       const ownIds = new Set<string>();
-      if (companyId && results[2]?.status === "fulfilled") {
-        const ownList = results[2].value.data?.products || [];
+      if (ownRes.status === "fulfilled") {
+        const ownList = ownRes.value.data?.products || [];
         (Array.isArray(ownList) ? ownList : []).forEach((p: any) => {
           if (p.id) ownIds.add(String(p.id));
           if (p.product_id) ownIds.add(String(p.product_id));
         });
       }
+      ownIdsRef.current = ownIds;
+      // Reset category cache when we reload everything
+      catCacheRef.current = {};
 
-      if (results[1].status === "fulfilled") {
-        const d = results[1].value.data?.products || [];
-        const raw = Array.isArray(d) ? d : [];
-        setAllProducts(
-          raw.filter((p: any) => {
-            if (p.is_product_active === false) return false;
-            if (ownIds.has(String(p.id))) return false;
-            if (p.product_id && ownIds.has(String(p.product_id))) return false;
-            return true;
-          })
-        );
+      if (allProdRes.status === "fulfilled") {
+        const raw: any[] = Array.isArray(allProdRes.value.data?.products) ? allProdRes.value.data.products : [];
+        const filtered = raw.filter((p: any) => {
+          if (p.is_product_active === false) return false;
+          if (ownIds.has(String(p.id))) return false;
+          if (p.product_id && ownIds.has(String(p.product_id))) return false;
+          return true;
+        });
+        setAllProducts(filtered);
+        // If no category selected, show all products
+        if (!selectedCategory) setDisplayProducts(filtered);
       }
     } catch {
       setError("Unable to load data. Please try again.");
@@ -140,30 +151,147 @@ const SellerTab: React.FC = () => {
     }
   };
 
+  // ── Fetch products for a specific category ──
+  const fetchCategoryProducts = async (categoryId: string) => {
+    // Return from cache if available
+    if (catCacheRef.current[categoryId]) {
+      setDisplayProducts(catCacheRef.current[categoryId]);
+      return;
+    }
+    try {
+      setCategoryLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+      const res = await axios.get(`${API_URL}/product/get/category/${categoryId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const raw: any[] = Array.isArray(res.data?.products)
+        ? res.data.products
+        : Array.isArray(res.data?.data?.products)
+          ? res.data.data.products
+          : Array.isArray(res.data?.data)
+            ? res.data.data
+            : [];
+      const filtered = raw.filter((p: any) => {
+        if (p.is_product_active === false) return false;
+        if (ownIdsRef.current.has(String(p.id))) return false;
+        if (p.product_id && ownIdsRef.current.has(String(p.product_id))) return false;
+        return true;
+      });
+      catCacheRef.current[categoryId] = filtered;
+      setDisplayProducts(filtered);
+    } catch {
+      setDisplayProducts([]);
+    } finally {
+      setCategoryLoading(false);
+    }
+  };
+
+  // ── Handle category chip tap ──
+  const handleCategorySelect = (categoryId: string | null) => {
+    setSelectedCategory(categoryId);
+    setSelectedSubCategory(null);
+    setSubCategories([]);
+    setSearchQuery("");
+    if (!categoryId) {
+      setDisplayProducts(allProducts);
+    } else {
+      fetchCategoryProducts(categoryId);
+      fetchSubCategories(categoryId);
+    }
+  };
+
+  // ── Fetch sub-categories for a selected category ──
+  const fetchSubCategories = async (categoryId: string) => {
+    try {
+      setSubCatLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+      const res = await axios.get(`${API_URL}/category/sub/get/category/${categoryId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSubCategories(res.data?.sub_categories || []);
+    } catch {
+      setSubCategories([]);
+    } finally {
+      setSubCatLoading(false);
+    }
+  };
+
+  // ── Fetch products for a sub-category ──
+  const fetchSubCategoryProducts = async (subCategoryId: string) => {
+    const cacheKey = `sub_${subCategoryId}`;
+    if (catCacheRef.current[cacheKey]) {
+      setDisplayProducts(catCacheRef.current[cacheKey]);
+      return;
+    }
+    try {
+      setCategoryLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+      const res = await axios.get(`${API_URL}/product/get/sub/category/${subCategoryId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const raw: any[] = Array.isArray(res.data?.products)
+        ? res.data.products
+        : Array.isArray(res.data?.data?.products)
+          ? res.data.data.products
+          : Array.isArray(res.data?.data)
+            ? res.data.data
+            : [];
+      const filtered = raw.filter((p: any) => {
+        if (p.is_product_active === false) return false;
+        if (ownIdsRef.current.has(String(p.id))) return false;
+        if (p.product_id && ownIdsRef.current.has(String(p.product_id))) return false;
+        return true;
+      });
+      catCacheRef.current[cacheKey] = filtered;
+      setDisplayProducts(filtered);
+    } catch {
+      setDisplayProducts([]);
+    } finally {
+      setCategoryLoading(false);
+    }
+  };
+
+  // ── Handle sub-category chip tap ──
+  const handleSubCategorySelect = (subCategoryId: string | null) => {
+    setSelectedSubCategory(subCategoryId);
+    setSearchQuery("");
+    if (!subCategoryId) {
+      // "All" sub-cat chip → go back to category-level products
+      if (selectedCategory) fetchCategoryProducts(selectedCategory);
+    } else {
+      fetchSubCategoryProducts(subCategoryId);
+    }
+  };
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    catCacheRef.current = {}; // clear cache on pull-to-refresh
     await loadData();
+    if (selectedCategory) await fetchCategoryProducts(selectedCategory);
     setRefreshing(false);
-  }, []);
+  }, [selectedCategory]);
 
-  const getProductImageUrl = (p: Product) =>
-    p.product_images?.length ? getImageUri(p.product_images[0].image) : null;
+  const getProductImageUrl = (p: Product) => {
+    const imgs = p.product_images || [];
+    if (!imgs.length) return null;
+    const img = imgs[0];
+    const raw = img.image || img.image_url || img.url || img.product_image || img.product_image_url || null;
+    return getImageUri(raw);
+  };
 
   const isApproved = sellerStatus === "approved";
 
-  const filteredProducts = allProducts.filter((p) => {
-    const matchSearch = !searchQuery
+  // Search filter applied on top of displayProducts
+  const filteredProducts = displayProducts.filter((p) =>
+    !searchQuery
       ? true
       : p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.product_description || "")
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase());
-    const matchCat = !selectedCategory
-      ? true
-      : (p as any).category_id === selectedCategory;
-    return matchSearch && matchCat;
-  });
+      (p.product_description || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // ── Premium Product Card ──
   const PremiumCard = ({ item }: { item: Product }) => {
@@ -296,6 +424,53 @@ const SellerTab: React.FC = () => {
             </View>
           </View>
         </Animated.View>
+      </TouchableOpacity>
+    );
+  };
+
+  // ── List-mode Product Card ──
+  const ListCard = ({ item }: { item: Product }) => {
+    const img = getProductImageUrl(item);
+    const desc = (item as any).product_description || item.description;
+    return (
+      <TouchableOpacity
+        style={styles.listCard}
+        activeOpacity={0.85}
+        onPress={() => router.push({ pathname: "/pages/productDetail" as any, params: { product_id: item.id } })}
+      >
+        <View style={styles.listAccent} />
+        {img ? (
+          <Image source={{ uri: img }} style={styles.listImg} resizeMode="cover" />
+        ) : (
+          <View style={styles.listImgPlaceholder}>
+            <Ionicons name="cube-outline" size={22} color="#CBD5E1" />
+          </View>
+        )}
+        <View style={styles.listBody}>
+          <Text style={styles.listName} numberOfLines={1}>{item.name}</Text>
+          {desc ? <Text style={styles.listDesc} numberOfLines={2}>{desc}</Text> : null}
+          <View style={styles.listMeta}>
+            {item.price > 0 && (
+              <View style={styles.listChip}>
+                <Ionicons name="pricetag-outline" size={11} color="#16A34A" />
+                <Text style={[styles.listChipTxt, { color: '#16A34A' }]}>₹{item.price}/{item.unit}</Text>
+              </View>
+            )}
+            <View style={styles.listChip}>
+              <Ionicons name="cube-outline" size={11} color="#0078D7" />
+              <Text style={[styles.listChipTxt, { color: '#0078D7' }]}>{item.quantity} {item.unit}</Text>
+            </View>
+            {item.moq ? (
+              <View style={styles.listChip}>
+                <Ionicons name="layers-outline" size={11} color="#64748B" />
+                <Text style={[styles.listChipTxt, { color: '#64748B' }]}>MOQ: {item.moq}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        <View style={styles.listArrow}>
+          <Ionicons name="chevron-forward" size={16} color="#0078D7" />
+        </View>
       </TouchableOpacity>
     );
   };
@@ -494,7 +669,7 @@ const SellerTab: React.FC = () => {
                       ]}
                       activeOpacity={0.75}
                       onPress={() =>
-                        setSelectedCategory(item.id === "all" ? null : item.id)
+                        handleCategorySelect(item.id === "all" ? null : item.id)
                       }
                     >
                       <View
@@ -536,35 +711,97 @@ const SellerTab: React.FC = () => {
             </View>
           )}
 
-          {/* Products grid */}
-          {filteredProducts.length > 0 ? (
+          {/* Sub-categories row – shown when a category is selected and has sub-cats */}
+          {selectedCategory && (subCatLoading || subCategories.length > 0) && (
+            <View style={styles.subCatSection}>
+              {subCatLoading ? (
+                <ActivityIndicator size="small" color="#0078D7" style={{ marginLeft: 16 }} />
+              ) : (
+                <FlatList
+                  data={[
+                    { id: 'all_sub', name: 'All', category_image: null },
+                    ...subCategories,
+                  ]}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyExtractor={(i) => i.id}
+                  contentContainerStyle={styles.subCatRow}
+                  renderItem={({ item }) => {
+                    const isSelected =
+                      item.id === 'all_sub'
+                        ? selectedSubCategory === null
+                        : selectedSubCategory === item.id;
+                    return (
+                      <TouchableOpacity
+                        style={[styles.subCatChip, isSelected && styles.subCatChipActive]}
+                        activeOpacity={0.75}
+                        onPress={() => handleSubCategorySelect(item.id === 'all_sub' ? null : item.id)}
+                      >
+                        <Text style={[styles.subCatChipText, isSelected && styles.subCatChipTextActive]} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
+            </View>
+          )}
+
+          {/* Products section */}
+          {categoryLoading ? (
+            <View style={{ alignItems: 'center', paddingVertical: 40, gap: 10 }}>
+              <ActivityIndicator size="large" color="#0078D7" />
+              <Text style={{ fontSize: 13, color: '#94A3B8', fontWeight: '500' }}>Loading products...</Text>
+            </View>
+          ) : filteredProducts.length > 0 ? (
             <View style={styles.productsSection}>
               <View style={styles.sectionHeaderRow}>
                 <View>
                   <Text style={styles.sectionTitle}>
                     {selectedCategory
-                      ? categories.find((c) => c.id === selectedCategory)
-                        ?.name || "Category"
+                      ? categories.find((c) => c.id === selectedCategory)?.name || "Category"
                       : "All Products"}
                   </Text>
                   <Text style={styles.sectionSubtitle}>
                     {filteredProducts.length} items available
                   </Text>
                 </View>
-                {searchQuery ? (
-                  <TouchableOpacity
-                    style={styles.viewAllChip}
-                    onPress={() => setSearchQuery("")}
-                  >
-                    <Text style={styles.viewAllChipText}>Clear</Text>
-                  </TouchableOpacity>
-                ) : null}
+                <View style={styles.sectionRightRow}>
+                  {searchQuery ? (
+                    <TouchableOpacity style={styles.viewAllChip} onPress={() => setSearchQuery("")}>
+                      <Text style={styles.viewAllChipText}>Clear</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Grid / List toggle */}
+                  <View style={styles.viewToggle}>
+                    <TouchableOpacity
+                      style={[styles.viewBtn, viewMode === 'grid' && styles.viewBtnActive]}
+                      onPress={() => setViewMode('grid')}
+                    >
+                      <Ionicons name="grid-outline" size={16} color={viewMode === 'grid' ? '#0078D7' : '#94A3B8'} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.viewBtn, viewMode === 'list' && styles.viewBtnActive]}
+                      onPress={() => setViewMode('list')}
+                    >
+                      <Ionicons name="list-outline" size={16} color={viewMode === 'list' ? '#0078D7' : '#94A3B8'} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
-              <View style={styles.grid}>
-                {filteredProducts.map((product) => (
-                  <PremiumCard key={product.id} item={product} />
-                ))}
-              </View>
+
+              {viewMode === 'grid' ? (
+                <View style={styles.grid}>
+                  {filteredProducts.map((product) => (
+                    <PremiumCard key={product.id} item={product} />
+                  ))}
+                </View>
+              ) : (
+                filteredProducts.map((product) => (
+                  <ListCard key={product.id} item={product} />
+                ))
+              )}
             </View>
           ) : (
             <View style={styles.emptyState}>
@@ -1163,6 +1400,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
+  // View toggle
+  sectionRightRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  viewToggle: { flexDirection: "row", gap: 3, backgroundColor: "#F1F5F9", borderRadius: 10, padding: 3 },
+  viewBtn: { width: 30, height: 30, borderRadius: 8, justifyContent: "center", alignItems: "center" },
+  viewBtnActive: { backgroundColor: "#fff", shadowColor: "#1B4FBF", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+
+  // List-mode card
+  listCard: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    overflow: "hidden",
+    shadowColor: "#1B4FBF",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F0F4F8",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  listAccent: { width: 3, alignSelf: "stretch", backgroundColor: "#0078D7" },
+  listImg: { width: 82, height: 82, backgroundColor: "#E2E8F0" },
+  listImgPlaceholder: { width: 82, height: 82, backgroundColor: "#F1F5F9", justifyContent: "center", alignItems: "center" },
+  listBody: { flex: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  listName: { fontSize: 14, fontWeight: "700", color: "#0F172A", marginBottom: 3 },
+  listDesc: { fontSize: 12, color: "#64748B", lineHeight: 17, marginBottom: 6 },
+  listMeta: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  listChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#F7F9FC", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  listChipTxt: { fontSize: 11, fontWeight: "700" },
+  listArrow: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#EBF5FF", justifyContent: "center", alignItems: "center", marginRight: 12 },
+
+  // Sub-category chip row
+  subCatSection: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#F1F5F9", paddingVertical: 8 },
+  subCatRow: { paddingHorizontal: 16, gap: 8 },
+  subCatChip: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 14, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1.5, borderColor: "#E2E8F0",
+    backgroundColor: "#F7F9FC",
+  },
+  subCatChipActive: { backgroundColor: "#0078D7", borderColor: "#0078D7" },
+  subCatChipText: { fontSize: 12, fontWeight: "700", color: "#64748B" },
+  subCatChipTextActive: { color: "#fff" },
 });
 
 export default SellerTab;

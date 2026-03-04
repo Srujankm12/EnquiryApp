@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Dimensions,
   Image,
@@ -18,6 +18,9 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import LocationDropdown from '../../components/LocationDropdown';
+import { getCitiesForState, getPincodeForCity, STATES } from '../utils/indiaData';
 
 const { width } = Dimensions.get('window');
 const API_URL = Constants.expoConfig?.extra?.API_URL;
@@ -143,6 +146,25 @@ const EditBusinessDetailsScreen: React.FC = () => {
 
   const updateField = (key: keyof BusinessData, value: string) => setForm(prev => ({ ...prev, [key]: value }));
 
+  // Cascading dropdown helpers
+  const stateOptions = useMemo(() => STATES.map(s => ({ label: s, value: s })), []);
+  const cityOptions = useMemo(
+    () => getCitiesForState(form.state).map(c => ({ label: c.name, value: c.name })),
+    [form.state]
+  );
+  const pincodeOptions = useMemo(
+    () => getCitiesForState(form.state).map(c => ({ label: `${c.name} — ${c.pincode}`, value: c.pincode })),
+    [form.state]
+  );
+
+  const handleStateSelect = (stateName: string) => {
+    setForm(prev => ({ ...prev, state: stateName, city: '', pincode: '' }));
+  };
+  const handleCitySelect = (cityName: string) => {
+    const pincode = getPincodeForCity(form.state, cityName);
+    setForm(prev => ({ ...prev, city: cityName, pincode }));
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0060B8" />
@@ -214,10 +236,40 @@ const EditBusinessDetailsScreen: React.FC = () => {
                 </View>
                 <Text style={styles.cardTitle}>Address</Text>
               </View>
+
               <InputField icon="map-outline" label="Street Address" value={form.address} onChangeText={v => updateField('address', v)} multiline placeholder="Full address" />
-              <InputField icon="navigate-outline" label="City" value={form.city} onChangeText={v => updateField('city', v)} placeholder="City" />
-              <InputField icon="globe-outline" label="State" value={form.state} onChangeText={v => updateField('state', v)} placeholder="State" />
-              <InputField icon="pin-outline" label="Pincode" value={form.pincode} onChangeText={v => updateField('pincode', v)} keyboardType="number-pad" maxLength={6} placeholder="000000" />
+
+              {/* State Dropdown */}
+              <LocationDropdown
+                label="State"
+                placeholder="Select State"
+                value={form.state}
+                options={stateOptions}
+                onSelect={handleStateSelect}
+                variant="card"
+              />
+
+              {/* City Dropdown */}
+              <LocationDropdown
+                label="City"
+                placeholder={form.state ? "Select City" : "Select State first"}
+                value={form.city}
+                options={cityOptions}
+                onSelect={handleCitySelect}
+                disabled={!form.state}
+                variant="card"
+              />
+
+              {/* Pincode Dropdown */}
+              <LocationDropdown
+                label="Pincode"
+                placeholder={form.state ? "Select Pincode" : "Select State first"}
+                value={form.pincode}
+                options={pincodeOptions}
+                onSelect={v => updateField('pincode', v)}
+                disabled={!form.state}
+                variant="card"
+              />
             </View>
 
             {/* Save Button */}

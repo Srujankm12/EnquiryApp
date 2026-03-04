@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,6 +10,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import LocationDropdown from "../../../components/LocationDropdown";
+import { getCitiesForState, getPincodeForCity, STATES } from "../../utils/indiaData";
 
 interface Props {
   businessId: string | null;
@@ -101,6 +104,34 @@ const CompanyBasicInfoStep: React.FC<Props> = ({ businessId, userId, isEditMode,
     placeholderTextColor: "#CBD5E1",
   });
 
+  // Cascading dropdown helpers
+  const stateOptions = useMemo(() => STATES.map(st => ({ label: st, value: st })), []);
+  const cityOptions = useMemo(
+    () => getCitiesForState(formData.state).map(c => ({ label: c.name, value: c.name })),
+    [formData.state]
+  );
+  const pincodeOptions = useMemo(
+    () => getCitiesForState(formData.state).map(c => ({ label: `${c.name} — ${c.pincode}`, value: c.pincode })),
+    [formData.state]
+  );
+
+  const handleStateSelect = (stateName: string) => {
+    setFormData(p => ({ ...p, state: stateName, city: "", pincode: "" }));
+    if (errors.state) setErrors((p: any) => ({ ...p, state: "" }));
+  };
+
+  const handleCitySelect = (cityName: string) => {
+    const pincode = getPincodeForCity(formData.state, cityName);
+    setFormData(p => ({ ...p, city: cityName, pincode }));
+    if (errors.city) setErrors((p: any) => ({ ...p, city: "" }));
+    if (errors.pincode) setErrors((p: any) => ({ ...p, pincode: "" }));
+  };
+
+  const handlePincodeSelect = (pincode: string) => {
+    setFormData(p => ({ ...p, pincode }));
+    if (errors.pincode) setErrors((p: any) => ({ ...p, pincode: "" }));
+  };
+
   return (
     <View style={s.container}>
       {/* Business Info Card */}
@@ -144,22 +175,40 @@ const CompanyBasicInfoStep: React.FC<Props> = ({ businessId, userId, isEditMode,
         <TextInput {...inp("address")} placeholder="Street / Area / Locality" multiline numberOfLines={3} style={[inp("address").style, s.textarea]} textAlignVertical="top" />
         {errors.address && <Text style={s.err}>{errors.address}</Text>}
 
-        <View style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.label}>City <Text style={s.req}>*</Text></Text>
-            <TextInput {...inp("city")} placeholder="City" />
-            {errors.city && <Text style={s.err}>{errors.city}</Text>}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.label}>State <Text style={s.req}>*</Text></Text>
-            <TextInput {...inp("state")} placeholder="State" />
-            {errors.state && <Text style={s.err}>{errors.state}</Text>}
-          </View>
-        </View>
+        {/* State Dropdown */}
+        <LocationDropdown
+          label="State *"
+          placeholder="Select State"
+          value={formData.state}
+          options={stateOptions}
+          onSelect={handleStateSelect}
+          error={errors.state}
+          variant="flat"
+        />
 
-        <Text style={s.label}>Pincode <Text style={s.req}>*</Text></Text>
-        <TextInput {...inp("pincode")} placeholder="6-digit pincode" keyboardType="number-pad" maxLength={6} />
-        {errors.pincode && <Text style={s.err}>{errors.pincode}</Text>}
+        {/* City Dropdown */}
+        <LocationDropdown
+          label="City *"
+          placeholder={formData.state ? "Select City" : "Select State first"}
+          value={formData.city}
+          options={cityOptions}
+          onSelect={handleCitySelect}
+          error={errors.city}
+          disabled={!formData.state}
+          variant="flat"
+        />
+
+        {/* Pincode Dropdown */}
+        <LocationDropdown
+          label="Pincode *"
+          placeholder={formData.state ? "Select Pincode" : "Select State first"}
+          value={formData.pincode}
+          options={pincodeOptions}
+          onSelect={handlePincodeSelect}
+          error={errors.pincode}
+          disabled={!formData.state}
+          variant="flat"
+        />
       </View>
 
       {/* CTA */}
@@ -194,7 +243,6 @@ const s = StyleSheet.create({
   inputError: { borderColor: "#EF4444", backgroundColor: "#FFF5F5" },
   textarea: { height: 80, paddingTop: 12, textAlignVertical: "top" },
   err: { fontSize: 11, color: "#EF4444", fontWeight: "600", marginTop: 4 },
-  row: { flexDirection: "row", gap: 12 },
 
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, borderWidth: 1.5, borderColor: "#E2E8F0", backgroundColor: "#F8FAFC" },
